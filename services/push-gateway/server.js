@@ -19,26 +19,15 @@ const rateLimit = require('express-rate-limit');
 
 const fs = require('fs');
 const path = require('path');
+const { createCorsOptions } = require('../shared/cors');
+const { createHealthHandler } = require('../shared/health');
+const { asyncHandler } = require('../shared/async-handler');
 
 const app = express();
 const PORT = process.env.PORT || 8103;
 
-// ── CORS — explicit origin whitelist ──
-const ALLOWED_ORIGINS = [
-  'https://windypro.thewindstorm.uk',
-  'https://chat.windypro.com',
-];
-
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    // SEC-M3: Only allow localhost in non-production environments
-    if (process.env.NODE_ENV !== 'production' && /^http:\/\/localhost(:\d+)?$/.test(origin)) return callback(null, true);
-    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-    callback(new Error('CORS: origin not allowed'));
-  },
-  credentials: true,
-}));
+// ── CORS — shared origin whitelist (windypro.com, windychat.com, etc.) ──
+app.use(cors(createCorsOptions()));
 
 app.use(express.json({ limit: '1mb' }));
 
@@ -175,7 +164,7 @@ function initAPNs() {
 // NOTE: This endpoint is called by Synapse server-to-server, not by clients.
 // Auth is NOT applied here — Synapse authenticates via its own mechanism.
 
-app.post('/_matrix/push/v1/notify', async (req, res) => {
+app.post('/_matrix/push/v1/notify', asyncHandler(async (req, res) => {
   try {
     const { notification } = req.body;
 
@@ -245,7 +234,7 @@ app.post('/_matrix/push/v1/notify', async (req, res) => {
     console.error('Push notify error:', err);
     res.status(500).json({ rejected: [] });
   }
-});
+}));
 
 // ── K6.2: FCM (Android) ──
 
@@ -437,16 +426,16 @@ app.post('/api/v1/chat/push/unmute', authMiddleware, (req, res) => {
 });
 
 // ── Health check (no auth required) ──
-app.get('/health', (_req, res) => {
-  res.json({
-    service: 'windy-chat-push-gateway',
-    status: 'ok',
-    version: '1.0.0',
-    fcm: !!fcmApp,
-    apns: !!apnProvider,
-    timestamp: new Date().toISOString(),
-  });
-});
+app.get('/health', createHealthHandler({
+  service: 'windy-chat-push-gateway',
+  version: '1.0.0',
+  checks: async () => ({
+    fcm: fcmApp ? 'active' : 'stubbed',
+    apns: apnProvider ? 'active' : 'stubbed',
+    registeredTokens: pushTokens.size,
+    activeMutes: muteSettings.size,
+  }),
+}));
 
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 
