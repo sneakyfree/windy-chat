@@ -1,7 +1,7 @@
 {
   "name": "windy-chat-social",
   "version": "1.0.0",
-  "description": "Windy Chat — K9 Social features (presence, status, stories)",
+  "description": "Windy Chat — K10 Social Layer (posts, follows, notifications, moderation, translation, Eternitas badges)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

@@ -9,6 +9,7 @@
     "test:directory": "node --test tests/directory.test.js",
     "test:push-gateway": "node --test tests/push-gateway.test.js",
     "test:backup": "node --test tests/backup.test.js",
-    "install:all": "cd services/shared && npm install && cd ../onboarding && npm install && cd ../directory && npm install && cd ../push-gateway && npm install && cd ../backup && npm install"
+    "test:social": "node --test tests/social.test.js",
+    "install:all": "cd services/shared && npm install && cd ../onboarding && npm install && cd ../directory && npm install && cd ../push-gateway && npm install && cd ../backup && npm install && cd ../social && npm install"
   }
 }
