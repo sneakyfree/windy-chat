@@ -1,0 +1,152 @@
+# Windy Chat — Synapse Homeserver Configuration
+# K1: Our Own Matrix Homeserver (DNA Strand K)
+# Server: chat.windypro.com
+
+server_name: "chat.windypro.com"
+pid_file: /data/homeserver.pid
+
+# ── Listeners ──
+listeners:
+  - port: 8008
+    tls: false
+    type: http
+    x_forwarded: true
+    bind_addresses: ["0.0.0.0"]
+    resources:
+      - names: [client]    # Client API only — federation disabled
+        compress: false
+
+# ── Database (PostgreSQL) ──
+database:
+  name: psycopg2
+  txn_limit: 10000
+  args:
+    user: synapse
+    password: "${SYNAPSE_DB_PASSWORD}"
+    database: synapse
+    host: synapse-db
+    port: 5432
+    cp_min: 5
+    cp_max: 10
+
+# ── Logging ──
+log_config: "/data/chat.windypro.com.log.config"
+
+# ── Media Store ──
+media_store_path: /data/media_store
+max_upload_size: 100M
+url_preview_enabled: true
+url_preview_ip_range_blacklist:
+  - "127.0.0.0/8"
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
+  - "100.64.0.0/10"
+  - "192.0.0.0/24"
+  - "169.254.0.0/16"
+  - "::1/128"
+  - "fe80::/10"
+  - "fc00::/7"
+  - "2001:db8::/32"
+  - "ff00::/8"
+  - "fec0::/10"
+
+# ── Registration ──
+# Direct registration is DISABLED. Users register via the Windy Pro
+# account server (H1), which provisions Matrix accounts through our
+# custom auth module (windy_registration.py).
+enable_registration: false
+enable_registration_without_verification: false
+
+# ── Custom Auth Module (Windy Pro Account Integration) ──
+modules:
+  - module: windy_registration.WindyRegistrationModule
+    config:
+      windy_account_server: "http://host.docker.internal:8098"
+      registration_shared_secret: "${SYNAPSE_REGISTRATION_SECRET}"
+
+# ── Federation (DISABLED — Windy-users-only network) ──
+federation_domain_whitelist: []
+allow_public_rooms_over_federation: false
+allow_public_rooms_without_auth: false
+restrict_public_rooms_to_local_users: true
+
+# ── Signing Keys ──
+signing_key_path: "/data/chat.windypro.com.signing.key"
+
+# ── Trusted Key Servers ──
+trusted_key_servers:
+  - server_name: "matrix.org"
+
+# ── Redis (Worker Coordination) ──
+redis:
+  enabled: true
+  host: synapse-redis
+  port: 6379
+
+# ── Rate Limiting (tuned for real-time chat) ──
+rc_message:
+  per_second: 5
+  burst_count: 20
+
+rc_registration:
+  per_second: 0.5
+  burst_count: 3
+
+rc_login:
+  address:
+    per_second: 1
+    burst_count: 5
+  account:
+    per_second: 1
+    burst_count: 5
+
+rc_federation:
+  window_size: 1000
+  sleep_limit: 10
+  sleep_delay: 500
+  reject_limit: 50
+  concurrent: 3
+
+# ── Retention Policy ──
+retention:
+  enabled: true
+  default_policy:
+    min_lifetime: 1d
+    max_lifetime: 365d
+
+# ── TURN Server (Coturn for VoIP — K5) ──
+turn_uris:
+  - "turn:chat.windypro.com:3478?transport=udp"
+  - "turn:chat.windypro.com:3478?transport=tcp"
+  - "turns:chat.windypro.com:5349?transport=udp"
+  - "turns:chat.windypro.com:5349?transport=tcp"
+turn_shared_secret: "${TURN_SHARED_SECRET}"
+turn_user_lifetime: 86400000
+turn_allow_guests: false
+
+# ── Caches ──
+caches:
+  global_factor: 1.0
+  per_cache_factors:
+    get_users_in_room: 2.0
+    get_current_state_event: 2.0
+
+# ── Metrics ──
+enable_metrics: true
+report_stats: false
+
+# ── Presence ──
+presence:
+  enabled: true
+  update_period: 60000
+
+# ── Push Notifications ──
+push:
+  include_content: false  # Privacy: push bodies don't contain message text
+
+# ── Server Notices ──
+server_notices:
+  system_mxid_localpart: "windybot"
+  system_mxid_display_name: "Windy Chat"
+  room_name: "Windy Chat Notices"

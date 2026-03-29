@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  # ── Synapse Matrix Homeserver ──
+  synapse:
+    image: matrixdotorg/synapse:latest
+    container_name: windy-synapse
+    ports:
+      - "8008:8008"
+    environment:
+      - SYNAPSE_CONFIG_PATH=/data/homeserver.yaml
+    volumes:
+      - synapse_data:/data
+      - ./homeserver.yaml:/data/homeserver.yaml:ro
+      - ./windy_registration.py:/data/modules/windy_registration.py:ro
+    depends_on:
+      synapse-db:
+        condition: service_healthy
+      synapse-redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fSs", "http://localhost:8008/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ── PostgreSQL (Synapse database backend) ──
+  synapse-db:
+    image: postgres:16-alpine
+    container_name: windy-synapse-db
+    environment:
+      POSTGRES_DB: synapse
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: ${SYNAPSE_DB_PASSWORD:?Set SYNAPSE_DB_PASSWORD in .env}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - synapse_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Redis (Synapse worker coordination) ──
+  synapse-redis:
+    image: redis:7-alpine
+    container_name: windy-synapse-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - synapse_redis:/data
+    restart: unless-stopped
+
+  # ── Coturn TURN Server (NAT traversal for VoIP) ──
+  coturn:
+    image: coturn/coturn:latest
+    container_name: windy-coturn
+    ports:
+      - "3478:3478"         # STUN/TURN UDP
+      - "3478:3478/udp"
+      - "5349:5349"         # STUN/TURN TLS
+      - "5349:5349/udp"
+      - "49152-49200:49152-49200/udp"  # Relay ports
+    volumes:
+      - ./turnserver.conf:/etc/turnserver.conf:ro
+    command: ["-c", "/etc/turnserver.conf"]
+    restart: unless-stopped
+
+  # ── Nginx Reverse Proxy (Matrix client API + .well-known) ──
+  synapse-nginx:
+    image: nginx:1.25-alpine
+    container_name: windy-synapse-nginx
+    ports:
+      - "8448:8448"   # Matrix federation (future)
+      - "8443:443"    # HTTPS for Matrix client API
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - synapse_certs:/etc/nginx/certs:ro
+    depends_on:
+      synapse:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  synapse_data:
+  synapse_pgdata:
+  synapse_redis:
+  synapse_certs:

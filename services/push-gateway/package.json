@@ -1,0 +1,19 @@
+{
+  "name": "windy-chat-push-gateway",
+  "version": "1.0.0",
+  "description": "Windy Chat — K6 Push notification gateway (Matrix → FCM/APNs)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.5.0",
+    "firebase-admin": "^13.0.0",
+    "apn": "^2.2.0",
+    "uuid": "^9.0.0"
+  },
+  "private": true
+}

@@ -1,0 +1,22 @@
+{
+  "name": "windy-chat-onboarding",
+  "version": "1.0.0",
+  "description": "Windy Chat — K2 WhatsApp-style onboarding service (phone/email verification, profile setup, QR pairing, Matrix provisioning)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.5.0",
+    "jsonwebtoken": "^9.0.2",
+    "libphonenumber-js": "^1.11.0",
+    "qrcode": "^1.5.4",
+    "twilio": "^5.4.0",
+    "@sendgrid/mail": "^8.1.0",
+    "uuid": "^9.0.0"
+  },
+  "private": true
+}
