@@ -1,0 +1,277 @@
+# ── Windy Chat Backend — Full Stack ──
+# Usage: docker compose up
+# Brings up Synapse + PostgreSQL + Redis + Coturn + all Node.js services + nginx
+
+services:
+
+  # ════════════════════════════════════════
+  #  Infrastructure
+  # ════════════════════════════════════════
+
+  # ── PostgreSQL (Synapse database) ──
+  synapse-db:
+    image: postgres:16-alpine
+    container_name: windy-synapse-db
+    environment:
+      POSTGRES_DB: synapse
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: ${SYNAPSE_DB_PASSWORD:-windy_dev_pg}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - synapse_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Redis (Synapse workers + onboarding OTP store) ──
+  synapse-redis:
+    image: redis:7-alpine
+    container_name: windy-synapse-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - synapse_redis:/data
+    restart: unless-stopped
+
+  # ── Coturn TURN Server (VoIP NAT traversal) ──
+  coturn:
+    image: coturn/coturn:latest
+    container_name: windy-coturn
+    ports:
+      - "3478:3478"
+      - "3478:3478/udp"
+      - "5349:5349"
+      - "5349:5349/udp"
+      - "49152-49200:49152-49200/udp"
+    volumes:
+      - ./deploy/synapse/turnserver.conf:/etc/turnserver.conf:ro
+    command: ["-c", "/etc/turnserver.conf"]
+    restart: unless-stopped
+
+  # ════════════════════════════════════════
+  #  Synapse (Matrix Homeserver)
+  # ════════════════════════════════════════
+
+  synapse:
+    image: matrixdotorg/synapse:latest
+    container_name: windy-synapse
+    ports:
+      - "8008:8008"
+    environment:
+      - SYNAPSE_CONFIG_PATH=/data/homeserver.yaml
+      - SYNAPSE_DB_PASSWORD=${SYNAPSE_DB_PASSWORD:-windy_dev_pg}
+    volumes:
+      - synapse_data:/data
+      - ./deploy/synapse/homeserver.yaml:/data/homeserver.yaml:ro
+      - ./deploy/synapse/windy_registration.py:/data/modules/windy_registration.py:ro
+    depends_on:
+      synapse-db:
+        condition: service_healthy
+      synapse-redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fSs", "http://localhost:8008/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ════════════════════════════════════════
+  #  Nginx (Reverse Proxy / TLS Termination)
+  # ════════════════════════════════════════
+
+  nginx:
+    build:
+      context: ./deploy
+      dockerfile: nginx/Dockerfile
+    container_name: windy-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/synapse/nginx.conf:/etc/nginx/conf.d/windy-chat.conf:ro
+      - nginx_certs:/etc/nginx/certs:ro
+      - nginx_acme:/var/www/certbot:ro
+    depends_on:
+      synapse:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # ════════════════════════════════════════
+  #  Node.js Microservices
+  # ════════════════════════════════════════
+
+  # ── Onboarding (K2) — Phone/email OTP, profile, QR pairing, Matrix provisioning ──
+  onboarding:
+    build:
+      context: ./services
+      dockerfile: onboarding/Dockerfile
+    container_name: windy-onboarding
+    ports:
+      - "8101:8101"
+    environment:
+      PORT: 8101
+      NODE_ENV: ${NODE_ENV:-development}
+      REDIS_URL: redis://synapse-redis:6379
+      SYNAPSE_URL: http://synapse:8008
+      SYNAPSE_REGISTRATION_SECRET: ${SYNAPSE_REGISTRATION_SECRET:-windy_dev_reg_secret}
+      WINDY_ACCOUNT_SERVER_URL: ${WINDY_ACCOUNT_SERVER_URL:-http://host.docker.internal:8098}
+      WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER:-}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+      SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@windychat.com}
+      OTP_EXPIRY_MINUTES: ${OTP_EXPIRY_MINUTES:-10}
+    depends_on:
+      synapse:
+        condition: service_healthy
+      synapse-redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8101/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Directory (K3) — Contact discovery (hash lookup + search) ──
+  directory:
+    build:
+      context: ./services
+      dockerfile: directory/Dockerfile
+    container_name: windy-directory
+    ports:
+      - "8102:8102"
+    environment:
+      PORT: 8102
+      DIRECTORY_PORT: 8102
+      NODE_ENV: ${NODE_ENV:-development}
+      WINDY_ACCOUNT_SERVER_URL: ${WINDY_ACCOUNT_SERVER_URL:-http://host.docker.internal:8098}
+      WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER:-}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+    depends_on:
+      synapse:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8102/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Push Gateway (K6) — Matrix push → FCM/APNs ──
+  push-gateway:
+    build:
+      context: ./services
+      dockerfile: push-gateway/Dockerfile
+    container_name: windy-push-gateway
+    ports:
+      - "8103:8103"
+    environment:
+      PORT: 8103
+      PUSH_GATEWAY_PORT: 8103
+      NODE_ENV: ${NODE_ENV:-development}
+      WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
+      FIREBASE_SERVICE_ACCOUNT: ${FCM_SERVICE_ACCOUNT_PATH:-}
+      APNS_KEY_PATH: ${APNS_KEY_PATH:-}
+      APNS_KEY_ID: ${APNS_KEY_ID:-}
+      APNS_TEAM_ID: ${APNS_TEAM_ID:-}
+      APNS_BUNDLE_ID: ${APNS_BUNDLE_ID:-com.windypro.chat}
+    depends_on:
+      synapse:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8103/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Backup (K8) — Encrypted cloud backup (AES-256-GCM → Cloudflare R2) ──
+  backup:
+    build:
+      context: ./services
+      dockerfile: backup/Dockerfile
+    container_name: windy-backup
+    ports:
+      - "8104:8104"
+    environment:
+      PORT: 8104
+      BACKUP_PORT: 8104
+      NODE_ENV: ${NODE_ENV:-development}
+      WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET: ${R2_BUCKET:-windy-chat-backups}
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
+    depends_on:
+      synapse:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8104/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Social (K9) — Presence, status, stories ──
+  social:
+    build:
+      context: ./services
+      dockerfile: social/Dockerfile
+    container_name: windy-social
+    ports:
+      - "8105:8105"
+    environment:
+      PORT: 8105
+      NODE_ENV: ${NODE_ENV:-development}
+      REDIS_URL: redis://synapse-redis:6379
+      SYNAPSE_URL: http://synapse:8008
+      WINDY_ACCOUNT_SERVER_URL: ${WINDY_ACCOUNT_SERVER_URL:-http://host.docker.internal:8098}
+      WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
+    depends_on:
+      synapse:
+        condition: service_healthy
+      synapse-redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8105/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  synapse_data:
+  synapse_pgdata:
+  synapse_redis:
+  nginx_certs:
+  nginx_acme:
