@@ -20,26 +20,15 @@ const { v4: uuidv4 } = require('uuid');
 
 const fs = require('fs');
 const pathModule = require('path');
+const { createCorsOptions } = require('../shared/cors');
+const { createHealthHandler } = require('../shared/health');
+const { asyncHandler } = require('../shared/async-handler');
 
 const app = express();
 const PORT = process.env.PORT || 8104;
 
-// ── CORS — explicit origin whitelist ──
-const ALLOWED_ORIGINS = [
-  'https://windypro.thewindstorm.uk',
-  'https://chat.windypro.com',
-];
-
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    // SEC-M3: Only allow localhost in non-production environments
-    if (process.env.NODE_ENV !== 'production' && /^http:\/\/localhost(:\d+)?$/.test(origin)) return callback(null, true);
-    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-    callback(new Error('CORS: origin not allowed'));
-  },
-  credentials: true,
-}));
+// ── CORS — shared origin whitelist (windypro.com, windychat.com, etc.) ──
+app.use(cors(createCorsOptions()));
 
 app.use(express.json({ limit: '1mb' }));
 
@@ -184,19 +173,18 @@ function decryptBackup(encryptedData, password) {
 }
 
 // ── Health check (no auth required) ──
-app.get('/health', (_req, res) => {
-  res.json({
-    service: 'windy-chat-backup',
-    status: 'ok',
-    version: '1.0.0',
-    r2: !!s3Client,
-    timestamp: new Date().toISOString(),
-  });
-});
+app.get('/health', createHealthHandler({
+  service: 'windy-chat-backup',
+  version: '1.0.0',
+  checks: async () => ({
+    r2: s3Client ? 'active' : 'stubbed',
+    registeredUsers: backupRegistry.size,
+  }),
+}));
 
 // ── POST /api/v1/chat/backup/create (auth required) ──
 
-app.post('/api/v1/chat/backup/create', authMiddleware, async (req, res) => {
+app.post('/api/v1/chat/backup/create', authMiddleware, asyncHandler(async (req, res) => {
   try {
     const { userId, encryptedData, metadata } = req.body;
 
@@ -290,7 +278,7 @@ app.post('/api/v1/chat/backup/create', authMiddleware, async (req, res) => {
     console.error('Backup create error:', err);
     res.status(500).json({ error: 'Backup failed' });
   }
-});
+}));
 
 // ── GET /api/v1/chat/backup/list (auth required) ──
 
@@ -324,7 +312,7 @@ app.get('/api/v1/chat/backup/list', authMiddleware, (req, res) => {
 
 // ── POST /api/v1/chat/backup/restore (auth required) ──
 
-app.post('/api/v1/chat/backup/restore', authMiddleware, async (req, res) => {
+app.post('/api/v1/chat/backup/restore', authMiddleware, asyncHandler(async (req, res) => {
   try {
     const { userId, backupId } = req.body;
 
@@ -372,11 +360,11 @@ app.post('/api/v1/chat/backup/restore', authMiddleware, async (req, res) => {
     console.error('Backup restore error:', err);
     res.status(500).json({ error: 'Restore failed' });
   }
-});
+}));
 
 // ── DELETE /api/v1/chat/backup/delete (auth required) ──
 
-app.delete('/api/v1/chat/backup/delete', authMiddleware, async (req, res) => {
+app.delete('/api/v1/chat/backup/delete', authMiddleware, asyncHandler(async (req, res) => {
   try {
     const { userId, backupId } = req.body;
 
@@ -418,7 +406,7 @@ app.delete('/api/v1/chat/backup/delete', authMiddleware, async (req, res) => {
     console.error('Backup delete error:', err);
     res.status(500).json({ error: 'Failed to delete backup' });
   }
-});
+}));
 
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 
