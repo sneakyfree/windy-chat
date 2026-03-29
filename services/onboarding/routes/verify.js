@@ -23,6 +23,7 @@ const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 
 const { RedisStore } = require('../lib/redis-store');
+const { asyncHandler } = require('../../shared/async-handler');
 
 const router = express.Router();
 
@@ -179,7 +180,7 @@ async function sendEmailOTP(email, code) {
 
 // ── POST /api/v1/chat/verify/send ──
 
-router.post('/send', sendLimiter, hourlyLimiter, async (req, res) => {
+router.post('/send', sendLimiter, hourlyLimiter, asyncHandler(async (req, res) => {
   try {
     const { type, identifier, countryCode } = req.body;
 
@@ -277,11 +278,11 @@ router.post('/send', sendLimiter, hourlyLimiter, async (req, res) => {
     console.error('Verify send error:', err);
     res.status(500).json({ error: 'Verification failed' });
   }
-});
+}));
 
 // ── POST /api/v1/chat/verify/check ──
 
-router.post('/check', async (req, res) => {
+router.post('/check', asyncHandler(async (req, res) => {
   try {
     const { identifier, code, type, countryCode } = req.body;
 
@@ -363,11 +364,11 @@ router.post('/check', async (req, res) => {
     console.error('Verify check error:', err);
     res.status(500).json({ error: 'Verification check failed' });
   }
-});
+}));
 
 // ── GET /api/v1/chat/verify/status ──
 
-router.get('/status', async (req, res) => {
+router.get('/status', asyncHandler(async (req, res) => {
   try {
     const { identifier } = req.query;
     if (!identifier) {
@@ -389,6 +390,6 @@ router.get('/status', async (req, res) => {
     console.error('Verify status error:', err);
     res.status(500).json({ error: 'Failed to check verification status' });
   }
-});
+}));
 
 module.exports = router;

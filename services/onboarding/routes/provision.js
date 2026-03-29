@@ -20,6 +20,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
+const { asyncHandler } = require('../../shared/async-handler');
 
 const router = express.Router();
 
@@ -145,7 +146,7 @@ async function provisionMatrixAccount(localpart, displayName) {
 
 // ── POST /api/v1/chat/provision ──
 
-router.post('/', provisionLimiter, async (req, res) => {
+router.post('/', provisionLimiter, asyncHandler(async (req, res) => {
   try {
     const { chatUserId, displayName, verificationToken } = req.body;
 
@@ -230,7 +231,7 @@ router.post('/', provisionLimiter, async (req, res) => {
     console.error('Provision error:', err);
     res.status(500).json({ error: 'Account provisioning failed' });
   }
-});
+}));
 
 // ── GET /api/v1/chat/onboarding/status ──
 

@@ -1,0 +1,14 @@
+{
+  "name": "windy-chat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Windy Chat backend — Synapse + microservices for messaging and social",
+  "scripts": {
+    "test": "node --test tests/",
+    "test:onboarding": "node --test tests/onboarding.test.js",
+    "test:directory": "node --test tests/directory.test.js",
+    "test:push-gateway": "node --test tests/push-gateway.test.js",
+    "test:backup": "node --test tests/backup.test.js",
+    "install:all": "cd services/shared && npm install && cd ../onboarding && npm install && cd ../directory && npm install && cd ../push-gateway && npm install && cd ../backup && npm install"
+  }
+}
