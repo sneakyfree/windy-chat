@@ -22,6 +22,7 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
+const { asyncHandler } = require('../../shared/async-handler');
 
 const router = express.Router();
 
@@ -273,7 +274,7 @@ router.get('/search', searchLimiter, (req, res) => {
 
 // ── POST /api/v1/chat/directory/invite ──
 
-router.post('/invite', inviteLimiter, async (req, res) => {
+router.post('/invite', inviteLimiter, asyncHandler(async (req, res) => {
   try {
     const { fromUserId, fromDisplayName, type, identifier } = req.body;
 
@@ -394,6 +395,6 @@ router.post('/invite', inviteLimiter, async (req, res) => {
     console.error('Invite error:', err);
     res.status(500).json({ error: 'Invite failed' });
   }
-});
+}));
 
 module.exports = router;

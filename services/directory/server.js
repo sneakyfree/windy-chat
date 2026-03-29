@@ -16,26 +16,14 @@ const rateLimit = require('express-rate-limit');
 
 const lookupRoutes = require('./routes/lookup');
 const searchRoutes = require('./routes/search');
+const { createCorsOptions } = require('../shared/cors');
+const { createHealthHandler } = require('../shared/health');
 
 const app = express();
 const PORT = process.env.PORT || 8102;
 
-// ── CORS — explicit origin whitelist ──
-const ALLOWED_ORIGINS = [
-  'https://windypro.thewindstorm.uk',
-  'https://chat.windypro.com',
-];
-
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    // SEC-M3: Only allow localhost in non-production environments
-    if (process.env.NODE_ENV !== 'production' && /^http:\/\/localhost(:\d+)?$/.test(origin)) return callback(null, true);
-    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-    callback(new Error('CORS: origin not allowed'));
-  },
-  credentials: true,
-}));
+// ── CORS — shared origin whitelist (windypro.com, windychat.com, etc.) ──
+app.use(cors(createCorsOptions()));
 
 app.use(express.json({ limit: '2mb' }));
 
@@ -65,14 +53,14 @@ const globalLimiter = rateLimit({
 app.use(globalLimiter);
 
 // ── Health check (no auth required) ──
-app.get('/health', (_req, res) => {
-  res.json({
-    service: 'windy-chat-directory',
-    status: 'ok',
-    version: '1.0.0',
-    timestamp: new Date().toISOString(),
-  });
-});
+app.get('/health', createHealthHandler({
+  service: 'windy-chat-directory',
+  version: '1.0.0',
+  checks: async () => ({
+    twilio: !!process.env.TWILIO_ACCOUNT_SID,
+    sendgrid: !!process.env.SENDGRID_API_KEY,
+  }),
+}));
 
 // ── Auth-protected routes ──
 app.use('/api/v1/chat/directory', authMiddleware, lookupRoutes);
