@@ -221,7 +221,7 @@ router.post('/', provisionLimiter, asyncHandler(async (req, res) => {
     const windyIdentityId = req.user && req.user.windy_identity_id ? req.user.windy_identity_id : chatUserId;
 
     // Try 1: Provision via Windy Pro account-server (preferred — single source of truth)
-    if (CHAT_API_TOKEN && WINDY_ACCOUNT_SERVER_URL !== 'http://localhost:8098') {
+    if (CHAT_API_TOKEN && WINDY_ACCOUNT_SERVER_URL) {
       try {
         matrixCredentials = await provisionViaAccountServer(windyIdentityId, sanitizedDisplayName, null);
         console.log(`🏠 Provisioned via account-server: ${sanitizedDisplayName} → ${matrixCredentials.matrixUserId}`);
@@ -392,7 +392,7 @@ router.post('/unified-login', asyncHandler(async (req, res) => {
   let matrixCredentials;
 
   // Try account-server first, then direct Synapse, then stub
-  if (CHAT_API_TOKEN && WINDY_ACCOUNT_SERVER_URL !== 'http://localhost:8098') {
+  if (CHAT_API_TOKEN && WINDY_ACCOUNT_SERVER_URL) {
     try {
       matrixCredentials = await provisionViaAccountServer(windyIdentityId, sanitizedName, null);
     } catch (err) {
