@@ -349,4 +349,107 @@ router.get('/onboarding/status', (req, res) => {
   }
 });
 
+// ── POST /api/v1/onboarding/unified-login ──
+// "One click and you're in Chat" — seamless first-time provisioning from Windy Pro JWT.
+
+router.post('/unified-login', asyncHandler(async (req, res) => {
+  const user = req.user;
+  if (!user || !user.sub) {
+    return res.status(401).json({ error: 'Valid JWT required' });
+  }
+
+  const windyIdentityId = user.windy_identity_id;
+  const email = user.email || null;
+  const displayName = user.display_name || user.sub;
+
+  if (!windyIdentityId) {
+    return res.status(400).json({ error: 'JWT missing windy_identity_id claim' });
+  }
+
+  // Check if user already has a Chat profile (by windy_identity_id)
+  const existing = onboardingDb.getProfileByWindyId.get(windyIdentityId);
+
+  if (existing) {
+    // Already provisioned — return existing credentials
+    const state = onboardingDb.getOnboardingState.get(existing.chat_user_id);
+    return res.json({
+      matrix_user_id: state ? state.matrix_user_id : null,
+      access_token: null, // Cannot re-issue Matrix tokens; client must re-auth via Matrix login
+      home_server: SYNAPSE_SERVER_NAME,
+      display_name: existing.display_name,
+      already_existed: true,
+      windy_identity_id: windyIdentityId,
+      chat_user_id: existing.chat_user_id,
+    });
+  }
+
+  // New user — provision
+  const sanitizedName = stripHtml(displayName);
+  const localpart = displayNameToLocalpart(sanitizedName);
+  const chatUserId = localpart;
+  const matrixUserId = `@${localpart}:${SYNAPSE_SERVER_NAME}`;
+
+  let matrixCredentials;
+
+  // Try account-server first, then direct Synapse, then stub
+  if (CHAT_API_TOKEN && WINDY_ACCOUNT_SERVER_URL !== 'http://localhost:8098') {
+    try {
+      matrixCredentials = await provisionViaAccountServer(windyIdentityId, sanitizedName, null);
+    } catch (err) {
+      console.warn(`[unified-login] Account-server failed: ${err.message}`);
+    }
+  }
+
+  if (!matrixCredentials && SYNAPSE_REGISTRATION_SECRET) {
+    try {
+      matrixCredentials = await provisionMatrixAccount(localpart, sanitizedName);
+    } catch (err) {
+      console.warn(`[unified-login] Synapse admin failed: ${err.message}`);
+    }
+  }
+
+  if (!matrixCredentials) {
+    matrixCredentials = {
+      matrixUserId,
+      accessToken: `dev_token_${uuidv4()}`,
+      deviceId: `dev_device_${uuidv4().slice(0, 8)}`,
+      homeServer: SYNAPSE_SERVER_NAME,
+    };
+  }
+
+  // Store profile
+  onboardingDb.upsertProfile.run({
+    chat_user_id: chatUserId,
+    windy_identity_id: windyIdentityId,
+    display_name: sanitizedName,
+    languages: JSON.stringify(['en']),
+    primary_language: 'en',
+    avatar_url: null,
+    created_at: new Date().toISOString(),
+    onboarding_complete: 1,
+  });
+
+  // Store onboarding state
+  onboardingDb.upsertOnboardingState.run({
+    windy_user_id: chatUserId,
+    verified: 1,
+    profile_setup: 1,
+    matrix_provisioned: 1,
+    matrix_user_id: matrixCredentials.matrixUserId,
+    provisioned_at: new Date().toISOString(),
+  });
+
+  console.log(`[unified-login] New user: ${sanitizedName} (${windyIdentityId}) → ${matrixCredentials.matrixUserId}`);
+
+  res.status(201).json({
+    matrix_user_id: matrixCredentials.matrixUserId,
+    access_token: matrixCredentials.accessToken,
+    home_server: matrixCredentials.homeServer || SYNAPSE_SERVER_NAME,
+    display_name: sanitizedName,
+    already_existed: false,
+    windy_identity_id: windyIdentityId,
+    chat_user_id: chatUserId,
+  });
+}));
+
 module.exports = router;

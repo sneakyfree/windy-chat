@@ -72,6 +72,7 @@ app.use('/api/v1/chat/verify', authMiddleware, verifyRoutes);
 app.use('/api/v1/chat/profile', authMiddleware, profileRoutes);
 app.use('/api/v1/chat/pair', authMiddleware, pairRoutes);
 app.use('/api/v1/chat/provision', authMiddleware, provisionRoutes);
+app.use('/api/v1/onboarding', authMiddleware, provisionRoutes);
 
 // ── 404 fallback ──
 app.use((_req, res) => {

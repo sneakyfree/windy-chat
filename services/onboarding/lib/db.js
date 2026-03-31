@@ -66,6 +66,7 @@ const upsertDisplayName = db.prepare(`
 
 // User profiles
 const getProfile = db.prepare('SELECT * FROM user_profiles WHERE chat_user_id = ?');
+const getProfileByWindyId = db.prepare('SELECT * FROM user_profiles WHERE windy_identity_id = ?');
 const upsertProfile = db.prepare(`
   INSERT OR REPLACE INTO user_profiles (chat_user_id, windy_identity_id, display_name, languages, primary_language, avatar_url, created_at, onboarding_complete)
   VALUES (@chat_user_id, @windy_identity_id, @display_name, @languages, @primary_language, @avatar_url, @created_at, @onboarding_complete)
@@ -140,6 +141,7 @@ module.exports = {
   getDisplayName,
   upsertDisplayName,
   getProfile,
+  getProfileByWindyId,
   upsertProfile,
   getSession,
   upsertSession,

@@ -136,6 +136,92 @@ app.use('/api/v1/social/follow', followRouter);
 app.use('/api/v1/social/notifications', notificationsRouter);
 app.use('/api/v1/social/moderation', moderationRouter);
 
+// ── Ecosystem Status (cross-product view) ──
+const WINDY_ACCOUNT_SERVER_URL = process.env.WINDY_ACCOUNT_SERVER_URL || 'http://localhost:8098';
+const auth = createAuthMiddleware();
+
+app.get('/api/v1/social/ecosystem-status', auth, asyncHandler(async (req, res) => {
+  const userId = req.user.sub;
+  const windyIdentityId = req.user.windy_identity_id;
+
+  // Chat-specific stats
+  const userPosts = [...(require('./lib/store').postsMap.values())].filter(p => p.userId === userId);
+  const following = require('./lib/store').followsMap.get(userId);
+  const followingCount = following ? [...following].length : 0;
+
+  // Try to fetch ecosystem status from account-server
+  let ecosystemProducts = null;
+  const authToken = req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
+  if (WINDY_ACCOUNT_SERVER_URL !== 'http://localhost:8098') {
+    try {
+      const httpModule = WINDY_ACCOUNT_SERVER_URL.startsWith('https') ? https : http;
+      ecosystemProducts = await new Promise((resolve) => {
+        const ecoUrl = `${WINDY_ACCOUNT_SERVER_URL}/api/v1/identity/ecosystem-status`;
+        const ecoReq = httpModule.get(ecoUrl, {
+          headers: { 'Authorization': `Bearer ${authToken}` },
+          timeout: 5000,
+        }, (ecoRes) => {
+          let d = ''; ecoRes.on('data', c => d += c);
+          ecoRes.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve(null); } });
+        });
+        ecoReq.on('error', () => resolve(null));
+        ecoReq.on('timeout', () => { ecoReq.destroy(); resolve(null); });
+      });
+    } catch { /* ecosystem status unavailable */ }
+  }
+
+  res.json({
+    windy_identity_id: windyIdentityId,
+    user_id: userId,
+    chat: {
+      posts_count: userPosts.length,
+      following_count: followingCount,
+      verified: verifiedAccounts.has(userId),
+    },
+    ecosystem: ecosystemProducts || {
+      products: ['chat'],
+      _stub: true,
+      _note: 'Account-server ecosystem-status endpoint not available',
+    },
+  });
+}));
+
+// ── Enriched User Profile (cross-product presence) ──
+app.get('/api/v1/social/profile/:userId', auth, asyncHandler(async (req, res) => {
+  const userId = req.params.userId;
+  const verified = verifiedAccounts.has(userId);
+
+  // Chat-specific data
+  const userPosts = [...(require('./lib/store').postsMap.values())].filter(p => p.userId === userId);
+  const followers = require('./lib/store').followersMap.get(userId);
+  const following = require('./lib/store').followsMap.get(userId);
+
+  // Cross-product enrichment (from JWT claims or future API lookups)
+  const enrichment = {
+    windy_mail_address: null, // Future: lookup from Mail service API
+    windy_fly_status: null,   // Future: lookup from Fly agent registry
+    eternitas_passport: null, // Future: lookup from Eternitas API
+  };
+
+  // If this is a bot user, check Eternitas
+  if (userId.startsWith('bot_')) {
+    const passportId = userId.replace('bot_', '');
+    const eternitasValid = await verifyWithEternitas(passportId);
+    if (eternitasValid) {
+      enrichment.eternitas_passport = passportId;
+    }
+  }
+
+  res.json({
+    user_id: userId,
+    verified,
+    posts_count: userPosts.length,
+    followers_count: followers ? [...followers].length : 0,
+    following_count: following ? [...following].length : 0,
+    ...enrichment,
+  });
+}));
+
 // ── Eternitas Verified Badge Management (service-to-service) ──
 const serviceAuth = createAuthMiddleware();
 
