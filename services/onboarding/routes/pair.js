@@ -17,10 +17,14 @@
 
 const express = require('express');
 const crypto = require('crypto');
+const http = require('http');
+const https = require('https');
 const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 
 const onboardingDb = require('../lib/db');
+
+const WINDY_ACCOUNT_SERVER_URL = process.env.WINDY_ACCOUNT_SERVER_URL || 'http://localhost:8098';
 
 const router = express.Router();
 
@@ -103,7 +107,7 @@ router.post('/generate', pairGenerateLimiter, (req, res) => {
 
 // ── POST /api/v1/chat/pair/confirm ──
 
-router.post('/confirm', (req, res) => {
+router.post('/confirm', async (req, res) => {
   try {
     const { sessionId, authToken, userId, displayName, deviceName, platform } = req.body;
 
@@ -149,8 +153,30 @@ router.post('/confirm', (req, res) => {
       return res.status(409).json({ error: 'Session already paired' });
     }
 
-    // TODO: Validate authToken against account server (H1)
-    // For now, we trust the token and link the session
+    // Validate authToken against account server (H1)
+    if (WINDY_ACCOUNT_SERVER_URL !== 'http://localhost:8098') {
+      try {
+        const validateUrl = `${WINDY_ACCOUNT_SERVER_URL}/api/v1/identity/validate-token`;
+        const httpModule = validateUrl.startsWith('https') ? https : http;
+
+        const tokenValid = await new Promise((resolve) => {
+          const req = httpModule.get(validateUrl, {
+            headers: { 'Authorization': `Bearer ${authToken}` },
+            timeout: 5000,
+          }, (res) => {
+            resolve(res.statusCode === 200);
+          });
+          req.on('error', () => resolve(false));
+          req.on('timeout', () => { req.destroy(); resolve(false); });
+        });
+
+        if (!tokenValid) {
+          return res.status(401).json({ error: 'Invalid auth token' });
+        }
+      } catch (err) {
+        console.warn('Auth token validation failed, allowing in dev mode:', err.message);
+      }
+    }
 
     const deviceId = `device_${uuidv4().replace(/-/g, '').slice(0, 16)}`;
     const sanitizedDisplayName = displayName ? stripHtml(displayName) : userId;

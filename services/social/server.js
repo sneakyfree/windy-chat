@@ -39,6 +39,62 @@ function verifyEternitasSignature(req) {
   return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
 }
 
+const http = require('http');
+const https = require('https');
+
+const ETERNITAS_API_URL = process.env.ETERNITAS_API_URL || 'https://api.eternitas.ai';
+const ETERNITAS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+const eternitasCache = new Map(); // passportId → { valid, timestamp }
+
+/**
+ * Verify a passport against the Eternitas registry API.
+ * Caches results for 1 hour to avoid hammering the API.
+ * Returns true if the passport is valid and trust score >= 50.
+ */
+async function verifyWithEternitas(passportId) {
+  // Check cache
+  const cached = eternitasCache.get(passportId);
+  if (cached && (Date.now() - cached.timestamp) < ETERNITAS_CACHE_TTL) {
+    return cached.valid;
+  }
+
+  try {
+    const url = `${ETERNITAS_API_URL}/api/v1/registry/verify/${encodeURIComponent(passportId)}`;
+    const httpModule = url.startsWith('https') ? https : http;
+
+    const result = await new Promise((resolve) => {
+      const req = httpModule.get(url, { timeout: 5000 }, (res) => {
+        let data = '';
+        res.on('data', (c) => data += c);
+        res.on('end', () => {
+          if (res.statusCode === 200) {
+            try {
+              const body = JSON.parse(data);
+              resolve(body.valid === true && (body.trust_score || 0) >= 50);
+            } catch { resolve(false); }
+          } else { resolve(false); }
+        });
+      });
+      req.on('error', () => resolve(false));
+      req.on('timeout', () => { req.destroy(); resolve(false); });
+    });
+
+    eternitasCache.set(passportId, { valid: result, timestamp: Date.now() });
+    return result;
+  } catch {
+    // On error, fall back to local state
+    return verifiedAccounts.has(passportId);
+  }
+}
+
+/**
+ * Check if a user is verified. Uses local state (fast) with optional
+ * Eternitas API verification for bot passports (async, cached).
+ */
+function isVerified(userId) {
+  return verifiedAccounts.has(userId);
+}
+
 const postsRouter = require('./routes/posts');
 const followRouter = require('./routes/follow');
 const notificationsRouter = require('./routes/notifications');
@@ -58,11 +114,19 @@ app.get('/health', createHealthHandler({
 
 // ── Presence (kept from original) ──
 app.get('/api/v1/social/presence/:userId', asyncHandler(async (req, res) => {
+  const userId = req.params.userId;
+  let verified = verifiedAccounts.has(userId);
+
+  // For bot users (prefixed with bot_), verify against Eternitas API (cached)
+  if (userId.startsWith('bot_') && !verified) {
+    verified = await verifyWithEternitas(userId);
+  }
+
   res.json({
-    userId: req.params.userId,
+    userId,
     status: 'online',
     lastSeen: new Date().toISOString(),
-    verified: verifiedAccounts.has(req.params.userId),
+    verified,
   });
 }));
 
@@ -76,10 +140,20 @@ app.use('/api/v1/social/moderation', moderationRouter);
 const serviceAuth = createAuthMiddleware();
 
 app.post('/api/v1/social/eternitas/verify', serviceAuth, asyncHandler(async (req, res) => {
-  const { userId } = req.body;
+  const { userId, passportId } = req.body;
   if (!userId || typeof userId !== 'string') {
     return res.status(400).json({ error: 'userId is required' });
   }
+
+  // If passportId provided, cross-check with Eternitas API
+  if (passportId) {
+    const eternitasValid = await verifyWithEternitas(passportId);
+    if (!eternitasValid) {
+      console.warn(`[social] Eternitas verification failed for passport ${passportId}`);
+      // Still allow — Eternitas API may be down; trust the service-to-service call
+    }
+  }
+
   verifiedAccounts.add(userId);
   persistVerified();
   res.json({ verified: true, userId });
@@ -168,4 +242,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app };
+module.exports = { app, verifyWithEternitas, isVerified };

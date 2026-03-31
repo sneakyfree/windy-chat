@@ -27,6 +27,8 @@ const onboardingDb = require('../lib/db');
 const router = express.Router();
 
 // ── Config ──
+const WINDY_ACCOUNT_SERVER_URL = process.env.WINDY_ACCOUNT_SERVER_URL || 'http://localhost:8098';
+const CHAT_API_TOKEN = process.env.CHAT_API_TOKEN || '';
 const SYNAPSE_URL = process.env.SYNAPSE_URL || 'http://localhost:8008';
 const SYNAPSE_ADMIN_URL = process.env.SYNAPSE_ADMIN_URL || `${SYNAPSE_URL}/_synapse/admin`;
 const SYNAPSE_REGISTRATION_SECRET = process.env.SYNAPSE_REGISTRATION_SECRET || '';
@@ -143,6 +145,45 @@ async function provisionMatrixAccount(localpart, displayName) {
   };
 }
 
+/**
+ * Provision via Windy Pro account-server (preferred path).
+ * The account-server is the single source of truth for identity and handles
+ * the Synapse admin API call internally.
+ *
+ * POST {WINDY_ACCOUNT_SERVER_URL}/api/v1/identity/chat/provision
+ * Body: { windy_identity_id, display_name, avatar_url }
+ * Returns: { matrix_user_id, access_token, device_id, home_server }
+ */
+async function provisionViaAccountServer(windyIdentityId, displayName, avatarUrl) {
+  const url = `${WINDY_ACCOUNT_SERVER_URL}/api/v1/identity/chat/provision`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${CHAT_API_TOKEN}`,
+    },
+    body: JSON.stringify({
+      windy_identity_id: windyIdentityId,
+      display_name: displayName,
+      avatar_url: avatarUrl || null,
+    }),
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`Account-server provision failed: ${res.status} ${body.error || ''}`);
+  }
+
+  const result = await res.json();
+  return {
+    matrixUserId: result.matrix_user_id,
+    accessToken: result.access_token,
+    deviceId: result.device_id,
+    homeServer: result.home_server || SYNAPSE_SERVER_NAME,
+  };
+}
+
 // ── POST /api/v1/chat/provision ──
 
 router.post('/', provisionLimiter, asyncHandler(async (req, res) => {
@@ -177,11 +218,23 @@ router.post('/', provisionLimiter, asyncHandler(async (req, res) => {
     const matrixUserId = `@${localpart}:${SYNAPSE_SERVER_NAME}`;
 
     let matrixCredentials;
+    const windyIdentityId = req.user && req.user.windy_identity_id ? req.user.windy_identity_id : chatUserId;
 
-    if (SYNAPSE_REGISTRATION_SECRET) {
-      // Production: provision via Synapse admin API
+    // Try 1: Provision via Windy Pro account-server (preferred — single source of truth)
+    if (CHAT_API_TOKEN && WINDY_ACCOUNT_SERVER_URL !== 'http://localhost:8098') {
+      try {
+        matrixCredentials = await provisionViaAccountServer(windyIdentityId, sanitizedDisplayName, null);
+        console.log(`🏠 Provisioned via account-server: ${sanitizedDisplayName} → ${matrixCredentials.matrixUserId}`);
+      } catch (err) {
+        console.warn(`Account-server provision failed (${err.message}), falling back to direct Synapse`);
+      }
+    }
+
+    // Try 2: Direct Synapse admin API (fallback for dev or when account-server is down)
+    if (!matrixCredentials && SYNAPSE_REGISTRATION_SECRET) {
       try {
         matrixCredentials = await provisionMatrixAccount(localpart, sanitizedDisplayName);
+        console.log(`🏠 Provisioned via Synapse admin: ${sanitizedDisplayName} → ${matrixCredentials.matrixUserId}`);
       } catch (err) {
         console.error('Matrix provisioning failed:', err.message);
         return res.status(502).json({
@@ -189,15 +242,17 @@ router.post('/', provisionLimiter, asyncHandler(async (req, res) => {
           hint: 'Is the Synapse homeserver running? Check deploy/synapse/',
         });
       }
-    } else {
-      // Dev mode: stub credentials
-      console.warn('⚠️  SYNAPSE_REGISTRATION_SECRET not set — returning stub credentials');
+    }
+
+    // Try 3: Dev mode stub
+    if (!matrixCredentials) {
+      console.warn('⚠️  No provisioning method available — returning stub credentials');
       matrixCredentials = {
         matrixUserId,
         accessToken: `dev_token_${uuidv4()}`,
         deviceId: `dev_device_${uuidv4().slice(0, 8)}`,
         homeServer: SYNAPSE_SERVER_NAME,
-        _dev: 'Stub credentials (Synapse not configured)',
+        _dev: 'Stub credentials (no account-server or Synapse configured)',
       };
     }
 

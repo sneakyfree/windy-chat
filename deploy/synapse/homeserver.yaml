@@ -158,11 +158,11 @@ push:
   include_content: false  # Privacy: push bodies don't contain message text
 
 # ── Application Services ──
-# K9 Translation appservice — auto-translates messages in rooms
-# To enable: copy services/translation/appservice/registration.yaml to
-# /data/appservices/ and uncomment the line below.
-# app_service_config_files:
-#   - /data/appservices/translation-registration.yaml
+# K9 Translation appservice — auto-translates messages in rooms.
+# Requires: TRANSLATION_AS_TOKEN and TRANSLATION_HS_TOKEN env vars set.
+# Enable via: ./scripts/enable-k9-appservice.sh
+app_service_config_files:
+  - /data/appservices/translation-registration.yaml
 
 # ── Server Notices ──
 server_notices:
