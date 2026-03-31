@@ -165,18 +165,19 @@ class WindyRegistrationModule:
         POST to the Windy Pro account server to validate credentials.
 
         Endpoint: POST {windy_account_server}/api/v1/auth/chat-validate
-        Body: { "username": "...", "password": "...", "shared_secret": "..." }
-        Response: { "valid": true, "user_id": "...", "display_name": "..." }
+        Body: { "user": "<username_or_email>", "password": "..." }
+        Response (200): { "windy_user_id": "...", "display_name": "...", "avatar_url": "..." }
+        Errors: 401 (bad credentials), 500 (server error)
         """
         import urllib.request
         import urllib.error
+        import socket
 
         url = f"{self._config.windy_account_server}/api/v1/auth/chat-validate"
         payload = json.dumps(
             {
-                "username": username,
+                "user": username,
                 "password": password,
-                "shared_secret": self._config.registration_shared_secret,
             }
         ).encode("utf-8")
 
@@ -190,14 +191,39 @@ class WindyRegistrationModule:
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
-                if body.get("valid"):
-                    return body
-                return None
+                windy_user_id = body.get("windy_user_id")
+                if not windy_user_id:
+                    logger.warning(
+                        "Account server returned response without windy_user_id for user %s",
+                        username,
+                    )
+                    return None
+                return {
+                    "user_id": windy_user_id,
+                    "display_name": body.get("display_name", username),
+                    "avatar_url": body.get("avatar_url"),
+                }
         except urllib.error.HTTPError as e:
-            logger.warning(
-                "Windy account server returned HTTP %d for user %s",
-                e.code,
-                username,
+            if e.code == 401:
+                logger.info(
+                    "Invalid credentials for user %s (401)", username
+                )
+            elif e.code >= 500:
+                logger.error(
+                    "Windy account server error (HTTP %d) for user %s",
+                    e.code,
+                    username,
+                )
+            else:
+                logger.warning(
+                    "Windy account server returned HTTP %d for user %s",
+                    e.code,
+                    username,
+                )
+            return None
+        except socket.timeout:
+            logger.error(
+                "Timeout connecting to Windy account server at %s", url
             )
             return None
         except urllib.error.URLError as e:

@@ -10,8 +10,9 @@ const { createAuthMiddleware } = require('../../shared/jwt-verify');
 const { checkProfanity } = require('../lib/profanity');
 const {
   postsMap, followsMap, likesMap, verifiedAccounts,
-  notificationsMap,
   persistPosts, persistLikes, persistNotifications,
+  addLike, removeLike, hasLike, getLikeCount, updatePostLikeCount,
+  addNotification,
 } = require('../lib/store');
 
 const router = Router();
@@ -63,6 +64,7 @@ router.post('/', auth, asyncHandler(async (req, res) => {
   const post = {
     id: uuidv4(),
     userId,
+    windyIdentityId: req.user.windy_identity_id || null,
     content: content.trim(),
     translated_versions: translated_versions || null,
     createdAt: new Date().toISOString(),
@@ -85,7 +87,7 @@ router.get('/:postId', asyncHandler(async (req, res) => {
   res.json({
     ...post,
     verified: verifiedAccounts.has(post.userId),
-    likeCount: likesMap.has(post.id) ? likesMap.get(post.id).size : 0,
+    likeCount: getLikeCount(post.id),
   });
 }));
 
@@ -106,7 +108,7 @@ router.get('/user/:userId', asyncHandler(async (req, res) => {
   const enriched = page.map(p => ({
     ...p,
     verified: verifiedAccounts.has(p.userId),
-    likeCount: likesMap.has(p.id) ? likesMap.get(p.id).size : 0,
+    likeCount: getLikeCount(p.id),
   }));
 
   res.json({
@@ -137,7 +139,7 @@ router.get('/', auth, asyncHandler(async (req, res) => {
   const enriched = page.map(p => ({
     ...p,
     verified: verifiedAccounts.has(p.userId),
-    likeCount: likesMap.has(p.id) ? likesMap.get(p.id).size : 0,
+    likeCount: getLikeCount(p.id),
   }));
 
   res.json({
@@ -154,18 +156,15 @@ router.post('/:postId/like', auth, asyncHandler(async (req, res) => {
   const post = postsMap.get(postId);
   if (!post) return res.status(404).json({ error: 'Post not found' });
 
-  if (!likesMap.has(postId)) likesMap.set(postId, new Set());
-  const likes = likesMap.get(postId);
-  const alreadyLiked = likes.has(userId);
-  likes.add(userId);
-  post.likeCount = likes.size;
+  const alreadyLiked = hasLike(userId, postId);
+  addLike(userId, postId);
+  const likeCount = updatePostLikeCount(postId);
   persistLikes();
   persistPosts();
 
   // Queue notification if this is a new like and not self-like
   if (!alreadyLiked && post.userId !== userId) {
-    if (!notificationsMap.has(post.userId)) notificationsMap.set(post.userId, []);
-    notificationsMap.get(post.userId).push({
+    addNotification(post.userId, {
       id: uuidv4(),
       type: 'like',
       fromUserId: userId,
@@ -176,7 +175,7 @@ router.post('/:postId/like', auth, asyncHandler(async (req, res) => {
     persistNotifications();
   }
 
-  res.json({ liked: true, likeCount: likes.size });
+  res.json({ liked: true, likeCount });
 }));
 
 // ── Unlike Post ──
@@ -186,15 +185,12 @@ router.delete('/:postId/like', auth, asyncHandler(async (req, res) => {
   const post = postsMap.get(postId);
   if (!post) return res.status(404).json({ error: 'Post not found' });
 
-  const likes = likesMap.get(postId);
-  if (likes) {
-    likes.delete(userId);
-    post.likeCount = likes.size;
-    persistLikes();
-    persistPosts();
-  }
+  removeLike(userId, postId);
+  const likeCount = updatePostLikeCount(postId);
+  persistLikes();
+  persistPosts();
 
-  res.json({ liked: false, likeCount: likes ? likes.size : 0 });
+  res.json({ liked: false, likeCount });
 }));
 
 module.exports = router;

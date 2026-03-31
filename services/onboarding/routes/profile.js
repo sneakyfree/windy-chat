@@ -15,60 +15,11 @@
  */
 
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { checkProfanity } = require('../lib/profanity');
+const onboardingDb = require('../lib/db');
 
 const router = express.Router();
-
-// ── File-based persistence for in-memory Maps ──
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const PROFILES_FILE = path.join(DATA_DIR, 'profiles.json');
-
-function loadPersistedData() {
-  try {
-    if (fs.existsSync(PROFILES_FILE)) {
-      const raw = fs.readFileSync(PROFILES_FILE, 'utf-8');
-      const data = JSON.parse(raw);
-      if (data.displayNames && typeof data.displayNames === 'object') {
-        for (const [key, value] of Object.entries(data.displayNames)) {
-          displayNameRegistry.set(key, value);
-        }
-      }
-      if (data.profiles && typeof data.profiles === 'object') {
-        for (const [key, value] of Object.entries(data.profiles)) {
-          userProfiles.set(key, value);
-        }
-      }
-      console.log(`[Profile] Loaded ${displayNameRegistry.size} display names, ${userProfiles.size} profiles from disk`);
-    }
-  } catch (err) {
-    console.error('[Profile] Failed to load persisted data:', err.message);
-  }
-}
-
-function persistData() {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    const data = {
-      displayNames: Object.fromEntries(displayNameRegistry),
-      profiles: Object.fromEntries(userProfiles),
-    };
-    fs.writeFileSync(PROFILES_FILE, JSON.stringify(data, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('[Profile] Failed to persist data:', err.message);
-  }
-}
-
-// ── In-memory display name registry (persisted to disk as bridge until Redis/PostgreSQL) ──
-const displayNameRegistry = new Map();  // name (lowercase) → { userId, displayName, languages, avatarUrl, createdAt }
-const userProfiles = new Map();         // userId → profile
-
-// Load persisted data on startup
-loadPersistedData();
 
 // ── Supported languages (subset — matches Windy Pro language list) ──
 const SUPPORTED_LANGUAGES = new Set([
@@ -112,7 +63,7 @@ function validateDisplayName(name) {
 
   // Check uniqueness
   const normalized = trimmed.toLowerCase();
-  if (displayNameRegistry.has(normalized)) {
+  if (onboardingDb.getDisplayName.get(normalized)) {
     const suggestions = generateAlternatives(trimmed);
     return {
       valid: false,
@@ -136,7 +87,7 @@ function generateAlternatives(name) {
   // "Grant W" — first name + last initial
   if (parts.length >= 2) {
     const abbrev = parts[0] + ' ' + parts[parts.length - 1][0] + '.';
-    if (!displayNameRegistry.has(abbrev.toLowerCase())) {
+    if (!onboardingDb.getDisplayName.get(abbrev.toLowerCase())) {
       suggestions.push(abbrev);
     }
   }
@@ -144,7 +95,7 @@ function generateAlternatives(name) {
   // "Grant Whitmer 2", "Grant Whitmer 3"
   for (let i = 2; i <= 5; i++) {
     const numbered = `${name} ${i}`;
-    if (!displayNameRegistry.has(numbered.toLowerCase())) {
+    if (!onboardingDb.getDisplayName.get(numbered.toLowerCase())) {
       suggestions.push(numbered);
       if (suggestions.length >= 3) break;
     }
@@ -152,7 +103,7 @@ function generateAlternatives(name) {
 
   // Underscore variant: "grant_whitmer"
   const underscored = name.toLowerCase().replace(/\s+/g, '_');
-  if (!displayNameRegistry.has(underscored)) {
+  if (!onboardingDb.getDisplayName.get(underscored)) {
     suggestions.push(underscored);
   }
 
@@ -260,20 +211,27 @@ router.post('/setup', async (req, res) => {
       onboardingComplete: false,
     };
 
-    // Register display name
-    displayNameRegistry.set(nameResult.displayName.toLowerCase(), {
-      userId: chatUserId,
-      displayName: nameResult.displayName,
-      languages: validLanguages,
-      avatarUrl: avatarUrl || null,
-      createdAt: now,
+    // Register display name in SQLite
+    onboardingDb.upsertDisplayName.run({
+      name_lower: nameResult.displayName.toLowerCase(),
+      user_id: chatUserId,
+      display_name: nameResult.displayName,
+      languages: JSON.stringify(validLanguages),
+      avatar_url: avatarUrl || null,
+      created_at: now,
     });
 
-    // Store profile
-    userProfiles.set(chatUserId, profile);
-
-    // Persist to disk (bridge until Redis/PostgreSQL migration)
-    persistData();
+    // Store profile in SQLite
+    onboardingDb.upsertProfile.run({
+      chat_user_id: chatUserId,
+      windy_identity_id: req.user && req.user.windy_identity_id ? req.user.windy_identity_id : null,
+      display_name: nameResult.displayName,
+      languages: JSON.stringify(validLanguages),
+      primary_language: primaryLanguage,
+      avatar_url: avatarUrl || null,
+      created_at: now,
+      onboarding_complete: 0,
+    });
 
     console.log(`👤 Profile created: "${nameResult.displayName}" (${chatUserId}), languages: [${validLanguages.join(', ')}]`);
 
@@ -301,11 +259,21 @@ router.get('/:userId', (req, res) => {
       return res.status(400).json({ error: 'Invalid userId format' });
     }
 
-    const profile = userProfiles.get(userId);
+    const row = onboardingDb.getProfile.get(userId);
 
-    if (!profile) {
+    if (!row) {
       return res.status(404).json({ error: 'Profile not found' });
     }
+
+    const profile = {
+      chatUserId: row.chat_user_id,
+      displayName: row.display_name,
+      languages: JSON.parse(row.languages || '["en"]'),
+      primaryLanguage: row.primary_language,
+      avatarUrl: row.avatar_url,
+      createdAt: row.created_at,
+      onboardingComplete: !!row.onboarding_complete,
+    };
 
     res.json({ profile });
   } catch (err) {

@@ -24,15 +24,9 @@ const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 const { asyncHandler } = require('../../shared/async-handler');
 
+const dirDb = require('../lib/db');
+
 const router = express.Router();
-
-// ── In-memory stores (replace with DB in production) ──
-
-// User directory: userId → { displayName, email, phone, languages, avatarUrl, searchable }
-const userDirectory = new Map();
-
-// Invite tracking: userId → { count, resetAt }
-const inviteTracker = new Map();
 
 const MAX_SEARCH_RESULTS = 20;
 const MAX_INVITES_PER_DAY = 20;
@@ -101,20 +95,16 @@ function fuzzyMatch(query, displayName) {
  * Check daily invite limit for a user.
  */
 function checkInviteLimit(userId) {
-  const tracker = inviteTracker.get(userId);
+  const tracker = dirDb.getInviteTracker.get(userId);
   const now = Date.now();
 
-  if (!tracker || now > tracker.resetAt) {
-    // New day or first invite
-    inviteTracker.set(userId, {
-      count: 0,
-      resetAt: now + 24 * 60 * 60 * 1000,
-    });
+  if (!tracker || now > tracker.reset_at) {
+    dirDb.upsertInviteTracker.run(userId, 0, now + 24 * 60 * 60 * 1000);
     return { allowed: true, remaining: MAX_INVITES_PER_DAY };
   }
 
   if (tracker.count >= MAX_INVITES_PER_DAY) {
-    const hoursLeft = Math.ceil((tracker.resetAt - now) / (1000 * 60 * 60));
+    const hoursLeft = Math.ceil((tracker.reset_at - now) / (1000 * 60 * 60));
     return { allowed: false, remaining: 0, resetInHours: hoursLeft };
   }
 
@@ -157,14 +147,16 @@ router.post('/register', (req, res) => {
       return res.status(400).json({ error: 'avatarUrl must be a string, max 2048 characters' });
     }
 
-    userDirectory.set(userId, {
-      displayName: sanitizedDisplayName,
+    dirDb.upsertUser.run({
+      user_id: userId,
+      windy_identity_id: req.user && req.user.windy_identity_id ? req.user.windy_identity_id : null,
+      display_name: sanitizedDisplayName,
       email: email ? email.toLowerCase().trim() : null,
       phone: phone || null,
-      languages: languages || ['en'],
-      avatarUrl: avatarUrl || null,
-      searchable: searchable !== false, // Default: searchable
-      registeredAt: new Date().toISOString(),
+      languages: JSON.stringify(languages || ['en']),
+      avatar_url: avatarUrl || null,
+      searchable: searchable !== false ? 1 : 0,
+      registered_at: new Date().toISOString(),
     });
 
     console.log(`📇 Registered in directory: "${sanitizedDisplayName}" (searchable: ${searchable !== false})`);
@@ -201,16 +193,14 @@ router.get('/search', searchLimiter, (req, res) => {
     const query = stripHtml(q.trim());
     const results = [];
 
-    for (const [userId, user] of userDirectory) {
-      // Respect privacy: skip users who opted out of search
-      if (!user.searchable) continue;
-
+    const allUsers = dirDb.searchableUsers.all();
+    for (const row of allUsers) {
       let matched = false;
       let matchType = null;
       let score = 0;
 
       // 1. Fuzzy name match
-      const nameMatch = fuzzyMatch(query, user.displayName);
+      const nameMatch = fuzzyMatch(query, row.display_name);
       if (nameMatch.match) {
         matched = true;
         matchType = 'name';
@@ -218,16 +208,16 @@ router.get('/search', searchLimiter, (req, res) => {
       }
 
       // 2. Exact email match
-      if (!matched && user.email && user.email === query.toLowerCase()) {
+      if (!matched && row.email && row.email === query.toLowerCase()) {
         matched = true;
         matchType = 'email';
-        score = 4; // Exact matches rank highest
+        score = 4;
       }
 
       // 3. Exact phone match (E.164)
-      if (!matched && user.phone) {
+      if (!matched && row.phone) {
         const cleanQuery = query.replace(/[\s\-()]/g, '');
-        if (user.phone === cleanQuery || user.phone.endsWith(cleanQuery)) {
+        if (row.phone === cleanQuery || row.phone.endsWith(cleanQuery)) {
           matched = true;
           matchType = 'phone';
           score = 4;
@@ -236,10 +226,10 @@ router.get('/search', searchLimiter, (req, res) => {
 
       if (matched) {
         results.push({
-          userId,
-          displayName: user.displayName,
-          avatarUrl: user.avatarUrl,
-          languages: user.languages,
+          userId: row.user_id,
+          displayName: row.display_name,
+          avatarUrl: row.avatar_url,
+          languages: JSON.parse(row.languages || '["en"]'),
           matchType,
           score,
         });
@@ -377,8 +367,10 @@ router.post('/invite', inviteLimiter, asyncHandler(async (req, res) => {
     }
 
     // Track invite
-    const tracker = inviteTracker.get(fromUserId);
-    if (tracker) tracker.count++;
+    const tracker = dirDb.getInviteTracker.get(fromUserId);
+    if (tracker) {
+      dirDb.upsertInviteTracker.run(fromUserId, tracker.count + 1, tracker.reset_at);
+    }
 
     console.log(`📨 Invite sent: ${senderName} → ${identifier} (${type}), ref: ${referralCode}`);
 

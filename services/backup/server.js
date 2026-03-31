@@ -18,11 +18,11 @@ const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 
-const fs = require('fs');
 const pathModule = require('path');
 const { createCorsOptions } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
 const { asyncHandler } = require('../shared/async-handler');
+const backupDb = require('./lib/db');
 
 const app = express();
 const PORT = process.env.PORT || 8104;
@@ -63,45 +63,7 @@ function isValidUserId(val) {
   return typeof val === 'string' && val.length > 0 && val.length <= 255 && /^[a-zA-Z0-9_-]+$/.test(val);
 }
 
-// ── In-memory stores with file-based persistence (M2) ──
-const backupRegistry = new Map(); // userId → [{ version, timestamp, size, path }]
-
-const BACKUP_DATA_DIR = pathModule.join(__dirname, 'data');
-const BACKUP_REGISTRY_FILE = pathModule.join(BACKUP_DATA_DIR, 'backup-registry.json');
-
-function loadBackupRegistry() {
-  try {
-    if (fs.existsSync(BACKUP_REGISTRY_FILE)) {
-      const raw = fs.readFileSync(BACKUP_REGISTRY_FILE, 'utf-8');
-      const data = JSON.parse(raw);
-      if (data.registry && typeof data.registry === 'object') {
-        for (const [key, value] of Object.entries(data.registry)) {
-          backupRegistry.set(key, value);
-        }
-      }
-      console.log(`[Backup] Loaded ${backupRegistry.size} user backup registries from disk`);
-    }
-  } catch (err) {
-    console.error('[Backup] Failed to load persisted registry:', err.message);
-  }
-}
-
-function persistBackupRegistry() {
-  try {
-    if (!fs.existsSync(BACKUP_DATA_DIR)) {
-      fs.mkdirSync(BACKUP_DATA_DIR, { recursive: true });
-    }
-    const data = {
-      registry: Object.fromEntries(backupRegistry),
-    };
-    fs.writeFileSync(BACKUP_REGISTRY_FILE, JSON.stringify(data, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('[Backup] Failed to persist registry:', err.message);
-  }
-}
-
-// Load persisted data on startup
-loadBackupRegistry();
+// ── SQLite-backed persistence (via ./lib/db) ──
 
 // ── R2/S3 Config ──
 const R2_BUCKET = process.env.R2_BUCKET || 'windy-chat-backups';
@@ -178,7 +140,7 @@ app.get('/health', createHealthHandler({
   version: '1.0.0',
   checks: async () => ({
     r2: s3Client ? 'active' : 'stubbed',
-    registeredUsers: backupRegistry.size,
+    registeredUsers: backupDb.countDistinctUsers.get().cnt,
   }),
 }));
 
@@ -228,20 +190,21 @@ app.post('/api/v1/chat/backup/create', authMiddleware, asyncHandler(async (req, 
       console.log(`☁️  [STUB] Backup stored: ${path} (${formatSize(dataSize)})`);
     }
 
-    // Register backup
-    const userBackups = backupRegistry.get(userId) || [];
-    userBackups.unshift({
+    // Register backup in SQLite
+    backupDb.insertBackup.run({
       id: backupId,
+      user_id: userId,
+      windy_identity_id: req.user.windy_identity_id || null,
       timestamp,
       size: dataSize,
       path,
-      metadata: metadata || {},
+      metadata: JSON.stringify(metadata || {}),
     });
 
-    // K8.1.3: Keep last 7 daily backups
-    if (userBackups.length > 7) {
-      const pruned = userBackups.splice(7);
-      // M3: Actually delete pruned backups from R2
+    // K8.1.3: Keep last 7 daily backups — prune oldest
+    const backupCount = backupDb.countUserBackups.get(userId).cnt;
+    if (backupCount > 7) {
+      const pruned = backupDb.getOldestBackups.all(userId, 7);
       for (const old of pruned) {
         if (s3Client) {
           try {
@@ -258,11 +221,9 @@ app.post('/api/v1/chat/backup/create', authMiddleware, asyncHandler(async (req, 
           console.log(`🗑️  [STUB] Would delete pruned backup: ${old.path}`);
         }
       }
+      backupDb.deleteOldBackups.run(userId, userId, 7);
       console.log(`🗑️  Pruned ${pruned.length} old backup(s) for ${userId.slice(0, 12)}`);
     }
-
-    backupRegistry.set(userId, userBackups);
-    persistBackupRegistry();
 
     console.log(`☁️  Backup created: ${userId.slice(0, 12)} → ${formatSize(dataSize)}`);
 
@@ -290,7 +251,7 @@ app.get('/api/v1/chat/backup/list', authMiddleware, (req, res) => {
       return res.status(400).json({ error: 'userId is required, alphanumeric + hyphens/underscores, max 255 chars' });
     }
 
-    const backups = backupRegistry.get(userId) || [];
+    const backups = backupDb.getUserBackups.all(userId).map(backupDb.rowToBackup);
 
     res.json({
       userId,
@@ -324,8 +285,8 @@ app.post('/api/v1/chat/backup/restore', authMiddleware, asyncHandler(async (req,
       return res.status(400).json({ error: 'backupId is required, max 255 characters' });
     }
 
-    const userBackups = backupRegistry.get(userId) || [];
-    const backup = userBackups.find(b => b.id === backupId);
+    const backupRow = backupDb.getBackup.get(userId, backupId);
+    const backup = backupDb.rowToBackup(backupRow);
 
     if (!backup) {
       return res.status(404).json({ error: 'Backup not found' });
@@ -376,14 +337,11 @@ app.delete('/api/v1/chat/backup/delete', authMiddleware, asyncHandler(async (req
       return res.status(400).json({ error: 'backupId is required, max 255 characters' });
     }
 
-    const userBackups = backupRegistry.get(userId) || [];
-    const idx = userBackups.findIndex(b => b.id === backupId);
+    const removedRow = backupDb.getBackup.get(userId, backupId);
+    if (!removedRow) return res.status(404).json({ error: 'Backup not found' });
 
-    if (idx === -1) return res.status(404).json({ error: 'Backup not found' });
-
-    const removed = userBackups.splice(idx, 1)[0];
-    backupRegistry.set(userId, userBackups);
-    persistBackupRegistry();
+    const removed = backupDb.rowToBackup(removedRow);
+    backupDb.deleteBackup.run(userId, backupId);
 
     // M3: Actually delete from R2
     if (s3Client) {
