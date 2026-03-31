@@ -12,6 +12,7 @@
     "test:social": "node --test tests/social.test.js",
     "test:persistence": "node --test tests/persistence.test.js",
     "test:integration": "node --test tests/integration/test_onboarding_flow.js",
-    "install:all": "cd services/shared && npm install && cd ../onboarding && npm install && cd ../directory && npm install && cd ../push-gateway && npm install && cd ../backup && npm install && cd ../social && npm install && cd ../translation && npm install && cd ../media && npm install"
+    "test:full-stack": "node --test tests/integration/test_full_stack.js",
+    "install:all": "cd services/shared && npm install && cd ../onboarding && npm install && cd ../directory && npm install && cd ../push-gateway && npm install && cd ../backup && npm install && cd ../social && npm install && cd ../translation && npm install && cd ../media && npm install && cd ../call-history && npm install"
   }
 }

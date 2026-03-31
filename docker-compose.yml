@@ -335,6 +335,33 @@ services:
       retries: 3
       start_period: 10s
 
+  # ── Call History (K5) — VoIP call metadata tracking ──
+  call-history:
+    build:
+      context: ./services
+      dockerfile: call-history/Dockerfile
+    container_name: windy-call-history
+    ports:
+      - "8108:8108"
+    volumes:
+      - call_history_data:/app/service/data
+    environment:
+      PORT: 8108
+      NODE_ENV: ${NODE_ENV:-development}
+      WINDY_ACCOUNT_SERVER_URL: ${WINDY_ACCOUNT_SERVER_URL:-http://host.docker.internal:8098}
+      WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
+    depends_on:
+      synapse:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8108/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
 volumes:
   synapse_data:
   synapse_pgdata:
@@ -348,3 +375,4 @@ volumes:
   social_data:
   translation_data:
   media_data:
+  call_history_data:

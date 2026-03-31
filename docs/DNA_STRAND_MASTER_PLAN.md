@@ -31,13 +31,13 @@ Each strand follows this structure:
 | **K1** | Synapse Homeserver | Production-ready | **~95%** | P0 |
 | **K2** | Onboarding | Built, hardened | **~90%** | P0 |
 | **K3** | Contact Discovery | Built, hardened | **~85%** | P0 |
-| **K4** | Rich Media Sharing | Basic upload built | **~20%** | P1 |
-| **K5** | VoIP / WebRTC | Infrastructure only | **~15%** | P1 |
+| **K4** | Rich Media Sharing | Upload + serve + thumbnails | **~40%** | P1 |
+| **K5** | VoIP / WebRTC | Call history built, Coturn ready | **~30%** | P1 |
 | **K6** | Push Notifications | Built, needs credentials | **~85%** | P0 |
 | **K7** | E2E Encryption | Delegated to Matrix | **~60%** | P1 |
 | **K8** | Cloud Backup | Built, needs credentials | **~85%** | P0 |
-| **K9** | Translation Integration | Translation proxy built | **~30%** | P2 |
-| **K10** | Social Layer | Core complete, hardened | **~80%** | P0 |
+| **K9** | Translation Integration | Proxy + preferences built | **~50%** | P2 |
+| **K10** | Social Layer | Core complete, hardened | **~85%** | P0 |
 
 ---
 
@@ -205,7 +205,7 @@ Share images, video, audio, files, and voice messages in chat. Matrix already su
 media uploads via `/_matrix/media/`, but Windy Chat needs a polished layer on top:
 thumbnails, previews, voice message waveforms, link previews, and media gallery.
 
-### Status: Basic Upload Built (~20%)
+### Status: Upload + Serve + Thumbnails (~40%)
 
 ### What Exists
 
@@ -237,7 +237,7 @@ thumbnails, previews, voice message waveforms, link previews, and media gallery.
 
 ### Priority: P1 — Enhances messaging core
 
-### Complexity: L (new service: `services/media/`, port 8105)
+### Complexity: L (service: `services/media/`, port 8107)
 
 ---
 
@@ -248,15 +248,20 @@ thumbnails, previews, voice message waveforms, link previews, and media gallery.
 Voice and video calls between Windy Chat users. 1:1 calls first, group calls later. Matrix
 supports VoIP via `m.call.*` event types and TURN/STUN for NAT traversal.
 
-### Status: Infrastructure Only (~15%)
+### Status: Call History Built, Coturn Ready (~30%)
 
 ### What Exists
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `services/call-history/server.js` | 145 | Call log, history, stats endpoints |
+| `services/call-history/lib/db.js` | 70 | SQLite call log with windy_identity_id |
 
 - **Coturn (TURN/STUN)** fully configured in `deploy/synapse/docker-compose.yml`:
   - Ports: 3478 (UDP/TCP), 5349 (TLS), 49152–49200 (relay range)
   - Shared secret auth with Synapse, 24-hour user lifetime
 - **Synapse TURN config** in `homeserver.yaml` (turn URIs for UDP/TCP/TLS)
-- **No backend service code** — signaling handled by Matrix protocol + client SDK
+- **Call history service** on port 8108 — log calls, query history with pagination, aggregate stats (total calls, minutes, avg duration, today count)
 
 ### What's Missing
 
@@ -423,7 +428,7 @@ models. Every message auto-translated into the reader's language. The social fee
 multilingual by default. Translation drives Traveler pair purchases — every cross-language
 conversation is a monetization event.
 
-### Status: Translation Proxy Built (~30%)
+### Status: Proxy + Preferences Built (~50%)
 
 ### What Exists
 
@@ -488,7 +493,7 @@ From BRAND-ARCHITECTURE.md: _"Rather than building a separate social media produ
 Chat evolves from private messaging into messaging + public social. This concentrates the
 network effect in one place."_
 
-### Status: Core Complete, Hardened (~80%)
+### Status: Core Complete, Hardened (~85%)
 
 ### What Was Just Built
 
@@ -612,8 +617,9 @@ Phase 3 — Polish & Scale                                Priority: P3
 | 8103 | Push Gateway | K6 | Running |
 | 8104 | Backup | K8 | Running |
 | 8105 | Social | K10 | Running |
-| 8106 | Translation Proxy | K9 | **Running (new)** |
-| 8107 | Media | K4 | **Running (new)** |
+| 8106 | Translation Proxy | K9 | Running |
+| 8107 | Media | K4 | Running |
+| 8108 | Call History | K5 | **Running (new)** |
 
 ---
 
@@ -635,6 +641,6 @@ K10 (Social) ← K3, K4, K6, K9, Eternitas ────────────�
 
 ---
 
-_Last updated: 2026-03-31. Update strand statuses as work is completed.
+_Last updated: 2026-03-31 (K5 call history, full stack tests). Update strand statuses as work is completed.
 For ecosystem-wide strategy, see [BRAND-ARCHITECTURE.md](../BRAND-ARCHITECTURE.md).
 For API contracts with windy-pro, see [API_CONTRACT.md](./API_CONTRACT.md)._
