@@ -22,6 +22,8 @@ const { asyncHandler } = require('../shared/async-handler');
 const { createAuthMiddleware } = require('../shared/jwt-verify');
 const translationDb = require('./lib/db');
 
+const appserviceRouter = require('./appservice/handler');
+
 const app = express();
 const PORT = process.env.PORT || 8106;
 const TRANSLATE_URL = process.env.WINDY_TRANSLATE_URL || 'http://localhost:9877';
@@ -31,6 +33,10 @@ app.use(cors(createCorsOptions()));
 app.use(express.json({ limit: '1mb' }));
 
 const auth = createAuthMiddleware();
+
+// ── Matrix Application Service endpoints (K9) ──
+// Synapse pushes events to /_matrix/app/v1/transactions/:txnId
+app.use('/_matrix/app/v1', appserviceRouter);
 
 // ── Health ──
 app.get('/health', createHealthHandler({

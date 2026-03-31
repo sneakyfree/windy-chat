@@ -12,6 +12,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFile } = require('child_process');
 const express = require('express');
 const { createCorsOptions } = require('../shared/cors');
 const cors = require('cors');
@@ -57,6 +58,18 @@ const ALLOWED_TYPES = {
 
 const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.mp4', '.mp3', '.ogg', '.pdf', '.doc', '.docx']);
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+const VIDEO_TYPES = new Set(['video/mp4']);
+
+// Check if ffmpeg is available
+let ffmpegAvailable = false;
+execFile('ffmpeg', ['-version'], (err) => {
+  if (!err) {
+    ffmpegAvailable = true;
+    console.log('[media] ffmpeg detected — video thumbnail generation enabled');
+  } else {
+    console.warn('[media] ffmpeg not available — video thumbnails disabled');
+  }
+});
 
 // Multer storage config
 const storage = multer.diskStorage({
@@ -94,6 +107,7 @@ app.get('/health', createHealthHandler({
   checks: async () => ({
     storagePath: STORAGE_PATH,
     sharpAvailable: !!sharp,
+    ffmpegAvailable,
   }),
 }));
 
@@ -114,6 +128,49 @@ async function generateThumbnail(filePath, mediaId) {
     console.warn(`[media] Thumbnail generation failed for ${mediaId}:`, err.message);
     return null;
   }
+}
+
+/**
+ * Generate a thumbnail for a video file using ffmpeg.
+ * Extracts a frame at 1 second (or first frame) and resizes to 200x200.
+ */
+function generateVideoThumbnail(filePath, mediaId) {
+  if (!ffmpegAvailable) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const thumbPath = path.join(THUMBNAIL_DIR, `${mediaId}_thumb.jpg`);
+    const args = [
+      '-i', filePath,
+      '-ss', '00:00:01.000',
+      '-vframes', '1',
+      '-vf', 'scale=200:200:force_original_aspect_ratio=increase,crop=200:200',
+      '-q:v', '3',
+      '-y',
+      thumbPath,
+    ];
+    execFile('ffmpeg', args, { timeout: 10000 }, (err) => {
+      if (err) {
+        // Retry with first frame (video may be shorter than 1 second)
+        const retryArgs = [
+          '-i', filePath,
+          '-vframes', '1',
+          '-vf', 'scale=200:200:force_original_aspect_ratio=increase,crop=200:200',
+          '-q:v', '3',
+          '-y',
+          thumbPath,
+        ];
+        execFile('ffmpeg', retryArgs, { timeout: 10000 }, (retryErr) => {
+          if (retryErr) {
+            console.warn(`[media] Video thumbnail failed for ${mediaId}:`, retryErr.message);
+            resolve(null);
+          } else {
+            resolve(thumbPath);
+          }
+        });
+      } else {
+        resolve(thumbPath);
+      }
+    });
+  });
 }
 
 // ── Upload ──
@@ -139,10 +196,12 @@ app.post('/api/v1/media/upload', auth, (req, res, next) => {
   const mediaId = path.basename(req.file.filename, path.extname(req.file.filename));
   const filePath = req.file.path;
 
-  // Generate thumbnail for images
+  // Generate thumbnail for images and videos
   let thumbnailPath = null;
   if (IMAGE_TYPES.has(req.file.mimetype)) {
     thumbnailPath = await generateThumbnail(filePath, mediaId);
+  } else if (VIDEO_TYPES.has(req.file.mimetype)) {
+    thumbnailPath = await generateVideoThumbnail(filePath, mediaId);
   }
 
   // Store metadata in SQLite

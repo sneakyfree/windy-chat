@@ -74,6 +74,18 @@ restrict_public_rooms_to_local_users: true
 # ── Signing Keys ──
 signing_key_path: "/data/chat.windypro.com.signing.key"
 
+# ── E2E Key Backup (K7) ──
+# Enables server-side encrypted key backup so users can recover
+# Megolm session keys on new devices. Keys are encrypted client-side
+# with the user's recovery key — server is zero-knowledge.
+enable_room_key_backup: true
+
+# ── Cross-Signing (K7) ──
+# Enables device cross-signing via SSSS (Secure Secret Storage and Sharing).
+# Users verify their own devices, then trust is transitive across devices.
+# Required for the green shield "verified" indicator in clients.
+enable_cross_signing: true
+
 # ── Trusted Key Servers ──
 trusted_key_servers:
   - server_name: "matrix.org"
@@ -144,6 +156,13 @@ presence:
 # ── Push Notifications ──
 push:
   include_content: false  # Privacy: push bodies don't contain message text
+
+# ── Application Services ──
+# K9 Translation appservice — auto-translates messages in rooms
+# To enable: copy services/translation/appservice/registration.yaml to
+# /data/appservices/ and uncomment the line below.
+# app_service_config_files:
+#   - /data/appservices/translation-registration.yaml
 
 # ── Server Notices ──
 server_notices:

@@ -5,9 +5,18 @@ dist/
 .DS_Store
 deploy/synapse/data/
 deploy/synapse/certs/
+deploy/certs/
+deploy/acme-challenge/
 deploy/synapse/*.signing.key
 
 # SQLite databases (persistent data)
 services/*/data/*.db
 services/*/data/*.db-wal
 services/*/data/*.db-shm
+
+# Media uploads
+services/media/data/media/
+
+# Firebase / APNs credentials
+*.p8
+*-firebase-adminsdk-*.json

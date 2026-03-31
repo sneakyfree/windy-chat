@@ -31,12 +31,12 @@ Each strand follows this structure:
 | **K1** | Synapse Homeserver | Production-ready | **~95%** | P0 |
 | **K2** | Onboarding | Built, hardened | **~90%** | P0 |
 | **K3** | Contact Discovery | Built, hardened | **~85%** | P0 |
-| **K4** | Rich Media Sharing | Upload + serve + thumbnails | **~40%** | P1 |
+| **K4** | Rich Media Sharing | Upload + image/video thumbnails | **~50%** | P1 |
 | **K5** | VoIP / WebRTC | Call history built, Coturn ready | **~30%** | P1 |
-| **K6** | Push Notifications | Built, needs credentials | **~85%** | P0 |
-| **K7** | E2E Encryption | Delegated to Matrix | **~60%** | P1 |
-| **K8** | Cloud Backup | Built, needs credentials | **~85%** | P0 |
-| **K9** | Translation Integration | Proxy + preferences built | **~50%** | P2 |
+| **K6** | Push Notifications | Built, production-ready | **~85%** | P0 |
+| **K7** | E2E Encryption | Key backup + cross-signing enabled | **~75%** | P1 |
+| **K8** | Cloud Backup | Built, production-ready | **~85%** | P0 |
+| **K9** | Translation Integration | Proxy + appservice built | **~65%** | P2 |
 | **K10** | Social Layer | Core complete, hardened | **~85%** | P0 |
 
 ---
@@ -641,6 +641,6 @@ K10 (Social) ← K3, K4, K6, K9, Eternitas ────────────�
 
 ---
 
-_Last updated: 2026-03-31 (K5 call history, full stack tests). Update strand statuses as work is completed.
+_Last updated: 2026-03-31 (K7 key backup, K4 video thumbs, K9 appservice, prod hardening, client integration). Update strand statuses as work is completed.
 For ecosystem-wide strategy, see [BRAND-ARCHITECTURE.md](../BRAND-ARCHITECTURE.md).
 For API contracts with windy-pro, see [API_CONTRACT.md](./API_CONTRACT.md)._

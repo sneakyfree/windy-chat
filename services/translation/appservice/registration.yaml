@@ -1,0 +1,21 @@
+# Windy Chat — Translation Application Service Registration
+# K9: Auto-Translation via Synapse Application Service
+#
+# This file tells Synapse about the translation appservice.
+# Copy to Synapse's data dir and add to homeserver.yaml:
+#   app_service_config_files:
+#     - /data/appservices/translation-registration.yaml
+
+id: windy-translation
+url: "http://translation:8106"
+as_token: "${TRANSLATION_AS_TOKEN}"
+hs_token: "${TRANSLATION_HS_TOKEN}"
+sender_localpart: "windy_translator"
+rate_limited: false
+
+namespaces:
+  users:
+    - exclusive: false
+      regex: "@.*:chat\\.windypro\\.com"
+  rooms: []
+  aliases: []
