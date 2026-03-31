@@ -8,8 +8,10 @@ const { v4: uuidv4 } = require('uuid');
 const { asyncHandler } = require('../../shared/async-handler');
 const { createAuthMiddleware } = require('../../shared/jwt-verify');
 const {
-  followsMap, followersMap, notificationsMap,
+  followsMap, followersMap,
   persistFollows, persistNotifications,
+  addFollow, removeFollow, isFollowing,
+  addNotification,
 } = require('../lib/store');
 
 const router = Router();
@@ -24,18 +26,13 @@ router.post('/:targetUserId', auth, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Cannot follow yourself' });
   }
 
-  if (!followsMap.has(userId)) followsMap.set(userId, new Set());
-  if (!followersMap.has(targetUserId)) followersMap.set(targetUserId, new Set());
-
-  const alreadyFollowing = followsMap.get(userId).has(targetUserId);
-  followsMap.get(userId).add(targetUserId);
-  followersMap.get(targetUserId).add(userId);
+  const alreadyFollowing = isFollowing(userId, targetUserId);
+  addFollow(userId, targetUserId);
   persistFollows();
 
   // Queue notification for new follows
   if (!alreadyFollowing) {
-    if (!notificationsMap.has(targetUserId)) notificationsMap.set(targetUserId, []);
-    notificationsMap.get(targetUserId).push({
+    addNotification(targetUserId, {
       id: uuidv4(),
       type: 'follow',
       fromUserId: userId,
@@ -53,12 +50,7 @@ router.delete('/:targetUserId', auth, asyncHandler(async (req, res) => {
   const userId = req.user.sub;
   const { targetUserId } = req.params;
 
-  const userFollows = followsMap.get(userId);
-  if (userFollows) userFollows.delete(targetUserId);
-
-  const targetFollowers = followersMap.get(targetUserId);
-  if (targetFollowers) targetFollowers.delete(userId);
-
+  removeFollow(userId, targetUserId);
   persistFollows();
 
   res.json({ following: false });

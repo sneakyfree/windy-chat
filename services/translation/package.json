@@ -1,7 +1,7 @@
 {
-  "name": "windy-chat-social",
+  "name": "windy-chat-translation",
   "version": "1.0.0",
-  "description": "Windy Chat — K10 Social Layer (posts, follows, notifications, moderation, translation, Eternitas badges)",
+  "description": "Windy Chat — K9 Translation Proxy (bridges to Windy Pro translate-api)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

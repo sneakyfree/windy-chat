@@ -20,17 +20,25 @@ const express = require('express');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 
+const dirDb = require('../lib/db');
+
 const router = express.Router();
 
-// ── In-memory stores (replace with DB/Redis in production) ──
-
-// Hash directory: hash → { userId, displayName, avatarUrl, registeredAt }
-const hashDirectory = new Map();
-
-// Salt management — rotates weekly
-let currentSalt = crypto.randomBytes(32).toString('hex');
-let saltCreatedAt = Date.now();
+// Salt management — load from DB or generate
 const SALT_ROTATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+let currentSalt;
+let saltCreatedAt;
+
+const savedSalt = dirDb.getSalt.get();
+if (savedSalt) {
+  currentSalt = savedSalt.current_salt;
+  saltCreatedAt = savedSalt.created_at;
+} else {
+  currentSalt = crypto.randomBytes(32).toString('hex');
+  saltCreatedAt = Date.now();
+  dirDb.upsertSalt.run(currentSalt, saltCreatedAt);
+}
 
 // ── Rate limiters ──
 const lookupLimiter = rateLimit({
@@ -62,10 +70,8 @@ function checkSaltRotation() {
     const previousSalt = currentSalt;
     currentSalt = crypto.randomBytes(32).toString('hex');
     saltCreatedAt = Date.now();
+    dirDb.upsertSalt.run(currentSalt, saltCreatedAt);
     console.log(`🔑 Salt rotated. Previous salt prefix: ${previousSalt.slice(0, 8)}...`);
-
-    // In production: re-hash all registered identifiers with new salt
-    // and keep old salt temporarily for transition period
   }
 }
 
@@ -130,13 +136,13 @@ router.post('/lookup', lookupLimiter, (req, res) => {
     // Look up matches
     const matches = [];
     for (const hash of validHashes) {
-      const entry = hashDirectory.get(hash);
+      const entry = dirDb.getHash.get(hash);
       if (entry) {
         matches.push({
           hash,
-          userId: entry.userId,
-          displayName: entry.displayName,
-          avatarUrl: entry.avatarUrl || null,
+          userId: entry.user_id,
+          displayName: entry.display_name,
+          avatarUrl: entry.avatar_url || null,
         });
       }
     }
@@ -180,11 +186,12 @@ router.post('/register-hash', (req, res) => {
     // Option 1: Pre-computed hash provided by client
     if (identifierHash) {
       if (typeof identifierHash === 'string' && /^[a-f0-9]{64}$/.test(identifierHash)) {
-        hashDirectory.set(identifierHash, {
-          userId,
-          displayName: sanitizedDisplayName,
-          avatarUrl: avatarUrl || null,
-          registeredAt: Date.now(),
+        dirDb.upsertHash.run({
+          hash: identifierHash,
+          user_id: userId,
+          display_name: sanitizedDisplayName,
+          avatar_url: avatarUrl || null,
+          registered_at: Date.now(),
         });
         registeredCount = 1;
       } else {
@@ -193,18 +200,17 @@ router.post('/register-hash', (req, res) => {
     }
 
     // Option 2: Server computes hashes from raw identifiers
-    // (used during onboarding when server has the verified phone/email)
     if (identifiers && Array.isArray(identifiers)) {
-      // Validate identifiers are strings
       const validIdentifiers = identifiers.filter(id => typeof id === 'string' && id.length > 0 && id.length <= 255);
       checkSaltRotation();
-      for (const id of validIdentifiers.slice(0, 5)) { // Max 5 identifiers per user
+      for (const id of validIdentifiers.slice(0, 5)) {
         const hash = computeHash(id, currentSalt);
-        hashDirectory.set(hash, {
-          userId,
-          displayName: sanitizedDisplayName,
-          avatarUrl: avatarUrl || null,
-          registeredAt: Date.now(),
+        dirDb.upsertHash.run({
+          hash,
+          user_id: userId,
+          display_name: sanitizedDisplayName,
+          avatar_url: avatarUrl || null,
+          registered_at: Date.now(),
         });
         registeredCount++;
       }
@@ -235,7 +241,7 @@ router.post('/register-hash', (req, res) => {
 router.get('/stats', (_req, res) => {
   try {
     res.json({
-      totalHashes: hashDirectory.size,
+      totalHashes: dirDb.hashCount.get().cnt,
       saltAge: Math.floor((Date.now() - saltCreatedAt) / 1000 / 60 / 60) + ' hours',
       nextRotation: new Date(saltCreatedAt + SALT_ROTATION_MS).toISOString(),
     });

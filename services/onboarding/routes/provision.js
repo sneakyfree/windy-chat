@@ -22,10 +22,9 @@ const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 const { asyncHandler } = require('../../shared/async-handler');
 
-const router = express.Router();
+const onboardingDb = require('../lib/db');
 
-// ── In-memory onboarding state (replace with DB in production) ──
-const onboardingState = new Map();  // windyUserId → { verified, profileSetup, matrixProvisioned, matrixUserId }
+const router = express.Router();
 
 // ── Config ──
 const SYNAPSE_URL = process.env.SYNAPSE_URL || 'http://localhost:8008';
@@ -202,13 +201,14 @@ router.post('/', provisionLimiter, asyncHandler(async (req, res) => {
       };
     }
 
-    // Update onboarding state
-    onboardingState.set(chatUserId, {
-      verified: true,
-      profileSetup: true,
-      matrixProvisioned: true,
-      matrixUserId: matrixCredentials.matrixUserId,
-      provisionedAt: new Date().toISOString(),
+    // Update onboarding state in SQLite
+    onboardingDb.upsertOnboardingState.run({
+      windy_user_id: chatUserId,
+      verified: 1,
+      profile_setup: 1,
+      matrix_provisioned: 1,
+      matrix_user_id: matrixCredentials.matrixUserId,
+      provisioned_at: new Date().toISOString(),
     });
 
     console.log(`🏠 Matrix account provisioned: ${sanitizedDisplayName} → ${matrixCredentials.matrixUserId}`);
@@ -247,9 +247,9 @@ router.get('/onboarding/status', (req, res) => {
       return res.status(400).json({ error: 'chatUserId must be alphanumeric + hyphens/underscores, max 255 chars' });
     }
 
-    const state = onboardingState.get(chatUserId);
+    const row = onboardingDb.getOnboardingState.get(chatUserId);
 
-    if (!state) {
+    if (!row) {
       return res.json({
         chatUserId,
         complete: false,
@@ -262,6 +262,14 @@ router.get('/onboarding/status', (req, res) => {
         message: 'Start by verifying your phone or email',
       });
     }
+
+    const state = {
+      verified: !!row.verified,
+      profileSetup: !!row.profile_setup,
+      matrixProvisioned: !!row.matrix_provisioned,
+      matrixUserId: row.matrix_user_id,
+      provisionedAt: row.provisioned_at,
+    };
 
     const nextStep = !state.verified ? 'verify'
       : !state.profileSetup ? 'profile'

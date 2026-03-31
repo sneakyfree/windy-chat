@@ -7,7 +7,10 @@ const { Router } = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { asyncHandler } = require('../../shared/async-handler');
 const { createAuthMiddleware } = require('../../shared/jwt-verify');
-const { postsMap, reportsMap, persistReports } = require('../lib/store');
+const {
+  postsMap, reportsMap, persistReports,
+  hasDuplicateReport,
+} = require('../lib/store');
 
 const router = Router();
 const auth = createAuthMiddleware();
@@ -34,10 +37,8 @@ router.post('/:postId/report', auth, asyncHandler(async (req, res) => {
   }
 
   // Prevent duplicate reports from same user on same post
-  for (const r of reportsMap.values()) {
-    if (r.postId === postId && r.reportedBy === userId) {
-      return res.status(409).json({ error: 'You have already reported this post' });
-    }
+  if (hasDuplicateReport(postId, userId)) {
+    return res.status(409).json({ error: 'You have already reported this post' });
   }
 
   const report = {

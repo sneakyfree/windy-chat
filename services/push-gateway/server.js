@@ -17,11 +17,10 @@ const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 
-const fs = require('fs');
-const path = require('path');
 const { createCorsOptions } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
 const { asyncHandler } = require('../shared/async-handler');
+const pushDb = require('./lib/db');
 
 const app = express();
 const PORT = process.env.PORT || 8103;
@@ -68,52 +67,7 @@ function stripHtml(str) {
   return str.replace(/<[^>]*>/g, '');
 }
 
-// ── In-memory stores with file-based persistence (M1) ──
-const pushTokens = new Map();  // pushkey → { userId, platform, appId, token, deviceName }
-const muteSettings = new Map();  // `${userId}:${roomId}` → { mutedUntil, mentionOverride }
-
-const PUSH_DATA_DIR = path.join(__dirname, 'data');
-const PUSH_TOKENS_FILE = path.join(PUSH_DATA_DIR, 'push-tokens.json');
-
-function loadPushData() {
-  try {
-    if (fs.existsSync(PUSH_TOKENS_FILE)) {
-      const raw = fs.readFileSync(PUSH_TOKENS_FILE, 'utf-8');
-      const data = JSON.parse(raw);
-      if (data.pushTokens && typeof data.pushTokens === 'object') {
-        for (const [key, value] of Object.entries(data.pushTokens)) {
-          pushTokens.set(key, value);
-        }
-      }
-      if (data.muteSettings && typeof data.muteSettings === 'object') {
-        for (const [key, value] of Object.entries(data.muteSettings)) {
-          muteSettings.set(key, value);
-        }
-      }
-      console.log(`[Push] Loaded ${pushTokens.size} push tokens, ${muteSettings.size} mute settings from disk`);
-    }
-  } catch (err) {
-    console.error('[Push] Failed to load persisted data:', err.message);
-  }
-}
-
-function persistPushData() {
-  try {
-    if (!fs.existsSync(PUSH_DATA_DIR)) {
-      fs.mkdirSync(PUSH_DATA_DIR, { recursive: true });
-    }
-    const data = {
-      pushTokens: Object.fromEntries(pushTokens),
-      muteSettings: Object.fromEntries(muteSettings),
-    };
-    fs.writeFileSync(PUSH_TOKENS_FILE, JSON.stringify(data, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('[Push] Failed to persist data:', err.message);
-  }
-}
-
-// Load persisted data on startup
-loadPushData();
+// ── SQLite-backed persistence (via ./lib/db) ──
 
 // ── FCM / APNs setup ──
 
@@ -197,10 +151,11 @@ app.post('/_matrix/push/v1/notify', asyncHandler(async (req, res) => {
       if (!pushkey || typeof pushkey !== 'string') continue;
 
       // Check mute settings
-      const tokenEntry = pushTokens.get(pushkey);
+      const tokenRow = pushDb.getToken.get(pushkey);
+      const tokenEntry = tokenRow ? { userId: tokenRow.user_id, platform: tokenRow.platform, appId: tokenRow.app_id, deviceName: tokenRow.device_name } : null;
       if (tokenEntry) {
-        const muteKey = `${tokenEntry.userId}:${room_id}`;
-        const mute = muteSettings.get(muteKey);
+        const muteRow = pushDb.getMute.get(tokenEntry.userId, room_id);
+        const mute = muteRow ? { mutedUntil: muteRow.muted_until, mentionOverride: !!muteRow.mention_override } : null;
         if (mute && mute.mutedUntil > Date.now()) {
           // Check mention override
           const isMention = type === 'm.room.message' && notification.content?.body?.includes('@');
@@ -345,14 +300,14 @@ app.post('/api/v1/chat/push/register', pushRegisterLimiter, authMiddleware, (req
 
     const sanitizedDeviceName = deviceName ? stripHtml(deviceName) : 'Unknown';
 
-    pushTokens.set(pushkey, {
-      userId,
+    pushDb.upsertToken.run({
+      pushkey,
+      user_id: userId,
       platform,
-      appId: appId || `com.windypro.chat.${platform}`,
-      deviceName: sanitizedDeviceName,
-      registeredAt: Date.now(),
+      app_id: appId || `com.windypro.chat.${platform}`,
+      device_name: sanitizedDeviceName,
+      registered_at: Date.now(),
     });
-    persistPushData();
 
     console.log(`🔔 Push token registered: ${platform} for ${userId.slice(0, 12)}`);
     res.status(201).json({ success: true });
@@ -389,13 +344,13 @@ app.post('/api/v1/chat/push/mute', authMiddleware, (req, res) => {
     };
 
     const ms = durations[duration] || durations['1h'];
-    const muteKey = `${userId}:${roomId}`;
 
-    muteSettings.set(muteKey, {
-      mutedUntil: Date.now() + ms,
-      mentionOverride: mentionOverride !== false,
+    pushDb.upsertMute.run({
+      user_id: userId,
+      room_id: roomId,
+      muted_until: Date.now() + ms,
+      mention_override: mentionOverride !== false ? 1 : 0,
     });
-    persistPushData();
 
     res.json({ success: true, mutedUntil: new Date(Date.now() + ms).toISOString() });
   } catch (err) {
@@ -416,8 +371,7 @@ app.post('/api/v1/chat/push/unmute', authMiddleware, (req, res) => {
       return res.status(400).json({ error: 'roomId is required, max 255 characters' });
     }
 
-    muteSettings.delete(`${userId}:${roomId}`);
-    persistPushData();
+    pushDb.deleteMute.run(userId, roomId);
     res.json({ success: true });
   } catch (err) {
     console.error('Unmute error:', err);
@@ -432,8 +386,8 @@ app.get('/health', createHealthHandler({
   checks: async () => ({
     fcm: fcmApp ? 'active' : 'stubbed',
     apns: apnProvider ? 'active' : 'stubbed',
-    registeredTokens: pushTokens.size,
-    activeMutes: muteSettings.size,
+    registeredTokens: pushDb.tokenCount.get().cnt,
+    activeMutes: pushDb.muteCount.get().cnt,
   }),
 }));
 

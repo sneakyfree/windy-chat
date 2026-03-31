@@ -6,3 +6,8 @@ dist/
 deploy/synapse/data/
 deploy/synapse/certs/
 deploy/synapse/*.signing.key
+
+# SQLite databases (persistent data)
+services/*/data/*.db
+services/*/data/*.db-wal
+services/*/data/*.db-shm

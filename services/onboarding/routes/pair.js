@@ -20,10 +20,9 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 
-const router = express.Router();
+const onboardingDb = require('../lib/db');
 
-// ── In-memory session store (replace with Redis in production) ──
-const pairingSessions = new Map();  // sessionId → { pubkey, createdAt, expiresAt, status, linkedAccount }
+const router = express.Router();
 
 const MAX_DEVICES = 5;
 const QR_TTL_MS = 120 * 1000;  // 120 seconds
@@ -48,12 +47,7 @@ function isValidUserId(val) {
 
 // ── Cleanup expired sessions periodically ──
 setInterval(() => {
-  const now = Date.now();
-  for (const [id, session] of pairingSessions) {
-    if (now > session.expiresAt && session.status === 'pending') {
-      pairingSessions.delete(id);
-    }
-  }
+  onboardingDb.deleteExpiredSessions.run('pending', Date.now());
 }, 30 * 1000);
 
 // ── POST /api/v1/chat/pair/generate ──
@@ -80,15 +74,15 @@ router.post('/generate', pairGenerateLimiter, (req, res) => {
       version: 1,
     };
 
-    // Store session
-    pairingSessions.set(sessionId, {
+    // Store session in SQLite
+    onboardingDb.upsertSession.run({
+      session_id: sessionId,
       pubkey: pubkeyBase64,
-      privateKey: keyPair.privateKey,
-      createdAt: timestamp,
-      expiresAt,
-      status: 'pending',       // pending → paired → active
-      linkedAccount: null,
-      deviceId: null,
+      private_key: keyPair.privateKey,
+      created_at: timestamp,
+      expires_at: expiresAt,
+      status: 'pending',
+      linked_account: null,
     });
 
     console.log(`🔗 Pairing session created: ${sessionId.slice(0, 8)}... (expires in 120s)`);
@@ -139,14 +133,14 @@ router.post('/confirm', (req, res) => {
     }
 
     // Find session
-    const session = pairingSessions.get(sessionId);
+    const session = onboardingDb.getSession.get(sessionId);
     if (!session) {
       return res.status(404).json({ error: 'Pairing session not found or expired' });
     }
 
     // Check expiration
-    if (Date.now() > session.expiresAt) {
-      pairingSessions.delete(sessionId);
+    if (Date.now() > session.expires_at) {
+      onboardingDb.deleteSession.run(sessionId);
       return res.status(410).json({ error: 'Pairing session expired. Generate a new QR code.' });
     }
 
@@ -162,9 +156,8 @@ router.post('/confirm', (req, res) => {
     const sanitizedDisplayName = displayName ? stripHtml(displayName) : userId;
     const sanitizedDeviceName = deviceName ? stripHtml(deviceName) : 'Desktop';
 
-    // Link session
-    session.status = 'paired';
-    session.linkedAccount = {
+    // Link session in SQLite
+    const linkedAccount = {
       userId,
       displayName: sanitizedDisplayName,
       deviceId,
@@ -172,6 +165,15 @@ router.post('/confirm', (req, res) => {
       platform: platform || 'desktop',
       pairedAt: new Date().toISOString(),
     };
+    onboardingDb.upsertSession.run({
+      session_id: sessionId,
+      pubkey: session.pubkey,
+      private_key: session.private_key,
+      created_at: session.created_at,
+      expires_at: session.expires_at,
+      status: 'paired',
+      linked_account: JSON.stringify(linkedAccount),
+    });
 
     console.log(`✅ Pairing confirmed: session ${sessionId.slice(0, 8)} → user ${userId.slice(0, 12)} (${sanitizedDeviceName})`);
 
@@ -198,7 +200,7 @@ router.get('/status/:sessionId', (req, res) => {
       return res.status(400).json({ error: 'Invalid sessionId' });
     }
 
-    const session = pairingSessions.get(sessionId);
+    const session = onboardingDb.getSession.get(sessionId);
     if (!session) {
       return res.status(404).json({
         error: 'Session not found or expired',
@@ -207,8 +209,8 @@ router.get('/status/:sessionId', (req, res) => {
     }
 
     // Check expiration for pending sessions
-    if (session.status === 'pending' && Date.now() > session.expiresAt) {
-      pairingSessions.delete(sessionId);
+    if (session.status === 'pending' && Date.now() > session.expires_at) {
+      onboardingDb.deleteSession.run(sessionId);
       return res.json({
         sessionId,
         status: 'expired',
@@ -219,15 +221,16 @@ router.get('/status/:sessionId', (req, res) => {
     const response = {
       sessionId,
       status: session.status,
-      expiresAt: new Date(session.expiresAt).toISOString(),
+      expiresAt: new Date(session.expires_at).toISOString(),
     };
 
-    if (session.status === 'paired') {
+    if (session.status === 'paired' && session.linked_account) {
+      const linked = JSON.parse(session.linked_account);
       response.linkedAccount = {
-        userId: session.linkedAccount.userId,
-        displayName: session.linkedAccount.displayName,
-        deviceId: session.linkedAccount.deviceId,
-        pairedAt: session.linkedAccount.pairedAt,
+        userId: linked.userId,
+        displayName: linked.displayName,
+        deviceId: linked.deviceId,
+        pairedAt: linked.pairedAt,
       };
       response.message = 'Desktop linked! You can now access Windy Chat.';
     }
@@ -249,7 +252,8 @@ router.delete('/session/:sessionId', (req, res) => {
       return res.status(400).json({ error: 'Invalid sessionId' });
     }
 
-    const deleted = pairingSessions.delete(sessionId);
+    const info = onboardingDb.deleteSession.run(sessionId);
+    const deleted = info.changes > 0;
 
     res.json({
       success: deleted,

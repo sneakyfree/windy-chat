@@ -6,7 +6,10 @@
 const { Router } = require('express');
 const { asyncHandler } = require('../../shared/async-handler');
 const { createAuthMiddleware } = require('../../shared/jwt-verify');
-const { notificationsMap, persistNotifications } = require('../lib/store');
+const {
+  notificationsMap, persistNotifications,
+  markNotificationsRead,
+} = require('../lib/store');
 
 const router = Router();
 const auth = createAuthMiddleware();
@@ -41,18 +44,7 @@ router.post('/read', auth, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'notificationIds must be a non-empty array' });
   }
 
-  const userNotifications = notificationsMap.get(userId);
-  if (!userNotifications) return res.json({ markedRead: 0 });
-
-  const idsSet = new Set(notificationIds);
-  let markedRead = 0;
-  for (const n of userNotifications) {
-    if (idsSet.has(n.id) && !n.read) {
-      n.read = true;
-      markedRead++;
-    }
-  }
-
+  const markedRead = markNotificationsRead(userId, notificationIds);
   persistNotifications();
   res.json({ markedRead });
 }));

@@ -10,6 +10,8 @@
     "test:push-gateway": "node --test tests/push-gateway.test.js",
     "test:backup": "node --test tests/backup.test.js",
     "test:social": "node --test tests/social.test.js",
-    "install:all": "cd services/shared && npm install && cd ../onboarding && npm install && cd ../directory && npm install && cd ../push-gateway && npm install && cd ../backup && npm install && cd ../social && npm install"
+    "test:persistence": "node --test tests/persistence.test.js",
+    "test:integration": "node --test tests/integration/test_onboarding_flow.js",
+    "install:all": "cd services/shared && npm install && cd ../onboarding && npm install && cd ../directory && npm install && cd ../push-gateway && npm install && cd ../backup && npm install && cd ../social && npm install && cd ../translation && npm install && cd ../media && npm install"
   }
 }

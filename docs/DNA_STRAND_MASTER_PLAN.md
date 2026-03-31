@@ -29,15 +29,15 @@ Each strand follows this structure:
 | Strand | Name | Status | Completion | Priority |
 |--------|------|--------|------------|----------|
 | **K1** | Synapse Homeserver | Production-ready | **~95%** | P0 |
-| **K2** | Onboarding | Built, needs hardening | **~80%** | P0 |
-| **K3** | Contact Discovery | Built, needs hardening | **~75%** | P0 |
-| **K4** | Rich Media Sharing | Not started | **0%** | P1 |
+| **K2** | Onboarding | Built, hardened | **~90%** | P0 |
+| **K3** | Contact Discovery | Built, hardened | **~85%** | P0 |
+| **K4** | Rich Media Sharing | Basic upload built | **~20%** | P1 |
 | **K5** | VoIP / WebRTC | Infrastructure only | **~15%** | P1 |
 | **K6** | Push Notifications | Built, needs credentials | **~85%** | P0 |
 | **K7** | E2E Encryption | Delegated to Matrix | **~60%** | P1 |
 | **K8** | Cloud Backup | Built, needs credentials | **~85%** | P0 |
-| **K9** | Translation Integration | Not started | **0%** | P2 |
-| **K10** | Social Layer | **Just built — core complete** | **~70%** | P0 |
+| **K9** | Translation Integration | Translation proxy built | **~30%** | P2 |
+| **K10** | Social Layer | Core complete, hardened | **~80%** | P0 |
 
 ---
 
@@ -106,7 +106,7 @@ WhatsApp-style signup: phone/email verification → display name → QR pairing 
 mobile) → Matrix account provisioning. Zero-friction path from "download the app" to
 "chatting with people." Every Windy Fly agent also goes through this flow on hatch.
 
-### Status: Built, Needs Hardening (~80%)
+### Status: Built, Hardened (~90%)
 
 ### What Exists
 
@@ -117,7 +117,7 @@ mobile) → Matrix account provisioning. Zero-friction path from "download the a
 | `services/onboarding/routes/profile.js` | 318 | K2.2 | Display name validation, profanity filter, language selection (39 langs) |
 | `services/onboarding/routes/pair.js` | 265 | K2.3 | QR code pairing with X25519 key exchange |
 | `services/onboarding/routes/provision.js` | 289 | K2.4 | Matrix account creation via Synapse admin API |
-| `services/shared/jwt-verify.js` | 41 | — | Shared JWT + service token auth middleware |
+| `services/shared/jwt-verify.js` | 85 | — | Shared JWT auth — JWKS (RS256) + HS256 fallback + service token |
 
 **K2.1 — Phone/Email OTP:** Cryptographically secure 6-digit codes, E.164 normalization, rate limiting (5/min, 5/hour), Redis-backed with in-memory fallback, PII redaction.
 
@@ -160,7 +160,7 @@ Privacy-first contact discovery — Signal-style hash-based lookup so raw phone 
 never leave the device. Plus searchable directory with fuzzy name matching and SMS/email
 invites to grow the network.
 
-### Status: Built, Needs Hardening (~75%)
+### Status: Built, Hardened (~85%)
 
 ### What Exists
 
@@ -205,12 +205,17 @@ Share images, video, audio, files, and voice messages in chat. Matrix already su
 media uploads via `/_matrix/media/`, but Windy Chat needs a polished layer on top:
 thumbnails, previews, voice message waveforms, link previews, and media gallery.
 
-### Status: Not Started (0%)
+### Status: Basic Upload Built (~20%)
 
 ### What Exists
 
+| File | Lines | Purpose |
+|------|-------|---------|
+| `services/media/server.js` | 200 | Express server — upload, serve, thumbnail generation |
+| `services/media/lib/db.js` | 45 | SQLite media registry with windy_identity_id |
+
 - **Synapse media store** configured in `homeserver.yaml` with 100MB upload limit and URL preview enabled.
-- **No windy-chat service code** for media processing.
+- **Media service** on port 8107 — upload with file type validation, 50MB max, local disk storage, optional sharp thumbnails.
 
 ### What's Missing
 
@@ -418,11 +423,19 @@ models. Every message auto-translated into the reader's language. The social fee
 multilingual by default. Translation drives Traveler pair purchases — every cross-language
 conversation is a monetization event.
 
-### Status: Not Started (0%)
+### Status: Translation Proxy Built (~30%)
 
 ### What Exists
 
-- **Nothing in this repo.** Translation engine lives in windy-pro's `translate-api` service.
+| File | Lines | Purpose |
+|------|-------|---------|
+| `services/translation/server.js` | 200 | Translation proxy — cache, preferences, rate limiting |
+| `services/translation/lib/db.js` | 55 | SQLite cache + user preferences with windy_identity_id |
+
+- **Translation proxy service** on port 8106 — bridges to Windy Pro's translate-api.
+- **SQLite caching** with 24h TTL, SHA-256 cache keys.
+- **User language preferences** API (get/set preferred language, auto-translate toggle).
+- **Rate limiting** at 100 translations/min per user.
 - K3 (Directory) stores user language preferences (39 languages).
 - Synapse can be extended with application services.
 
@@ -475,7 +488,7 @@ From BRAND-ARCHITECTURE.md: _"Rather than building a separate social media produ
 Chat evolves from private messaging into messaging + public social. This concentrates the
 network effect in one place."_
 
-### Status: Just Built — Core Complete (~70%)
+### Status: Core Complete, Hardened (~80%)
 
 ### What Was Just Built
 
@@ -598,9 +611,9 @@ Phase 3 — Polish & Scale                                Priority: P3
 | 8102 | Directory | K3 | Running |
 | 8103 | Push Gateway | K6 | Running |
 | 8104 | Backup | K8 | Running |
-| 8105 | Social | K10 | **Running (new)** |
-| 8106 | Media _(proposed)_ | K4 | Not started |
-| 8107 | Translate Proxy _(proposed)_ | K9 | Not started |
+| 8105 | Social | K10 | Running |
+| 8106 | Translation Proxy | K9 | **Running (new)** |
+| 8107 | Media | K4 | **Running (new)** |
 
 ---
 
@@ -622,6 +635,6 @@ K10 (Social) ← K3, K4, K6, K9, Eternitas ────────────�
 
 ---
 
-_Last updated: 2026-03-29. Update strand statuses as work is completed.
+_Last updated: 2026-03-31. Update strand statuses as work is completed.
 For ecosystem-wide strategy, see [BRAND-ARCHITECTURE.md](../BRAND-ARCHITECTURE.md).
 For API contracts with windy-pro, see [API_CONTRACT.md](./API_CONTRACT.md)._

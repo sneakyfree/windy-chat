@@ -122,6 +122,8 @@ services:
     container_name: windy-onboarding
     ports:
       - "8101:8101"
+    volumes:
+      - onboarding_data:/app/service/data
     environment:
       PORT: 8101
       NODE_ENV: ${NODE_ENV:-development}
@@ -158,6 +160,8 @@ services:
     container_name: windy-directory
     ports:
       - "8102:8102"
+    volumes:
+      - directory_data:/app/service/data
     environment:
       PORT: 8102
       DIRECTORY_PORT: 8102
@@ -188,6 +192,8 @@ services:
     container_name: windy-push-gateway
     ports:
       - "8103:8103"
+    volumes:
+      - push_gateway_data:/app/service/data
     environment:
       PORT: 8103
       PUSH_GATEWAY_PORT: 8103
@@ -218,6 +224,8 @@ services:
     container_name: windy-backup
     ports:
       - "8104:8104"
+    volumes:
+      - backup_data:/app/service/data
     environment:
       PORT: 8104
       BACKUP_PORT: 8104
@@ -240,7 +248,7 @@ services:
       retries: 3
       start_period: 10s
 
-  # ── Social (K9) — Presence, status, stories ──
+  # ── Social (K10) — Posts, follows, notifications, moderation ──
   social:
     build:
       context: ./services
@@ -248,6 +256,8 @@ services:
     container_name: windy-social
     ports:
       - "8105:8105"
+    volumes:
+      - social_data:/app/service/data
     environment:
       PORT: 8105
       NODE_ENV: ${NODE_ENV:-development}
@@ -269,9 +279,72 @@ services:
       retries: 3
       start_period: 10s
 
+  # ── Translation Proxy (K9) — Bridge to Windy Pro translate-api ──
+  translation:
+    build:
+      context: ./services
+      dockerfile: translation/Dockerfile
+    container_name: windy-translation
+    ports:
+      - "8106:8106"
+    volumes:
+      - translation_data:/app/service/data
+    environment:
+      PORT: 8106
+      NODE_ENV: ${NODE_ENV:-development}
+      WINDY_TRANSLATE_URL: ${WINDY_TRANSLATE_URL:-http://host.docker.internal:9877}
+      WINDY_ACCOUNT_SERVER_URL: ${WINDY_ACCOUNT_SERVER_URL:-http://host.docker.internal:8098}
+      WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
+    depends_on:
+      synapse:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8106/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Rich Media (K4) — File upload, thumbnails, serving ──
+  media:
+    build:
+      context: ./services
+      dockerfile: media/Dockerfile
+    container_name: windy-media
+    ports:
+      - "8107:8107"
+    volumes:
+      - media_data:/app/service/data
+    environment:
+      PORT: 8107
+      NODE_ENV: ${NODE_ENV:-development}
+      MEDIA_STORAGE_PATH: /app/service/data/media
+      WINDY_ACCOUNT_SERVER_URL: ${WINDY_ACCOUNT_SERVER_URL:-http://host.docker.internal:8098}
+      WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
+    depends_on:
+      synapse:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8107/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
 volumes:
   synapse_data:
   synapse_pgdata:
   synapse_redis:
   nginx_certs:
   nginx_acme:
+  onboarding_data:
+  directory_data:
+  push_gateway_data:
+  backup_data:
+  social_data:
+  translation_data:
+  media_data:
