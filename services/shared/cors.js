@@ -8,10 +8,13 @@
 const DEFAULT_ORIGINS = [
   'https://windypro.com',
   'https://www.windypro.com',
+  'https://app.windypro.com',
   'https://windychat.com',
   'https://www.windychat.com',
   'https://chat.windypro.com',
   'https://windypro.thewindstorm.uk',
+  'http://localhost:5173',  // Vite dev server
+  'http://localhost:4173',  // Vite preview
 ];
 
 function getAllowedOrigins() {

@@ -136,9 +136,43 @@ app.use('/api/v1/social/follow', followRouter);
 app.use('/api/v1/social/notifications', notificationsRouter);
 app.use('/api/v1/social/moderation', moderationRouter);
 
-// ── Ecosystem Status (cross-product view) ──
+// ── Dashboard Summary (quick panel rendering for unified dashboard) ──
 const WINDY_ACCOUNT_SERVER_URL = process.env.WINDY_ACCOUNT_SERVER_URL || 'http://localhost:8098';
 const auth = createAuthMiddleware();
+
+app.get('/api/v1/social/dashboard-summary', auth, asyncHandler(async (req, res) => {
+  const userId = req.user.sub;
+  const store = require('./lib/store');
+
+  // Recent posts (last 5)
+  const allPosts = [...store.postsMap.values()]
+    .filter(p => p.userId === userId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, 5)
+    .map(p => ({ content: p.content, user_id: p.userId, created_at: p.createdAt }));
+
+  // Contacts = following + followers (unique)
+  const following = store.followsMap.get(userId);
+  const followers = store.followersMap.get(userId);
+  const contacts = new Set();
+  if (following) for (const id of following) contacts.add(id);
+  if (followers) for (const id of followers) contacts.add(id);
+
+  // Unread notifications
+  const notifications = store.notificationsMap.get(userId) || [];
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  // DM count and rooms are Matrix concepts — return 0 since we don't have Synapse connected
+  res.json({
+    unread_dms: 0,
+    recent_posts: allPosts,
+    contacts_count: contacts.size,
+    rooms_joined: 0,
+    notifications_unread: unreadCount,
+  });
+}));
+
+// ── Ecosystem Status (cross-product view) ──
 
 app.get('/api/v1/social/ecosystem-status', auth, asyncHandler(async (req, res) => {
   const userId = req.user.sub;
