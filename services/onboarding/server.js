@@ -74,6 +74,23 @@ app.use('/api/v1/chat/pair', authMiddleware, pairRoutes);
 app.use('/api/v1/chat/provision', authMiddleware, provisionRoutes);
 app.use('/api/v1/onboarding', authMiddleware, provisionRoutes);
 
+// ── Agent room lookup shortcut (also available via /api/v1/chat/provision/agent-room) ──
+const onboardingDb = require('./lib/db');
+app.get('/api/v1/chat/agent-room', authMiddleware, (req, res) => {
+  const { agentId, ownerId } = req.query;
+  if (!agentId) return res.status(400).json({ error: 'agentId query param required' });
+  if (!ownerId) return res.status(400).json({ error: 'ownerId query param required' });
+  const room = onboardingDb.getAgentRoom.get(agentId, ownerId);
+  if (!room) return res.status(404).json({ error: 'No DM room found between agent and owner' });
+  res.json({
+    agent_user_id: room.agent_user_id,
+    owner_user_id: room.owner_user_id,
+    room_id: room.room_id,
+    agent_name: room.agent_name,
+    created_at: room.created_at,
+  });
+});
+
 // ── 404 fallback ──
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });

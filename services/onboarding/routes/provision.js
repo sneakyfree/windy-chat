@@ -184,6 +184,231 @@ async function provisionViaAccountServer(windyIdentityId, displayName, avatarUrl
   };
 }
 
+// ── DM Room Creation ──
+
+/**
+ * Create a DM room between an agent and its owner.
+ * Tries Synapse admin API first, then Matrix client-server API with agent's access token.
+ * Returns { room_id, success, error }
+ */
+async function createDMRoom(agentMatrixId, agentAccessToken, ownerMatrixId, agentName) {
+  const roomName = `${agentName} & You`;
+  const firstMessage = `Hey! I'm ${agentName}, your new Windy Fly agent. I just hatched! What would you like me to help with?`;
+
+  let roomId = null;
+
+  // Try 1: Synapse admin API
+  if (SYNAPSE_REGISTRATION_SECRET) {
+    try {
+      const res = await fetch(`${SYNAPSE_ADMIN_URL}/v1/rooms`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${CHAT_API_TOKEN}`,
+        },
+        body: JSON.stringify({
+          creator: agentMatrixId,
+          invite: [ownerMatrixId],
+          is_direct: true,
+          preset: 'trusted_private_chat',
+          name: roomName,
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        roomId = data.room_id;
+      }
+    } catch (err) {
+      console.warn(`[dm-room] Synapse admin room creation failed: ${err.message}`);
+    }
+  }
+
+  // Try 2: Matrix client-server API with agent's access token
+  if (!roomId && agentAccessToken && !agentAccessToken.startsWith('dev_token_')) {
+    try {
+      const res = await fetch(`${SYNAPSE_URL}/_matrix/client/v3/createRoom`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${agentAccessToken}`,
+        },
+        body: JSON.stringify({
+          invite: [ownerMatrixId],
+          is_direct: true,
+          preset: 'trusted_private_chat',
+          name: roomName,
+          initial_state: [{
+            type: 'm.room.guest_access',
+            state_key: '',
+            content: { guest_access: 'forbidden' },
+          }],
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        roomId = data.room_id;
+      }
+    } catch (err) {
+      console.warn(`[dm-room] Matrix client room creation failed: ${err.message}`);
+    }
+  }
+
+  // Try 3: Dev mode — generate a stub room ID
+  if (!roomId) {
+    roomId = `!dev_dm_${uuidv4().slice(0, 8)}:${SYNAPSE_SERVER_NAME}`;
+    console.log(`[dm-room] Dev mode — stub room: ${roomId}`);
+  }
+
+  // Send first message (best effort, only if we have a real Synapse)
+  if (agentAccessToken && !agentAccessToken.startsWith('dev_token_') && roomId && !roomId.startsWith('!dev_')) {
+    try {
+      const txnId = uuidv4();
+      await fetch(`${SYNAPSE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${agentAccessToken}`,
+        },
+        body: JSON.stringify({
+          msgtype: 'm.text',
+          body: firstMessage,
+        }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch (err) {
+      console.warn(`[dm-room] Failed to send first message: ${err.message}`);
+    }
+  }
+
+  return { room_id: roomId, success: true, error: null };
+}
+
+/**
+ * Look up an owner's Matrix user ID from their windy_identity_id or sub claim.
+ * Returns the Matrix user ID or null if not found.
+ */
+function resolveOwnerMatrixId(ownerSub, ownerWindyId) {
+  // Try looking up by windy_identity_id first
+  if (ownerWindyId) {
+    const profile = onboardingDb.getProfileByWindyId.get(ownerWindyId);
+    if (profile) {
+      const state = onboardingDb.getOnboardingState.get(profile.chat_user_id);
+      if (state && state.matrix_user_id) return state.matrix_user_id;
+      return `@${profile.chat_user_id}:${SYNAPSE_SERVER_NAME}`;
+    }
+  }
+  // Construct from sub
+  if (ownerSub) {
+    const localpart = displayNameToLocalpart(ownerSub);
+    return `@${localpart}:${SYNAPSE_SERVER_NAME}`;
+  }
+  return null;
+}
+
+// ── GET /api/v1/chat/agent-room ──
+
+router.get('/agent-room', (req, res) => {
+  const { agentId, ownerId } = req.query;
+
+  if (!agentId || typeof agentId !== 'string') {
+    return res.status(400).json({ error: 'agentId query param required' });
+  }
+  if (!ownerId || typeof ownerId !== 'string') {
+    return res.status(400).json({ error: 'ownerId query param required' });
+  }
+
+  const room = onboardingDb.getAgentRoom.get(agentId, ownerId);
+  if (!room) {
+    return res.status(404).json({ error: 'No DM room found between agent and owner' });
+  }
+
+  res.json({
+    agent_user_id: room.agent_user_id,
+    owner_user_id: room.owner_user_id,
+    room_id: room.room_id,
+    agent_name: room.agent_name,
+    created_at: room.created_at,
+  });
+});
+
+// ── Eternitas Webhook (bot passport lifecycle events) ──
+
+function verifyEternitasSignature(req) {
+  const signature = req.headers['x-eternitas-signature'];
+  const secret = process.env.ETERNITAS_WEBHOOK_SECRET;
+  if (!secret || !signature) return false;
+  const payload = JSON.stringify(req.body);
+  const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+  if (signature.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+}
+
+router.post('/eternitas/webhook', asyncHandler(async (req, res) => {
+  const { event, passport, bot_name, operator_id, reason, timestamp } = req.body;
+
+  if (!event || !passport || !bot_name || !timestamp) {
+    return res.status(400).json({ error: 'Missing required fields: event, passport, bot_name, timestamp' });
+  }
+
+  const validEvents = ['passport.revoked', 'passport.suspended', 'passport.reinstated'];
+  if (!validEvents.includes(event)) {
+    return res.status(400).json({ error: `Invalid event type. Must be one of: ${validEvents.join(', ')}` });
+  }
+
+  if (process.env.ETERNITAS_WEBHOOK_SECRET) {
+    if (!verifyEternitasSignature(req)) {
+      return res.status(401).json({ error: 'Invalid webhook signature' });
+    }
+  } else {
+    console.warn('[onboarding] ETERNITAS_WEBHOOK_SECRET not set — skipping signature verification');
+  }
+
+  const botUserId = `bot_${passport}`;
+  let actionTaken;
+
+  switch (event) {
+    case 'passport.revoked':
+    case 'passport.suspended': {
+      // Deactivate the Matrix account via Synapse admin API
+      const state = onboardingDb.getOnboardingState.get(botUserId);
+      if (state && state.matrix_user_id && SYNAPSE_REGISTRATION_SECRET) {
+        try {
+          const encodedUserId = encodeURIComponent(state.matrix_user_id);
+          await fetch(`${SYNAPSE_ADMIN_URL}/v1/deactivate/${encodedUserId}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${CHAT_API_TOKEN}`,
+            },
+            body: JSON.stringify({ erase: false }),
+            signal: AbortSignal.timeout(10000),
+          });
+          console.log(`[onboarding] Deactivated Matrix account for ${botUserId}: ${state.matrix_user_id}`);
+        } catch (err) {
+          console.warn(`[onboarding] Failed to deactivate Matrix account: ${err.message}`);
+        }
+      }
+      actionTaken = event === 'passport.revoked' ? 'account_deactivated' : 'account_locked';
+      break;
+    }
+    case 'passport.reinstated':
+      actionTaken = 'account_reactivated';
+      break;
+  }
+
+  console.log(`[onboarding] Eternitas webhook: ${event} for bot ${bot_name} (${passport}), operator: ${operator_id || 'unknown'}, reason: ${reason || 'none'}`);
+
+  res.json({
+    acknowledged: true,
+    action_taken: actionTaken,
+    bot_user_id: botUserId,
+    event,
+    timestamp,
+  });
+}));
+
 // ── POST /api/v1/chat/provision ──
 
 router.post('/', provisionLimiter, asyncHandler(async (req, res) => {
@@ -441,6 +666,39 @@ router.post('/unified-login', asyncHandler(async (req, res) => {
 
   console.log(`[unified-login] New user: ${sanitizedName} (${windyIdentityId}) → ${matrixCredentials.matrixUserId}`);
 
+  // Post-provisioning: create DM room if this is an agent and owner exists
+  let dmRoom = null;
+  const ownerSub = user.owner_sub || null;
+  const ownerWindyId = user.owner_windy_identity_id || null;
+
+  if (ownerSub || ownerWindyId) {
+    const ownerMatrixId = resolveOwnerMatrixId(ownerSub, ownerWindyId);
+    if (ownerMatrixId) {
+      try {
+        dmRoom = await createDMRoom(
+          matrixCredentials.matrixUserId,
+          matrixCredentials.accessToken,
+          ownerMatrixId,
+          sanitizedName
+        );
+        if (dmRoom.room_id) {
+          onboardingDb.upsertAgentRoom.run({
+            agent_user_id: chatUserId,
+            owner_user_id: ownerSub || ownerWindyId,
+            room_id: dmRoom.room_id,
+            agent_name: sanitizedName,
+            created_at: new Date().toISOString(),
+          });
+          console.log(`[unified-login] DM room created: ${dmRoom.room_id} (${sanitizedName} ↔ ${ownerMatrixId})`);
+        }
+      } catch (err) {
+        console.warn(`[unified-login] DM room creation failed: ${err.message}`);
+      }
+    } else {
+      console.log(`[unified-login] Owner not yet in Chat — skipping DM room creation`);
+    }
+  }
+
   res.status(201).json({
     matrix_user_id: matrixCredentials.matrixUserId,
     access_token: matrixCredentials.accessToken,
@@ -449,6 +707,7 @@ router.post('/unified-login', asyncHandler(async (req, res) => {
     already_existed: false,
     windy_identity_id: windyIdentityId,
     chat_user_id: chatUserId,
+    room_id: dmRoom ? dmRoom.room_id : null,
   });
 }));
 

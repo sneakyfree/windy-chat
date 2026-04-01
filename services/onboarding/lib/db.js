@@ -55,6 +55,18 @@ CREATE TABLE IF NOT EXISTS onboarding_state (
   matrix_user_id TEXT,
   provisioned_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS agent_rooms (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_user_id TEXT NOT NULL,
+  owner_user_id TEXT NOT NULL,
+  room_id TEXT NOT NULL,
+  agent_name TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE(agent_user_id, owner_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_rooms_agent ON agent_rooms(agent_user_id);
+CREATE INDEX IF NOT EXISTS idx_agent_rooms_owner ON agent_rooms(owner_user_id);
 `);
 
 // Display names
@@ -136,6 +148,15 @@ function migrateFromJson() {
 
 migrateFromJson();
 
+// Agent rooms
+const getAgentRoom = db.prepare('SELECT * FROM agent_rooms WHERE agent_user_id = ? AND owner_user_id = ?');
+const upsertAgentRoom = db.prepare(`
+  INSERT OR REPLACE INTO agent_rooms (agent_user_id, owner_user_id, room_id, agent_name, created_at)
+  VALUES (@agent_user_id, @owner_user_id, @room_id, @agent_name, @created_at)
+`);
+const getAgentRoomsByOwner = db.prepare('SELECT * FROM agent_rooms WHERE owner_user_id = ?');
+const deleteAgentRoomsByAgent = db.prepare('DELETE FROM agent_rooms WHERE agent_user_id = ?');
+
 module.exports = {
   db,
   getDisplayName,
@@ -149,4 +170,8 @@ module.exports = {
   deleteExpiredSessions,
   getOnboardingState,
   upsertOnboardingState,
+  getAgentRoom,
+  upsertAgentRoom,
+  getAgentRoomsByOwner,
+  deleteAgentRoomsByAgent,
 };
