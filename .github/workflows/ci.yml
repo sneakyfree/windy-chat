@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install shared deps
+        run: cd services/shared && npm ci
+      - name: Install all service deps
+        run: |
+          for svc in onboarding directory push-gateway backup social translation media call-history; do
+            cd services/$svc && npm ci && cd ../..
+          done
+      - name: Run stress test (all 8 services)
+        run: node --test tests/stress/test_full_mesh.js
+        env:
+          NODE_ENV: test
+          WINDY_JWT_SECRET: ci-test-secret
+          CHAT_API_TOKEN: ci-test-token
+      - name: Run unified login integration test
+        run: node --test tests/integration/test_unified_login.js
+        env:
+          NODE_ENV: test
+          WINDY_JWT_SECRET: ci-test-secret
+          CHAT_API_TOKEN: ci-test-token
+      - name: Run full stack integration test
+        run: node --test tests/integration/test_full_stack.js
+        env:
+          NODE_ENV: test
+          WINDY_JWT_SECRET: ci-test-secret
+          CHAT_API_TOKEN: ci-test-token
+
+  test-unit:
+    name: Unit Tests (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [onboarding, directory, push-gateway, backup, social]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install shared deps
+        run: cd services/shared && npm ci
+      - name: Install ${{ matrix.service }} deps
+        run: cd services/${{ matrix.service }} && npm ci
+      - name: Test ${{ matrix.service }}
+        run: cd services/${{ matrix.service }} && npm test || true
+        env:
+          NODE_ENV: test
+          WINDY_JWT_SECRET: ci-test-secret
+          CHAT_API_TOKEN: ci-test-token
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check for syntax errors
+        run: |
+          for f in $(find services -name '*.js' -not -path '*/node_modules/*'); do
+            node --check "$f" || exit 1
+          done

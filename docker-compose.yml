@@ -25,6 +25,15 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   # ── Redis (Synapse workers + onboarding OTP store) ──
   synapse-redis:
@@ -38,6 +47,15 @@ services:
     volumes:
       - synapse_redis:/data
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   # ── Coturn TURN Server (VoIP NAT traversal) ──
   coturn:
@@ -53,6 +71,15 @@ services:
       - ./deploy/synapse/turnserver.conf:/etc/turnserver.conf:ro
     command: ["-c", "/etc/turnserver.conf"]
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   # ════════════════════════════════════════
   #  Synapse (Matrix Homeserver)
@@ -82,6 +109,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
 
   # ════════════════════════════════════════
   #  Nginx (Reverse Proxy / TLS Termination)
@@ -109,6 +145,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
 
   # ════════════════════════════════════════
   #  Node.js Microservices
@@ -151,6 +196,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   # ── Directory (K3) — Contact discovery (hash lookup + search) ──
   directory:
@@ -183,6 +237,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   # ── Push Gateway (K6) — Matrix push → FCM/APNs ──
   push-gateway:
@@ -215,6 +278,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   # ── Backup (K8) — Encrypted cloud backup (AES-256-GCM → Cloudflare R2) ──
   backup:
@@ -247,6 +319,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   # ── Social (K10) — Posts, follows, notifications, moderation ──
   social:
@@ -278,6 +359,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   # ── Translation Proxy (K9) — Bridge to Windy Pro translate-api ──
   translation:
@@ -306,6 +396,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   # ── Rich Media (K4) — File upload, thumbnails, serving ──
   media:
@@ -334,6 +433,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   # ── Call History (K5) — VoIP call metadata tracking ──
   call-history:
@@ -361,6 +469,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
 volumes:
   synapse_data:
