@@ -365,37 +365,82 @@ router.post('/eternitas/webhook', asyncHandler(async (req, res) => {
     console.warn('[onboarding] ETERNITAS_WEBHOOK_SECRET not set — skipping signature verification');
   }
 
-  const botUserId = `bot_${passport}`;
+  // Look up the agent by passport_id in the DB, then fallback to bot_ prefix
+  let state = onboardingDb.getOnboardingStateByPassport.get(passport);
+  if (!state) {
+    state = onboardingDb.getOnboardingState.get(`bot_${passport}`);
+  }
+
+  if (!state || !state.matrix_user_id) {
+    console.log(`[onboarding] Eternitas webhook: no account found for passport ${passport}`);
+    return res.status(404).json({
+      error: 'Passport not found in onboarding DB',
+      passport,
+    });
+  }
+
+  const matrixUserId = state.matrix_user_id;
+  const encodedUserId = encodeURIComponent(matrixUserId);
   let actionTaken;
 
   switch (event) {
-    case 'passport.revoked':
-    case 'passport.suspended': {
-      // Deactivate the Matrix account via Synapse admin API
-      const state = onboardingDb.getOnboardingState.get(botUserId);
-      if (state && state.matrix_user_id && SYNAPSE_REGISTRATION_SECRET) {
-        try {
-          const encodedUserId = encodeURIComponent(state.matrix_user_id);
-          await fetch(`${SYNAPSE_ADMIN_URL}/v1/deactivate/${encodedUserId}`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${CHAT_API_TOKEN}`,
-            },
-            body: JSON.stringify({ erase: false }),
-            signal: AbortSignal.timeout(10000),
-          });
-          console.log(`[onboarding] Deactivated Matrix account for ${botUserId}: ${state.matrix_user_id}`);
-        } catch (err) {
-          console.warn(`[onboarding] Failed to deactivate Matrix account: ${err.message}`);
-        }
+    case 'passport.revoked': {
+      // Deactivate the Matrix account entirely
+      try {
+        await fetch(`${SYNAPSE_ADMIN_URL}/v1/deactivate/${encodedUserId}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${CHAT_API_TOKEN}`,
+          },
+          body: JSON.stringify({ erase: false }),
+          signal: AbortSignal.timeout(10000),
+        });
+        console.log(`[onboarding] Deactivated Matrix account: ${matrixUserId}`);
+      } catch (err) {
+        console.warn(`[onboarding] Failed to deactivate Matrix account: ${err.message}`);
       }
-      actionTaken = event === 'passport.revoked' ? 'account_deactivated' : 'account_locked';
+      actionTaken = 'account_deactivated';
       break;
     }
-    case 'passport.reinstated':
+    case 'passport.suspended': {
+      // Shadow-ban / lock the Matrix user
+      try {
+        await fetch(`${SYNAPSE_ADMIN_URL}/v2/users/${encodedUserId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${CHAT_API_TOKEN}`,
+          },
+          body: JSON.stringify({ deactivated: false, locked: true }),
+          signal: AbortSignal.timeout(10000),
+        });
+        console.log(`[onboarding] Locked Matrix account: ${matrixUserId}`);
+      } catch (err) {
+        console.warn(`[onboarding] Failed to lock Matrix account: ${err.message}`);
+      }
+      actionTaken = 'account_locked';
+      break;
+    }
+    case 'passport.reinstated': {
+      // Unlock the Matrix user
+      try {
+        await fetch(`${SYNAPSE_ADMIN_URL}/v2/users/${encodedUserId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${CHAT_API_TOKEN}`,
+          },
+          body: JSON.stringify({ locked: false }),
+          signal: AbortSignal.timeout(10000),
+        });
+        console.log(`[onboarding] Unlocked Matrix account: ${matrixUserId}`);
+      } catch (err) {
+        console.warn(`[onboarding] Failed to unlock Matrix account: ${err.message}`);
+      }
       actionTaken = 'account_reactivated';
       break;
+    }
   }
 
   console.log(`[onboarding] Eternitas webhook: ${event} for bot ${bot_name} (${passport}), operator: ${operator_id || 'unknown'}, reason: ${reason || 'none'}`);
@@ -403,7 +448,8 @@ router.post('/eternitas/webhook', asyncHandler(async (req, res) => {
   res.json({
     acknowledged: true,
     action_taken: actionTaken,
-    bot_user_id: botUserId,
+    matrix_user_id: matrixUserId,
+    bot_user_id: state.windy_user_id,
     event,
     timestamp,
   });
@@ -482,6 +528,7 @@ router.post('/', provisionLimiter, asyncHandler(async (req, res) => {
     }
 
     // Update onboarding state in SQLite
+    const passportId = req.user && (req.user.passport_id || req.user.eternitas_passport) || null;
     onboardingDb.upsertOnboardingState.run({
       windy_user_id: chatUserId,
       verified: 1,
@@ -489,6 +536,7 @@ router.post('/', provisionLimiter, asyncHandler(async (req, res) => {
       matrix_provisioned: 1,
       matrix_user_id: matrixCredentials.matrixUserId,
       provisioned_at: new Date().toISOString(),
+      passport_id: passportId,
     });
 
     console.log(`🏠 Matrix account provisioned: ${sanitizedDisplayName} → ${matrixCredentials.matrixUserId}`);
@@ -655,6 +703,7 @@ router.post('/unified-login', asyncHandler(async (req, res) => {
   });
 
   // Store onboarding state
+  const passportId = user.passport_id || user.eternitas_passport || null;
   onboardingDb.upsertOnboardingState.run({
     windy_user_id: chatUserId,
     verified: 1,
@@ -662,6 +711,7 @@ router.post('/unified-login', asyncHandler(async (req, res) => {
     matrix_provisioned: 1,
     matrix_user_id: matrixCredentials.matrixUserId,
     provisioned_at: new Date().toISOString(),
+    passport_id: passportId,
   });
 
   console.log(`[unified-login] New user: ${sanitizedName} (${windyIdentityId}) → ${matrixCredentials.matrixUserId}`);

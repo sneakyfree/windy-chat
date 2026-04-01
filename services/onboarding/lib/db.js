@@ -53,8 +53,10 @@ CREATE TABLE IF NOT EXISTS onboarding_state (
   profile_setup INTEGER DEFAULT 0,
   matrix_provisioned INTEGER DEFAULT 0,
   matrix_user_id TEXT,
-  provisioned_at TEXT
+  provisioned_at TEXT,
+  passport_id TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_onboarding_state_passport ON onboarding_state(passport_id);
 
 CREATE TABLE IF NOT EXISTS agent_rooms (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,11 +95,17 @@ const upsertSession = db.prepare(`
 const deleteSession = db.prepare('DELETE FROM pairing_sessions WHERE session_id = ?');
 const deleteExpiredSessions = db.prepare('DELETE FROM pairing_sessions WHERE status = ? AND expires_at < ?');
 
-// Onboarding state
+// Onboarding state — migrate passport_id column for existing DBs
+try {
+  db.exec('ALTER TABLE onboarding_state ADD COLUMN passport_id TEXT');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_onboarding_state_passport ON onboarding_state(passport_id)');
+} catch { /* column already exists */ }
+
 const getOnboardingState = db.prepare('SELECT * FROM onboarding_state WHERE windy_user_id = ?');
+const getOnboardingStateByPassport = db.prepare('SELECT * FROM onboarding_state WHERE passport_id = ?');
 const upsertOnboardingState = db.prepare(`
-  INSERT OR REPLACE INTO onboarding_state (windy_user_id, verified, profile_setup, matrix_provisioned, matrix_user_id, provisioned_at)
-  VALUES (@windy_user_id, @verified, @profile_setup, @matrix_provisioned, @matrix_user_id, @provisioned_at)
+  INSERT OR REPLACE INTO onboarding_state (windy_user_id, verified, profile_setup, matrix_provisioned, matrix_user_id, provisioned_at, passport_id)
+  VALUES (@windy_user_id, @verified, @profile_setup, @matrix_provisioned, @matrix_user_id, @provisioned_at, @passport_id)
 `);
 
 // JSON migration for profiles
@@ -169,6 +177,7 @@ module.exports = {
   deleteSession,
   deleteExpiredSessions,
   getOnboardingState,
+  getOnboardingStateByPassport,
   upsertOnboardingState,
   getAgentRoom,
   upsertAgentRoom,
