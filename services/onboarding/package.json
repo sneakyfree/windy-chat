@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "jest --forceExit --detectOpenHandles"
+    "test": "node --test tests/integration-pro.test.js",
+    "test:jest": "jest --forceExit --detectOpenHandles",
+    "test:integration": "node --test tests/integration-pro.test.js"
   },
   "dependencies": {
     "@sendgrid/mail": "^8.1.0",
