@@ -58,7 +58,39 @@ jobs:
       - name: Install ${{ matrix.service }} deps
         run: cd services/${{ matrix.service }} && npm ci
       - name: Test ${{ matrix.service }}
-        run: cd services/${{ matrix.service }} && npm test || true
+        run: cd services/${{ matrix.service }} && npm test
+        env:
+          NODE_ENV: test
+          WINDY_JWT_SECRET: ci-test-secret
+          CHAT_API_TOKEN: ci-test-token
+
+  test-unit-new:
+    name: Unit Tests (${{ matrix.test }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - test: media
+            file: tests/unit/test-media.js
+            deps: media
+          - test: call-history
+            file: tests/unit/test-call-history.js
+            deps: call-history
+          - test: translation
+            file: tests/unit/test-translation.js
+            deps: translation
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install shared deps
+        run: cd services/shared && npm ci
+      - name: Install ${{ matrix.deps }} deps
+        run: cd services/${{ matrix.deps }} && npm ci
+      - name: Test ${{ matrix.test }}
+        run: node --test ${{ matrix.file }}
         env:
           NODE_ENV: test
           WINDY_JWT_SECRET: ci-test-secret
