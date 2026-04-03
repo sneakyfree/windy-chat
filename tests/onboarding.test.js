@@ -14,7 +14,7 @@ process.env.CHAT_API_TOKEN = 'test-token-onboarding';
 process.env.WINDY_JWT_SECRET = 'test-jwt-secret';
 process.env.NODE_ENV = 'test';
 
-const app = require('../services/onboarding/server');
+const { app } = require('../services/onboarding/server');
 
 let server;
 let baseUrl;

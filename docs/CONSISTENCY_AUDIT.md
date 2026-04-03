@@ -1,7 +1,8 @@
 # Cross-Service Consistency Audit
 
 > Verifies all 8 services follow the same patterns.
-> Audit date: 2026-03-31
+> Original audit date: 2026-03-31
+> **Last Verified: 2026-04-03**
 
 ---
 
@@ -79,11 +80,11 @@ The shared `jwt-verify.js` middleware sets `req.user = decoded` which includes `
 | Social | `posts.windy_identity_id` | ✓ Yes |
 | Backup | `backup_registry.windy_identity_id` | ✓ Yes |
 | Translation | `user_preferences.windy_identity_id` | ✓ Yes |
-| Media | `media.windy_identity_id` | **No index** |
-| Call History | `call_log.caller_windy_identity_id` | No index |
+| Media | `media.windy_identity_id` | ✓ Yes (idx_media_windy_identity_id) |
+| Call History | `call_log.caller_windy_identity_id` | ✓ Yes (idx_call_log_caller_windy, idx_call_log_callee_windy) |
 | Push Gateway | Not stored | N/A (per-device tokens) |
 
-**Deviation: Media and Call History tables have `windy_identity_id` but no index.** Low impact for current scale.
+**No deviations.** All services now have indexes on `windy_identity_id` (fixed 2026-04-03).
 
 ---
 
@@ -128,7 +129,7 @@ Verified by hardening test `test_auth_hardening.js` (40 tests across all 8 servi
 | # | Issue | Severity | Action |
 |---|-------|----------|--------|
 | 1 | Social and Call History `/health` have no dependency checks | Low | Could add SQLite status check |
-| 2 | Media `windy_identity_id` column has no index | Low | Add index for query performance |
-| 3 | Call History `caller_windy_identity_id` has no index | Low | Add index for cross-product queries |
+| 2 | ~~Media `windy_identity_id` column has no index~~ | ~~Low~~ | **FIXED** — `idx_media_windy_identity_id` added |
+| 3 | ~~Call History `caller_windy_identity_id` has no index~~ | ~~Low~~ | **FIXED** — `idx_call_log_caller_windy` + `idx_call_log_callee_windy` added |
 
 **Overall: High consistency across all services. No critical deviations.**

@@ -103,6 +103,7 @@ async function provisionMatrixAccount(localpart, displayName) {
   // Step 1: Get nonce
   const nonceRes = await fetch(`${SYNAPSE_ADMIN_URL}/v1/register`, {
     method: 'GET',
+    signal: AbortSignal.timeout(10000),
   });
 
   if (!nonceRes.ok) {
@@ -129,6 +130,7 @@ async function provisionMatrixAccount(localpart, displayName) {
       admin: false,
       mac,
     }),
+    signal: AbortSignal.timeout(10000),
   });
 
   if (!regRes.ok) {
@@ -255,8 +257,12 @@ async function createDMRoom(agentMatrixId, agentAccessToken, ownerMatrixId, agen
     }
   }
 
-  // Try 3: Dev mode — generate a stub room ID
+  // Try 3: Dev mode — generate a stub room ID (blocked in production)
   if (!roomId) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[dm-room] Failed to create DM room — no Synapse API available in production');
+      return { room_id: null, success: false, error: 'DM room creation unavailable' };
+    }
     roomId = `!dev_dm_${uuidv4().slice(0, 8)}:${SYNAPSE_SERVER_NAME}`;
     console.log(`[dm-room] Dev mode — stub room: ${roomId}`);
   }
@@ -515,15 +521,20 @@ router.post('/', provisionLimiter, asyncHandler(async (req, res) => {
       }
     }
 
-    // Try 3: Dev mode stub
+    // Try 3: Dev mode stub (blocked in production)
     if (!matrixCredentials) {
-      console.warn('⚠️  No provisioning method available — returning stub credentials');
+      if (process.env.NODE_ENV === 'production') {
+        return res.status(503).json({
+          error: 'Chat provisioning unavailable — no account-server or Synapse configured',
+        });
+      }
+      console.warn('⚠️  No provisioning method available — returning dev stub credentials (NODE_ENV != production)');
       matrixCredentials = {
         matrixUserId,
         accessToken: `dev_token_${uuidv4()}`,
         deviceId: `dev_device_${uuidv4().slice(0, 8)}`,
         homeServer: SYNAPSE_SERVER_NAME,
-        _dev: 'Stub credentials (no account-server or Synapse configured)',
+        _dev: true,
       };
     }
 
@@ -682,11 +693,18 @@ router.post('/unified-login', asyncHandler(async (req, res) => {
   }
 
   if (!matrixCredentials) {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(503).json({
+        error: 'Chat provisioning unavailable — no account-server or Synapse configured',
+      });
+    }
+    console.warn('[unified-login] No provisioning method — returning dev stub (NODE_ENV != production)');
     matrixCredentials = {
       matrixUserId,
       accessToken: `dev_token_${uuidv4()}`,
       deviceId: `dev_device_${uuidv4().slice(0, 8)}`,
       homeServer: SYNAPSE_SERVER_NAME,
+      _dev: true,
     };
   }
 

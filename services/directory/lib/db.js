@@ -26,6 +26,7 @@ CREATE INDEX IF NOT EXISTS idx_hash_directory_user_id ON hash_directory(user_id)
 CREATE TABLE IF NOT EXISTS salt_config (
   id INTEGER PRIMARY KEY DEFAULT 1,
   current_salt TEXT NOT NULL,
+  previous_salt TEXT,
   created_at INTEGER NOT NULL
 );
 
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS user_directory (
 CREATE INDEX IF NOT EXISTS idx_user_directory_windy_identity_id ON user_directory(windy_identity_id);
 CREATE INDEX IF NOT EXISTS idx_user_directory_email ON user_directory(email);
 CREATE INDEX IF NOT EXISTS idx_user_directory_display_name ON user_directory(display_name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_user_directory_searchable ON user_directory(searchable);
 
 CREATE TABLE IF NOT EXISTS invite_tracker (
   user_id TEXT PRIMARY KEY,
@@ -50,6 +52,13 @@ CREATE TABLE IF NOT EXISTS invite_tracker (
   reset_at INTEGER NOT NULL
 );
 `);
+
+// Migrate: add previous_salt column if missing (for existing databases)
+try {
+  db.exec('ALTER TABLE salt_config ADD COLUMN previous_salt TEXT');
+} catch (_e) {
+  // Column already exists — ignore
+}
 
 // Hash directory
 const getHash = db.prepare('SELECT * FROM hash_directory WHERE hash = ?');
@@ -62,7 +71,7 @@ const hashCount = db.prepare('SELECT COUNT(*) as cnt FROM hash_directory');
 // Salt
 const getSalt = db.prepare('SELECT * FROM salt_config WHERE id = 1');
 const upsertSalt = db.prepare(`
-  INSERT OR REPLACE INTO salt_config (id, current_salt, created_at) VALUES (1, ?, ?)
+  INSERT OR REPLACE INTO salt_config (id, current_salt, previous_salt, created_at) VALUES (1, ?, ?, ?)
 `);
 
 // User directory

@@ -100,14 +100,15 @@ function forwardToTranslateServer(text, sourceLang, targetLang) {
             translated_text: result.translated_text || result.translation || data,
             confidence: result.confidence || null,
           });
-        } catch {
+        } catch (e) {
+          console.warn('[translation] Translate response parse error:', e.message);
           resolve(null);
         }
       });
     });
 
-    req.on('error', () => resolve(null));
-    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.on('error', (e) => { console.warn('[translation] Translate request error:', e.message); resolve(null); });
+    req.on('timeout', () => { console.warn('[translation] Translate request timed out'); req.destroy(); resolve(null); });
     req.write(body);
     req.end();
   });
@@ -148,8 +149,11 @@ app.post('/api/v1/translate', auth, translateLimiter, asyncHandler(async (req, r
   const result = await forwardToTranslateServer(text, source_lang, target_lang);
 
   if (!result) {
-    // Stub response when translate server is unavailable
-    console.warn(`[translation] Translate server unavailable at ${TRANSLATE_URL} — returning stub`);
+    if (process.env.NODE_ENV === 'production') {
+      console.error(`[translation] Translate server unavailable at ${TRANSLATE_URL}`);
+      return res.status(503).json({ error: 'Translation service unavailable' });
+    }
+    console.warn(`[translation] Translate server unavailable at ${TRANSLATE_URL} — returning stub (NODE_ENV != production)`);
     return res.json({
       translated_text: text,
       source_lang,

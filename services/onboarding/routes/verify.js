@@ -106,8 +106,11 @@ async function sendSmsOTP(phone, code) {
   const fromNumber = process.env.TWILIO_PHONE_NUMBER;
 
   if (!accountSid || !authToken || !fromNumber) {
-    console.warn('⚠️  Twilio not configured — OTP sent to dev stub');
-    // SEC-C6: Never log OTP codes or full phone numbers
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[verify] TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER must be set in production');
+      return { success: false, error: 'SMS service not configured' };
+    }
+    console.warn('[verify] Twilio not configured — OTP sent to dev stub (NODE_ENV != production)');
     console.log(`📱 SMS OTP sent to ***${phone.slice(-4)} (dev stub)`);
     return { success: true, stub: true };
   }
@@ -139,8 +142,11 @@ async function sendEmailOTP(email, code) {
   const fromEmail = process.env.SENDGRID_FROM_EMAIL || 'noreply@windypro.com';
 
   if (!apiKey) {
-    console.warn('⚠️  SendGrid not configured — OTP sent to dev stub');
-    // SEC-C6: Never log OTP codes or full email addresses
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[verify] SENDGRID_API_KEY must be set in production');
+      return { success: false, error: 'Email service not configured' };
+    }
+    console.warn('[verify] SendGrid not configured — OTP sent to dev stub (NODE_ENV != production)');
     const [user, domain] = email.split('@');
     console.log(`📧 Email OTP sent to ${user[0]}***@${domain} (dev stub)`);
     return { success: true, stub: true };

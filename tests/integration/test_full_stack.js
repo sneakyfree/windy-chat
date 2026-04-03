@@ -184,7 +184,7 @@ function startManualService(modulePath) {
 
 before(async () => {
   // Auto-listen services
-  onboardingUrl = await loadAutoListenService('../../services/onboarding/server');
+  onboardingUrl = await startManualService('../../services/onboarding/server');
   directoryUrl = await loadAutoListenService('../../services/directory/server');
   pushUrl = await loadAutoListenService('../../services/push-gateway/server');
 

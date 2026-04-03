@@ -12,7 +12,8 @@ const {
   postsMap, followsMap, likesMap, verifiedAccounts,
   persistPosts, persistLikes, persistNotifications,
   addLike, removeLike, hasLike, getLikeCount, updatePostLikeCount,
-  addNotification,
+  addNotification, searchPostContent,
+  addComment, getCommentsForPost, getCommentCountForPost, getCommentById, deleteCommentById,
 } = require('../lib/store');
 
 const router = Router();
@@ -77,6 +78,22 @@ router.post('/', auth, asyncHandler(async (req, res) => {
   persistPosts();
 
   res.status(201).json(post);
+}));
+
+// ── Search Posts ──
+router.get('/search', asyncHandler(async (req, res) => {
+  const { q } = req.query;
+  if (!q || typeof q !== 'string' || !q.trim()) {
+    return res.status(400).json({ error: 'q query parameter is required' });
+  }
+  const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
+  const posts = searchPostContent(q.trim(), limit);
+  const enriched = posts.map(p => ({
+    ...p,
+    verified: verifiedAccounts.has(p.userId),
+    likeCount: getLikeCount(p.id),
+  }));
+  res.json({ posts: enriched, count: enriched.length, query: q.trim() });
 }));
 
 // ── Get Single Post ──
@@ -191,6 +208,84 @@ router.delete('/:postId/like', auth, asyncHandler(async (req, res) => {
   persistPosts();
 
   res.json({ liked: false, likeCount });
+}));
+
+// ── Create Comment ──
+router.post('/:postId/comments', auth, asyncHandler(async (req, res) => {
+  const userId = req.user.sub;
+  const { postId } = req.params;
+  const { content } = req.body;
+
+  const post = postsMap.get(postId);
+  if (!post) return res.status(404).json({ error: 'Post not found' });
+
+  if (!content || typeof content !== 'string' || !content.trim()) {
+    return res.status(400).json({ error: 'content is required and must be a non-empty string' });
+  }
+  if (content.length > 2000) {
+    return res.status(400).json({ error: 'content exceeds max length of 2000' });
+  }
+
+  const profanityCheck = checkProfanity(content);
+  if (profanityCheck.hasProfanity) {
+    return res.status(422).json({
+      error: 'Comment contains prohibited language',
+      matched: profanityCheck.matched,
+    });
+  }
+
+  const comment = {
+    id: uuidv4(),
+    postId,
+    userId,
+    content: content.trim(),
+    createdAt: new Date().toISOString(),
+  };
+
+  addComment(comment);
+
+  // Notify post author (if not self-comment)
+  if (post.userId !== userId) {
+    addNotification(post.userId, {
+      id: uuidv4(),
+      type: 'comment',
+      fromUserId: userId,
+      postId,
+      read: false,
+      createdAt: new Date().toISOString(),
+    });
+    persistNotifications();
+  }
+
+  res.status(201).json(comment);
+}));
+
+// ── Get Comments ──
+router.get('/:postId/comments', asyncHandler(async (req, res) => {
+  const { postId } = req.params;
+  const post = postsMap.get(postId);
+  if (!post) return res.status(404).json({ error: 'Post not found' });
+
+  const comments = getCommentsForPost(postId);
+  res.json({ comments, count: comments.length });
+}));
+
+// ── Delete Post ──
+router.delete('/:postId', auth, asyncHandler(async (req, res) => {
+  const userId = req.user.sub;
+  const { postId } = req.params;
+  const post = postsMap.get(postId);
+  if (!post) return res.status(404).json({ error: 'Post not found' });
+
+  if (post.userId !== userId) {
+    return res.status(403).json({ error: 'You can only delete your own posts' });
+  }
+
+  postsMap.delete(postId);
+  persistPosts();
+  persistLikes();
+
+  res.json({ deleted: true, postId });
 }));
 
 module.exports = router;

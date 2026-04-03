@@ -32,6 +32,8 @@ CREATE INDEX IF NOT EXISTS idx_call_log_caller ON call_log(caller_id);
 CREATE INDEX IF NOT EXISTS idx_call_log_callee ON call_log(callee_id);
 CREATE INDEX IF NOT EXISTS idx_call_log_started ON call_log(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_call_log_room ON call_log(room_id);
+CREATE INDEX IF NOT EXISTS idx_call_log_caller_windy ON call_log(caller_windy_identity_id);
+CREATE INDEX IF NOT EXISTS idx_call_log_callee_windy ON call_log(callee_windy_identity_id);
 `);
 
 const insertCall = db.prepare(`

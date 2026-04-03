@@ -28,16 +28,19 @@ const router = express.Router();
 const SALT_ROTATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 let currentSalt;
+let previousSalt;
 let saltCreatedAt;
 
 const savedSalt = dirDb.getSalt.get();
 if (savedSalt) {
   currentSalt = savedSalt.current_salt;
+  previousSalt = savedSalt.previous_salt || null;
   saltCreatedAt = savedSalt.created_at;
 } else {
   currentSalt = crypto.randomBytes(32).toString('hex');
+  previousSalt = null;
   saltCreatedAt = Date.now();
-  dirDb.upsertSalt.run(currentSalt, saltCreatedAt);
+  dirDb.upsertSalt.run(currentSalt, null, saltCreatedAt);
 }
 
 // ── Rate limiters ──
@@ -67,10 +70,10 @@ function stripHtml(str) {
  */
 function checkSaltRotation() {
   if (Date.now() - saltCreatedAt > SALT_ROTATION_MS) {
-    const previousSalt = currentSalt;
+    previousSalt = currentSalt;
     currentSalt = crypto.randomBytes(32).toString('hex');
     saltCreatedAt = Date.now();
-    dirDb.upsertSalt.run(currentSalt, saltCreatedAt);
+    dirDb.upsertSalt.run(currentSalt, previousSalt, saltCreatedAt);
     console.log(`🔑 Salt rotated. Previous salt prefix: ${previousSalt.slice(0, 8)}...`);
   }
 }
@@ -93,6 +96,7 @@ router.get('/salt', (_req, res) => {
 
     res.json({
       salt: currentSalt,
+      previousSalt: previousSalt || null,
       createdAt: new Date(saltCreatedAt).toISOString(),
       rotatesAt: new Date(saltCreatedAt + SALT_ROTATION_MS).toISOString(),
       algorithm: 'SHA256',
@@ -213,6 +217,18 @@ router.post('/register-hash', (req, res) => {
           registered_at: Date.now(),
         });
         registeredCount++;
+
+        // Also register with previous salt so lookups using the old salt still match
+        if (previousSalt) {
+          const prevHash = computeHash(id, previousSalt);
+          dirDb.upsertHash.run({
+            hash: prevHash,
+            user_id: userId,
+            display_name: sanitizedDisplayName,
+            avatar_url: avatarUrl || null,
+            registered_at: Date.now(),
+          });
+        }
       }
     }
 
@@ -244,6 +260,7 @@ router.get('/stats', (_req, res) => {
       totalHashes: dirDb.hashCount.get().cnt,
       saltAge: Math.floor((Date.now() - saltCreatedAt) / 1000 / 60 / 60) + ' hours',
       nextRotation: new Date(saltCreatedAt + SALT_ROTATION_MS).toISOString(),
+      hasPreviousSalt: !!previousSalt,
     });
   } catch (err) {
     console.error('Stats error:', err);

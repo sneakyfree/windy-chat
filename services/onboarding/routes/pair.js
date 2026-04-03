@@ -23,6 +23,7 @@ const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 
 const onboardingDb = require('../lib/db');
+const { verifyToken } = require('../../shared/jwt-verify');
 
 const WINDY_ACCOUNT_SERVER_URL = process.env.WINDY_ACCOUNT_SERVER_URL || 'http://localhost:8098';
 
@@ -153,29 +154,46 @@ router.post('/confirm', async (req, res) => {
       return res.status(409).json({ error: 'Session already paired' });
     }
 
-    // Validate authToken against account server (H1)
+    // Validate authToken — try account-server first, fall back to local JWT verification
+    let tokenValid = false;
     if (WINDY_ACCOUNT_SERVER_URL !== 'http://localhost:8098') {
       try {
         const validateUrl = `${WINDY_ACCOUNT_SERVER_URL}/api/v1/identity/validate-token`;
         const httpModule = validateUrl.startsWith('https') ? https : http;
 
-        const tokenValid = await new Promise((resolve) => {
+        tokenValid = await new Promise((resolve) => {
           const req = httpModule.get(validateUrl, {
             headers: { 'Authorization': `Bearer ${authToken}` },
             timeout: 5000,
           }, (res) => {
             resolve(res.statusCode === 200);
           });
-          req.on('error', () => resolve(false));
-          req.on('timeout', () => { req.destroy(); resolve(false); });
+          req.on('error', (e) => { console.warn('[pair] Auth token validation request error:', e.message); resolve(false); });
+          req.on('timeout', () => { console.warn('[pair] Auth token validation request timed out'); req.destroy(); resolve(false); });
         });
-
-        if (!tokenValid) {
-          return res.status(401).json({ error: 'Invalid auth token' });
-        }
       } catch (err) {
-        console.warn('Auth token validation failed, allowing in dev mode:', err.message);
+        console.warn('[pair] Account-server token validation failed:', err.message);
       }
+    }
+
+    // Fall back to local JWT or CHAT_API_TOKEN verification
+    if (!tokenValid) {
+      // Accept CHAT_API_TOKEN for service-to-service calls
+      const chatApiToken = process.env.CHAT_API_TOKEN;
+      if (chatApiToken && authToken === chatApiToken) {
+        tokenValid = true;
+      } else {
+        try {
+          await verifyToken(authToken);
+          tokenValid = true;
+        } catch (err) {
+          console.warn('[pair] Local JWT verification failed:', err.message);
+        }
+      }
+    }
+
+    if (!tokenValid) {
+      return res.status(401).json({ error: 'Invalid auth token' });
     }
 
     const deviceId = `device_${uuidv4().replace(/-/g, '').slice(0, 16)}`;

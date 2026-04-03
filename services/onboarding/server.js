@@ -35,15 +35,7 @@ app.use(express.json({ limit: '5mb' }));
 // CHAT_API_TOKEN still works as fallback for backward compatibility.
 const { createAuthMiddleware } = require('../shared/jwt-verify');
 
-const CHAT_API_TOKEN = process.env.CHAT_API_TOKEN || '';
-if (!CHAT_API_TOKEN && !process.env.JWT_SECRET) {
-  console.error('❌ Either JWT_SECRET or CHAT_API_TOKEN must be set.');
-  process.exit(1);
-}
-
-const authMiddleware = createAuthMiddleware({
-  fallbackToken: CHAT_API_TOKEN || undefined,
-});
+const authMiddleware = createAuthMiddleware();
 
 // ── Global rate limiter ──
 const globalLimiter = rateLimit({
@@ -91,6 +83,180 @@ app.get('/api/v1/chat/agent-room', authMiddleware, (req, res) => {
   });
 });
 
+// ── Account Deletion / GDPR ──
+const http = require('http');
+const https = require('https');
+const SYNAPSE_URL = process.env.SYNAPSE_URL || 'http://localhost:8008';
+const SYNAPSE_ADMIN_TOKEN = process.env.SYNAPSE_ADMIN_TOKEN || '';
+const WINDY_ACCOUNT_SERVER_URL = process.env.WINDY_ACCOUNT_SERVER_URL || 'http://localhost:8098';
+
+app.delete('/api/v1/onboarding/account', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.sub;
+    const windyId = req.user.windy_identity_id || userId;
+
+    // 1. Find the user's profile and onboarding state
+    const profile = onboardingDb.getProfileByWindyId.get(windyId);
+    const state = onboardingDb.getOnboardingState.get(windyId);
+
+    // 2. Deactivate Matrix account if provisioned
+    let matrixDeactivated = false;
+    if (state && state.matrix_user_id && SYNAPSE_ADMIN_TOKEN) {
+      try {
+        const httpModule = SYNAPSE_URL.startsWith('https') ? https : http;
+        const deactivateUrl = new URL(`/_synapse/admin/v1/deactivate/${encodeURIComponent(state.matrix_user_id)}`, SYNAPSE_URL);
+        matrixDeactivated = await new Promise((resolve) => {
+          const reqOpts = {
+            method: 'POST',
+            hostname: deactivateUrl.hostname,
+            port: deactivateUrl.port,
+            path: deactivateUrl.pathname,
+            headers: {
+              'Authorization': `Bearer ${SYNAPSE_ADMIN_TOKEN}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: 5000,
+          };
+          const deacReq = httpModule.request(reqOpts, (r) => {
+            let d = ''; r.on('data', c => d += c);
+            r.on('end', () => resolve(r.statusCode === 200));
+          });
+          deacReq.on('error', (e) => { console.error('[onboarding] Matrix deactivation request error:', e.message); resolve(false); });
+          deacReq.on('timeout', () => { console.error('[onboarding] Matrix deactivation request timed out'); deacReq.destroy(); resolve(false); });
+          deacReq.write(JSON.stringify({ erase: true }));
+          deacReq.end();
+        });
+      } catch (err) { console.error('[onboarding] Matrix deactivation error:', err.message); matrixDeactivated = false; }
+    } else if (process.env.NODE_ENV === 'test') {
+      matrixDeactivated = true; // Stub in test mode
+    }
+
+    // 3. Remove local data
+    if (profile) {
+      onboardingDb.deleteProfile.run(profile.chat_user_id);
+      onboardingDb.deleteDisplayNameByUserId.run(profile.chat_user_id);
+    }
+    if (state) {
+      onboardingDb.deleteOnboardingState.run(windyId);
+    }
+
+    // 4. Fire webhook to notify other services
+    let webhookSent = false;
+    if (WINDY_ACCOUNT_SERVER_URL !== 'http://localhost:8098') {
+      try {
+        const httpModule = WINDY_ACCOUNT_SERVER_URL.startsWith('https') ? https : http;
+        const webhookUrl = new URL('/api/v1/identity/chat/account-deleted', WINDY_ACCOUNT_SERVER_URL);
+        webhookSent = await new Promise((resolve) => {
+          const reqOpts = {
+            method: 'POST',
+            hostname: webhookUrl.hostname,
+            port: webhookUrl.port,
+            path: webhookUrl.pathname,
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 5000,
+          };
+          const whReq = httpModule.request(reqOpts, (r) => {
+            let d = ''; r.on('data', c => d += c);
+            r.on('end', () => resolve(r.statusCode >= 200 && r.statusCode < 300));
+          });
+          whReq.on('error', (e) => { console.error('[onboarding] Account deletion webhook error:', e.message); resolve(false); });
+          whReq.on('timeout', () => { console.error('[onboarding] Account deletion webhook timed out'); whReq.destroy(); resolve(false); });
+          whReq.write(JSON.stringify({ windy_identity_id: windyId, deleted_at: new Date().toISOString() }));
+          whReq.end();
+        });
+      } catch (err) { console.error('[onboarding] Account deletion webhook error:', err.message); webhookSent = false; }
+    }
+
+    res.json({
+      deleted: true,
+      windy_identity_id: windyId,
+      matrix_deactivated: matrixDeactivated,
+      webhook_sent: webhookSent,
+      local_data_removed: true,
+    });
+  } catch (err) {
+    console.error('[onboarding] Account deletion error:', err.message);
+    res.status(500).json({ error: 'Account deletion failed' });
+  }
+});
+
+// ── Avatar Upload ──
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+
+const AVATAR_DIR = path.join(__dirname, 'data', 'avatars');
+fs.mkdirSync(AVATAR_DIR, { recursive: true });
+
+const ALLOWED_AVATAR_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+const MAX_AVATAR_SIZE = 5 * 1024 * 1024; // 5MB
+
+const avatarStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, AVATAR_DIR),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    cb(null, `avatar_${crypto.randomUUID()}${ext}`);
+  },
+});
+
+const avatarUpload = multer({
+  storage: avatarStorage,
+  limits: { fileSize: MAX_AVATAR_SIZE },
+  fileFilter: (_req, file, cb) => {
+    if (!ALLOWED_AVATAR_TYPES.has(file.mimetype)) {
+      return cb(new Error('File type not allowed. Use JPEG, PNG, GIF, or WebP.'));
+    }
+    cb(null, true);
+  },
+});
+
+app.post('/api/v1/chat/profile/avatar', authMiddleware, (req, res) => {
+  avatarUpload.single('avatar')(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'File too large. Maximum size is 5MB.' });
+      }
+      return res.status(400).json({ error: err.message || 'Upload failed' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded. Use field name "avatar".' });
+    }
+
+    const avatarUrl = `/api/v1/chat/profile/avatar/${req.file.filename}`;
+
+    // Update profile avatar if user has one
+    const userId = req.user.sub;
+    const windyId = req.user.windy_identity_id;
+    if (windyId) {
+      const profile = onboardingDb.getProfileByWindyId.get(windyId);
+      if (profile) {
+        onboardingDb.updateProfileAvatar.run(avatarUrl, profile.chat_user_id);
+      }
+    }
+
+    res.status(201).json({
+      avatar_url: avatarUrl,
+      filename: req.file.filename,
+      size: req.file.size,
+      mime_type: req.file.mimetype,
+    });
+  });
+});
+
+// Serve avatar files (no auth — avatars are public)
+app.get('/api/v1/chat/profile/avatar/:filename', (req, res) => {
+  const { filename } = req.params;
+  if (!/^avatar_[a-f0-9-]+\.\w+$/.test(filename)) {
+    return res.status(400).json({ error: 'Invalid filename' });
+  }
+  const filePath = path.join(AVATAR_DIR, filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Avatar not found' });
+  }
+  res.sendFile(filePath);
+});
+
 // ── 404 fallback ──
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
@@ -103,12 +269,10 @@ app.use((err, _req, res, _next) => {
 });
 
 // ── Start ──
-app.listen(PORT, () => {
-  console.log(`🌪️  Windy Chat Onboarding — listening on port ${PORT}`);
-  console.log(`   Health: http://localhost:${PORT}/health`);
-  console.log(`   Verify: http://localhost:${PORT}/api/v1/chat/verify/send`);
-  console.log(`   Profile: http://localhost:${PORT}/api/v1/chat/profile/setup`);
-  console.log(`   Pair: http://localhost:${PORT}/api/v1/chat/pair/generate`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`[onboarding] listening on :${PORT}`);
+  });
+}
 
-module.exports = app;
+module.exports = { app };

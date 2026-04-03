@@ -3,7 +3,6 @@ const jwt = require('jsonwebtoken');
 
 process.env.PORT = '0';
 process.env.WINDY_JWT_SECRET = 'test-directory-secret';
-process.env.JWT_SECRET = 'test-directory-secret';
 process.env.CHAT_API_TOKEN = 'test-static-token';
 
 const app = require('../server');

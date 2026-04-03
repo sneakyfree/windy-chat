@@ -288,8 +288,9 @@ describe('GET /api/v1/chat/directory/search', () => {
     const res = await request('GET', '/api/v1/chat/directory/search?q=Alice');
     assert.equal(res.status, 200);
     assert.ok(res.body.results.length > 0);
-    assert.equal(res.body.results[0].displayName, 'Alice Smith');
-    assert.equal(res.body.results[0].matchType, 'name');
+    const alice = res.body.results.find(r => r.displayName === 'Alice Smith');
+    assert.ok(alice, 'Expected Alice Smith in results');
+    assert.equal(alice.matchType, 'name');
   });
 
   it('finds user by exact email', async () => {

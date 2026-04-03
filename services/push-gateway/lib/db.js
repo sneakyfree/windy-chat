@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS push_tokens (
   platform TEXT NOT NULL,
   app_id TEXT,
   device_name TEXT,
-  registered_at INTEGER NOT NULL
+  registered_at INTEGER NOT NULL,
+  last_used INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_push_tokens_user_id ON push_tokens(user_id);
 
@@ -34,13 +35,24 @@ CREATE TABLE IF NOT EXISTS mute_settings (
 CREATE INDEX IF NOT EXISTS idx_mute_settings_user_id ON mute_settings(user_id);
 `);
 
+// Migrate: add last_used column if missing (for existing databases)
+try {
+  db.exec('ALTER TABLE push_tokens ADD COLUMN last_used INTEGER');
+} catch (_e) {
+  // Column already exists — ignore
+}
+
 // Prepared statements
 const getToken = db.prepare('SELECT * FROM push_tokens WHERE pushkey = ?');
 const upsertToken = db.prepare(`
-  INSERT OR REPLACE INTO push_tokens (pushkey, user_id, platform, app_id, device_name, registered_at)
-  VALUES (@pushkey, @user_id, @platform, @app_id, @device_name, @registered_at)
+  INSERT OR REPLACE INTO push_tokens (pushkey, user_id, platform, app_id, device_name, registered_at, last_used)
+  VALUES (@pushkey, @user_id, @platform, @app_id, @device_name, @registered_at, @registered_at)
 `);
 const tokenCount = db.prepare('SELECT COUNT(*) as cnt FROM push_tokens');
+const touchToken = db.prepare('UPDATE push_tokens SET last_used = ? WHERE pushkey = ?');
+const STALE_TOKEN_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const pruneStaleTokens = db.prepare('DELETE FROM push_tokens WHERE last_used IS NOT NULL AND last_used < ?');
+const pruneNeverUsedTokens = db.prepare('DELETE FROM push_tokens WHERE last_used IS NULL AND registered_at < ?');
 
 const getMute = db.prepare('SELECT * FROM mute_settings WHERE user_id = ? AND room_id = ?');
 const upsertMute = db.prepare(`
@@ -97,11 +109,25 @@ function migrateFromJson() {
 
 migrateFromJson();
 
+/**
+ * Remove push tokens not used in 30 days.
+ * Returns the number of tokens pruned.
+ */
+function pruneTokens() {
+  const cutoff = Date.now() - STALE_TOKEN_MS;
+  const r1 = pruneStaleTokens.run(cutoff);
+  const r2 = pruneNeverUsedTokens.run(cutoff);
+  return r1.changes + r2.changes;
+}
+
 module.exports = {
   db,
   getToken,
   upsertToken,
   tokenCount,
+  touchToken,
+  pruneTokens,
+  STALE_TOKEN_MS,
   getMute,
   upsertMute,
   deleteMute,

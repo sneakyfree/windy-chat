@@ -76,10 +76,45 @@ CREATE TABLE IF NOT EXISTS reports (
 );
 CREATE INDEX IF NOT EXISTS idx_reports_post_id ON reports(post_id);
 CREATE INDEX IF NOT EXISTS idx_reports_reported_by ON reports(reported_by);
+CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);
 
 CREATE TABLE IF NOT EXISTS verified_accounts (
   user_id TEXT PRIMARY KEY
 );
+
+CREATE TABLE IF NOT EXISTS comments (
+  id TEXT PRIMARY KEY,
+  post_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_comments_post_id ON comments(post_id);
+CREATE INDEX IF NOT EXISTS idx_comments_created_at ON comments(created_at);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(id, content, content='posts', content_rowid='rowid');
+`);
+
+// ── FTS Triggers ────────────────────────────────────────────────────────────
+
+// Rebuild FTS index from current posts (safe to run multiple times)
+try {
+  db.exec(`INSERT INTO posts_fts(posts_fts) VALUES('rebuild')`);
+} catch { /* FTS rebuild may fail if table is already synced, that's fine */ }
+
+// Keep FTS in sync with posts table via triggers
+db.exec(`
+CREATE TRIGGER IF NOT EXISTS posts_ai AFTER INSERT ON posts BEGIN
+  INSERT INTO posts_fts(id, content) VALUES (new.id, new.content);
+END;
+CREATE TRIGGER IF NOT EXISTS posts_ad AFTER DELETE ON posts BEGIN
+  INSERT INTO posts_fts(posts_fts, rowid, id, content) VALUES('delete', old.rowid, old.id, old.content);
+END;
+CREATE TRIGGER IF NOT EXISTS posts_au AFTER UPDATE ON posts BEGIN
+  INSERT INTO posts_fts(posts_fts, rowid, id, content) VALUES('delete', old.rowid, old.id, old.content);
+  INSERT INTO posts_fts(id, content) VALUES (new.id, new.content);
+END;
 `);
 
 // ── Prepared Statements ─────────────────────────────────────────────────────
@@ -134,6 +169,30 @@ const upsertReport = db.prepare(`
     description = @description
 `);
 const checkDuplicateReport = db.prepare('SELECT 1 FROM reports WHERE post_id = ? AND reported_by = ?');
+
+// Search (FTS5)
+const searchPosts = db.prepare(`
+  SELECT p.* FROM posts p
+  JOIN posts_fts fts ON p.id = fts.id
+  WHERE posts_fts MATCH ?
+  ORDER BY p.created_at DESC
+  LIMIT ?
+`);
+
+// Fallback search (LIKE) for simple queries
+const searchPostsLike = db.prepare(`
+  SELECT * FROM posts WHERE content LIKE ? ORDER BY created_at DESC LIMIT ?
+`);
+
+// Comments
+const getCommentsByPost = db.prepare('SELECT * FROM comments WHERE post_id = ? ORDER BY created_at ASC');
+const insertComment = db.prepare(`
+  INSERT INTO comments (id, post_id, user_id, content, created_at)
+  VALUES (@id, @post_id, @user_id, @content, @created_at)
+`);
+const getComment = db.prepare('SELECT * FROM comments WHERE id = ?');
+const deleteComment = db.prepare('DELETE FROM comments WHERE id = ?');
+const getCommentCount = db.prepare('SELECT COUNT(*) as cnt FROM comments WHERE post_id = ?');
 
 // Verified
 const getVerified = db.prepare('SELECT 1 FROM verified_accounts WHERE user_id = ?');
@@ -476,6 +535,55 @@ function hasDuplicateReport(postId, userId) {
   return !!checkDuplicateReport.get(postId, userId);
 }
 
+function searchPostContent(query, limit = 20) {
+  try {
+    // Try FTS5 first
+    const rows = searchPosts.all(query, limit);
+    return rows.map(rowToPost);
+  } catch {
+    // Fallback to LIKE
+    const rows = searchPostsLike.all(`%${query}%`, limit);
+    return rows.map(rowToPost);
+  }
+}
+
+function rowToComment(row) {
+  if (!row) return undefined;
+  return {
+    id: row.id,
+    postId: row.post_id,
+    userId: row.user_id,
+    content: row.content,
+    createdAt: row.created_at,
+  };
+}
+
+function addComment(comment) {
+  insertComment.run({
+    id: comment.id,
+    post_id: comment.postId,
+    user_id: comment.userId,
+    content: comment.content,
+    created_at: comment.createdAt,
+  });
+}
+
+function getCommentsForPost(postId) {
+  return getCommentsByPost.all(postId).map(rowToComment);
+}
+
+function getCommentCountForPost(postId) {
+  return getCommentCount.get(postId).cnt;
+}
+
+function deleteCommentById(commentId) {
+  return deleteComment.run(commentId);
+}
+
+function getCommentById(commentId) {
+  return rowToComment(getComment.get(commentId));
+}
+
 function updatePostLikeCount(postId) {
   const count = getLikeCount(postId);
   db.prepare('UPDATE posts SET like_count = ? WHERE id = ?').run(count, postId);
@@ -520,4 +628,12 @@ module.exports = {
   markNotificationsRead,
   hasDuplicateReport,
   updatePostLikeCount,
+  // Search
+  searchPostContent,
+  // Comments
+  addComment,
+  getCommentsForPost,
+  getCommentCountForPost,
+  deleteCommentById,
+  getCommentById,
 };

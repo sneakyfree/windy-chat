@@ -86,6 +86,11 @@ const upsertProfile = db.prepare(`
   VALUES (@chat_user_id, @windy_identity_id, @display_name, @languages, @primary_language, @avatar_url, @created_at, @onboarding_complete)
 `);
 
+const updateProfileAvatar = db.prepare('UPDATE user_profiles SET avatar_url = ? WHERE chat_user_id = ?');
+const deleteProfile = db.prepare('DELETE FROM user_profiles WHERE chat_user_id = ?');
+const deleteDisplayNameByUserId = db.prepare('DELETE FROM display_names WHERE user_id = ?');
+const deleteOnboardingState = db.prepare('DELETE FROM onboarding_state WHERE windy_user_id = ?');
+
 // Pairing sessions
 const getSession = db.prepare('SELECT * FROM pairing_sessions WHERE session_id = ?');
 const upsertSession = db.prepare(`
@@ -172,6 +177,10 @@ module.exports = {
   getProfile,
   getProfileByWindyId,
   upsertProfile,
+  updateProfileAvatar,
+  deleteProfile,
+  deleteDisplayNameByUserId,
+  deleteOnboardingState,
   getSession,
   upsertSession,
   deleteSession,

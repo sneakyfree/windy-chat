@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS media (
 );
 CREATE INDEX IF NOT EXISTS idx_media_user_id ON media(user_id);
 CREATE INDEX IF NOT EXISTS idx_media_created_at ON media(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_media_windy_identity_id ON media(windy_identity_id);
 `);
 
 const getMedia = db.prepare('SELECT * FROM media WHERE id = ?');

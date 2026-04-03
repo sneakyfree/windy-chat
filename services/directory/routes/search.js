@@ -317,6 +317,9 @@ router.post('/invite', inviteLimiter, asyncHandler(async (req, res) => {
       const fromNumber = process.env.TWILIO_PHONE_NUMBER;
 
       if (!accountSid || !authToken || !fromNumber) {
+        if (process.env.NODE_ENV === 'production') {
+          return res.status(503).json({ error: 'SMS service not configured' });
+        }
         console.log(`📱 [STUB] SMS invite to ${identifier}: ${message}`);
       } else {
         try {
@@ -339,6 +342,9 @@ router.post('/invite', inviteLimiter, asyncHandler(async (req, res) => {
       const fromEmail = process.env.SENDGRID_FROM_EMAIL || 'noreply@windypro.com';
 
       if (!apiKey) {
+        if (process.env.NODE_ENV === 'production') {
+          return res.status(503).json({ error: 'Email service not configured' });
+        }
         console.log(`📧 [STUB] Email invite to ${identifier} from ${senderName}`);
       } else {
         try {

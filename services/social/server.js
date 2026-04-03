@@ -71,18 +71,18 @@ async function verifyWithEternitas(passportId) {
             try {
               const body = JSON.parse(data);
               resolve(body.valid === true && (body.trust_score || 0) >= 50);
-            } catch { resolve(false); }
+            } catch (parseErr) { console.warn(`[social] Eternitas verify JSON parse error for ${passportId}:`, parseErr.message); resolve(false); }
           } else { resolve(false); }
         });
       });
-      req.on('error', () => resolve(false));
+      req.on('error', (err) => { console.warn(`[social] Eternitas verify request error for ${passportId}:`, err.message); resolve(false); });
       req.on('timeout', () => { req.destroy(); resolve(false); });
     });
 
     eternitasCache.set(passportId, { valid: result, timestamp: Date.now() });
     return result;
-  } catch {
-    // On error, fall back to local state
+  } catch (err) {
+    console.warn(`[social] Eternitas verify error for ${passportId}:`, err.message);
     return verifiedAccounts.has(passportId);
   }
 }
@@ -196,12 +196,12 @@ app.get('/api/v1/social/ecosystem-status', auth, asyncHandler(async (req, res) =
           timeout: 5000,
         }, (ecoRes) => {
           let d = ''; ecoRes.on('data', c => d += c);
-          ecoRes.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve(null); } });
+          ecoRes.on('end', () => { try { resolve(JSON.parse(d)); } catch (e) { console.warn('[social] Ecosystem status parse error:', e.message); resolve(null); } });
         });
-        ecoReq.on('error', () => resolve(null));
+        ecoReq.on('error', (e) => { console.warn('[social] Ecosystem status request error:', e.message); resolve(null); });
         ecoReq.on('timeout', () => { ecoReq.destroy(); resolve(null); });
       });
-    } catch { /* ecosystem status unavailable */ }
+    } catch (err) { console.warn('[social] Ecosystem status error:', err.message); }
   }
 
   res.json({

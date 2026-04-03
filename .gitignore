@@ -17,6 +17,9 @@ services/*/data/*.db-shm
 # Media uploads
 services/media/data/media/
 
+# Auto-generated secrets (dev mode)
+services/.env.generated
+
 # Firebase / APNs credentials
 *.p8
 *-firebase-adminsdk-*.json

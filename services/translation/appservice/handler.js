@@ -67,11 +67,11 @@ function translateText(text, sourceLang, targetLang) {
         try {
           const result = JSON.parse(data);
           resolve(result.translated_text || null);
-        } catch { resolve(null); }
+        } catch (e) { console.warn('[appservice] Translation response parse error:', e.message); resolve(null); }
       });
     });
-    req.on('error', () => resolve(null));
-    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.on('error', (e) => { console.warn('[appservice] Translation request error:', e.message); resolve(null); });
+    req.on('timeout', () => { console.warn('[appservice] Translation request timed out'); req.destroy(); resolve(null); });
     req.write(body);
     req.end();
   });
@@ -122,8 +122,8 @@ function sendTranslatedEvent(roomId, originalEventId, translatedText, targetLang
       res.on('data', (c) => data += c);
       res.on('end', () => resolve(res.statusCode < 300));
     });
-    req.on('error', () => resolve(false));
-    req.on('timeout', () => { req.destroy(); resolve(false); });
+    req.on('error', (e) => { console.warn('[appservice] Send translated event error:', e.message); resolve(false); });
+    req.on('timeout', () => { console.warn('[appservice] Send translated event timed out'); req.destroy(); resolve(false); });
     req.write(eventBody);
     req.end();
   });

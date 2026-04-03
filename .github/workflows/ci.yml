@@ -47,7 +47,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [onboarding, directory, push-gateway, backup, social]
+        service: [onboarding, directory, push-gateway, backup, social, media, call-history, translation]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -71,15 +71,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - test: media
-            file: tests/unit/test-media.js
-            deps: media
-          - test: call-history
-            file: tests/unit/test-call-history.js
-            deps: call-history
-          - test: translation
-            file: tests/unit/test-translation.js
-            deps: translation
+          - test: social-new
+            file: tests/unit/test-social-new.js
+            deps: social
+          - test: onboarding-new
+            file: tests/unit/test-onboarding-new.js
+            deps: onboarding
+          - test: shared
+            file: tests/unit/test-shared.js
+            deps: social
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -91,6 +91,52 @@ jobs:
         run: cd services/${{ matrix.deps }} && npm ci
       - name: Test ${{ matrix.test }}
         run: node --test ${{ matrix.file }}
+        env:
+          NODE_ENV: test
+          WINDY_JWT_SECRET: ci-test-secret
+          CHAT_API_TOKEN: ci-test-token
+
+  test-hardening:
+    name: Hardening Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install shared deps
+        run: cd services/shared && npm ci
+      - name: Install all service deps
+        run: |
+          for svc in onboarding directory push-gateway backup social translation media call-history; do
+            cd services/$svc && npm ci && cd ../..
+          done
+      - name: Run auth hardening tests
+        run: node --test tests/hardening/test_auth_hardening.js
+        env:
+          NODE_ENV: test
+          WINDY_JWT_SECRET: ci-test-secret
+          CHAT_API_TOKEN: ci-test-token
+      - name: Run input validation tests
+        run: node --test tests/hardening/test_input_validation.js
+        env:
+          NODE_ENV: test
+          WINDY_JWT_SECRET: ci-test-secret
+          CHAT_API_TOKEN: ci-test-token
+      - name: Run concurrency tests
+        run: node --test tests/hardening/test_concurrency.js
+        env:
+          NODE_ENV: test
+          WINDY_JWT_SECRET: ci-test-secret
+          CHAT_API_TOKEN: ci-test-token
+      - name: Run lifecycle tests
+        run: node --test tests/hardening/test_lifecycle.js
+        env:
+          NODE_ENV: test
+          WINDY_JWT_SECRET: ci-test-secret
+          CHAT_API_TOKEN: ci-test-token
+      - name: Run webhook replay tests
+        run: node --test tests/hardening/test_webhook_replay.js
         env:
           NODE_ENV: test
           WINDY_JWT_SECRET: ci-test-secret

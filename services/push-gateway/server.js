@@ -37,15 +37,7 @@ app.use(express.json({ limit: '1mb' }));
 // from Synapse and does NOT use this middleware.
 const { createAuthMiddleware } = require('../shared/jwt-verify');
 
-const CHAT_API_TOKEN = process.env.CHAT_API_TOKEN || '';
-if (!CHAT_API_TOKEN && !process.env.JWT_SECRET) {
-  console.error('❌ Either JWT_SECRET or CHAT_API_TOKEN must be set.');
-  process.exit(1);
-}
-
-const authMiddleware = createAuthMiddleware({
-  fallbackToken: CHAT_API_TOKEN || undefined,
-});
+const authMiddleware = createAuthMiddleware();
 
 // ── Global rate limiter ──
 const globalLimiter = rateLimit({
@@ -175,10 +167,18 @@ app.post('/_matrix/push/v1/notify', asyncHandler(async (req, res) => {
 
       if (platform === 'ios') {
         const result = await sendAPNs(pushkey, { title, body, badge, roomId: room_id, eventId: event_id });
-        if (!result.success) rejected.push(pushkey);
+        if (!result.success) {
+          rejected.push(pushkey);
+        } else {
+          pushDb.touchToken.run(Date.now(), pushkey);
+        }
       } else {
         const result = await sendFCM(pushkey, { title, body, badge, roomId: room_id, eventId: event_id });
-        if (!result.success) rejected.push(pushkey);
+        if (!result.success) {
+          rejected.push(pushkey);
+        } else {
+          pushDb.touchToken.run(Date.now(), pushkey);
+        }
       }
     }
 
@@ -195,6 +195,10 @@ app.post('/_matrix/push/v1/notify', asyncHandler(async (req, res) => {
 
 async function sendFCM(pushkey, payload) {
   if (!fcmApp) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[push] FCM not configured — FIREBASE_SERVICE_ACCOUNT required in production');
+      return { success: false, error: 'FCM not configured' };
+    }
     console.log(`📱 [STUB] FCM → ${pushkey.slice(0, 12)}...: ${payload.title} — ${payload.body}`);
     return { success: true, stub: true };
   }
@@ -236,6 +240,10 @@ async function sendFCM(pushkey, payload) {
 
 async function sendAPNs(pushkey, payload) {
   if (!apnProvider) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[push] APNs not configured — APNS_KEY_PATH required in production');
+      return { success: false, error: 'APNs not configured' };
+    }
     console.log(`🍎 [STUB] APNs → ${pushkey.slice(0, 12)}...: ${payload.title} — ${payload.body}`);
     return { success: true, stub: true };
   }
@@ -379,6 +387,19 @@ app.post('/api/v1/chat/push/unmute', authMiddleware, (req, res) => {
   }
 });
 
+// ── Push token cleanup (auth required) ──
+
+app.post('/api/v1/chat/push/prune', authMiddleware, (req, res) => {
+  try {
+    const pruned = pushDb.pruneTokens();
+    console.log(`🧹 Manual prune: removed ${pruned} stale push token(s)`);
+    res.json({ success: true, pruned });
+  } catch (err) {
+    console.error('Prune error:', err);
+    res.status(500).json({ error: 'Failed to prune stale tokens' });
+  }
+});
+
 // ── Health check (no auth required) ──
 app.get('/health', createHealthHandler({
   service: 'windy-chat-push-gateway',
@@ -399,15 +420,35 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
+// ── Scheduled push token cleanup — every 24 hours ──
+
+const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function runScheduledCleanup() {
+  try {
+    const pruned = pushDb.pruneTokens();
+    if (pruned > 0) {
+      console.log(`🧹 Scheduled cleanup: removed ${pruned} stale push token(s)`);
+    }
+  } catch (err) {
+    console.error('Scheduled cleanup error:', err);
+  }
+}
+
 // ── Start ──
 initFCM();
 initAPNs();
+
+// Run cleanup on startup and schedule recurring
+runScheduledCleanup();
+setInterval(runScheduledCleanup, CLEANUP_INTERVAL_MS);
 
 app.listen(PORT, () => {
   console.log(`🌪️  Windy Chat Push Gateway — listening on port ${PORT}`);
   console.log(`   Push: POST /_matrix/push/v1/notify`);
   console.log(`   FCM: ${fcmApp ? 'active' : 'stubbed'}`);
   console.log(`   APNs: ${apnProvider ? 'active' : 'stubbed'}`);
+  console.log(`   Token cleanup: every 24h (30-day stale threshold)`);
 });
 
 module.exports = app;

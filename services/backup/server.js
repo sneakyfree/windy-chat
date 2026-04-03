@@ -37,15 +37,7 @@ app.use(express.json({ limit: '1mb' }));
 // CHAT_API_TOKEN still works as fallback for backward compatibility.
 const { createAuthMiddleware } = require('../shared/jwt-verify');
 
-const CHAT_API_TOKEN = process.env.CHAT_API_TOKEN || '';
-if (!CHAT_API_TOKEN && !process.env.JWT_SECRET) {
-  console.error('❌ Either JWT_SECRET or CHAT_API_TOKEN must be set.');
-  process.exit(1);
-}
-
-const authMiddleware = createAuthMiddleware({
-  fallbackToken: CHAT_API_TOKEN || undefined,
-});
+const authMiddleware = createAuthMiddleware();
 
 // ── Global rate limiter ──
 const globalLimiter = rateLimit({

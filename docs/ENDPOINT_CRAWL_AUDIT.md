@@ -1,7 +1,8 @@
 # Endpoint Crawl Audit
 
 > Every route across all 8 microservices, verified against actual code.
-> Audit date: 2026-03-31
+> Original audit date: 2026-03-31
+> **Last Verified: 2026-04-03 (second pass)**
 
 ---
 
@@ -16,14 +17,21 @@
 | GET | `/api/v1/chat/profile/check-name` | JWT | 200 | Name availability + suggestions |
 | POST | `/api/v1/chat/profile/setup` | JWT | 201, 400 | Create profile: name (2-64), languages, avatar; profanity filter |
 | GET | `/api/v1/chat/profile/:userId` | JWT | 200, 404 | Get profile by ID |
+| POST | `/api/v1/chat/profile/avatar` | JWT | 201, 400 | **NEW** Upload avatar (JPEG/PNG/GIF/WebP, 5MB max) |
+| GET | `/api/v1/chat/profile/avatar/:filename` | None | 200, 404 | **NEW** Serve uploaded avatar |
+| DELETE | `/api/v1/onboarding/account` | JWT | 200, 500 | **NEW** GDPR deletion: deactivate Matrix, remove local data, webhook |
 | POST | `/api/v1/chat/pair/generate` | JWT | 201 | X25519 QR session; TTL 120s |
 | POST | `/api/v1/chat/pair/confirm` | JWT | 200, 400, 404, 409, 410 | Link desktop to mobile |
 | GET | `/api/v1/chat/pair/status/:sessionId` | JWT | 200, 404 | Poll pairing status |
 | DELETE | `/api/v1/chat/pair/session/:sessionId` | JWT | 200 | Cancel session |
 | POST | `/api/v1/chat/provision` | JWT | 201, 400, 502 | Provision Matrix account via Synapse admin API |
+| POST | `/api/v1/chat/provision/unified-login` | JWT | 200, 400, 502 | Unified login: provision + credentials in one call |
+| POST | `/api/v1/chat/provision/eternitas/webhook` | Service | 200, 400, 401 | Eternitas bot passport lifecycle events |
+| GET | `/api/v1/chat/provision/agent-room` | JWT | 200, 400, 404 | Lookup DM room between agent and owner |
+| GET | `/api/v1/chat/agent-room` | JWT | 200, 400, 404 | Shortcut alias for agent room lookup |
 | GET | `/api/v1/chat/onboarding/status` | JWT | 200 | Onboarding completion state |
 
-**Total: 13 endpoints**
+**Total: 20 endpoints**
 
 ---
 
@@ -53,8 +61,9 @@
 | POST | `/api/v1/chat/push/register` | JWT | 201, 400 | Register FCM/APNs token |
 | POST | `/api/v1/chat/push/mute` | JWT | 200, 400 | Mute room (1h/8h/1d/1w/forever) |
 | POST | `/api/v1/chat/push/unmute` | JWT | 200 | Unmute room |
+| POST | `/api/v1/chat/push/prune` | JWT | 200 | Prune stale tokens (30-day threshold) |
 
-**Total: 5 endpoints**
+**Total: 6 endpoints**
 
 ---
 
@@ -84,6 +93,10 @@
 | GET | `/api/v1/social/posts/user/:userId` | None | 200 | User's posts; cursor pagination |
 | POST | `/api/v1/social/posts/:postId/like` | JWT | 200, 404 | Like (idempotent); queues notification |
 | DELETE | `/api/v1/social/posts/:postId/like` | JWT | 200, 404 | Unlike |
+| DELETE | `/api/v1/social/posts/:postId` | JWT | 200, 403, 404 | **NEW** Delete own post (ownership verified) |
+| GET | `/api/v1/social/posts/search` | None | 200, 400 | **NEW** Full-text search (FTS5 + LIKE fallback) |
+| POST | `/api/v1/social/posts/:postId/comments` | JWT | 201, 400, 404, 422 | **NEW** Create comment (profanity filter) |
+| GET | `/api/v1/social/posts/:postId/comments` | None | 200, 404 | **NEW** List comments for post |
 | POST | `/api/v1/social/follow/:targetUserId` | JWT | 200, 400 | Follow (rejects self-follow) |
 | DELETE | `/api/v1/social/follow/:targetUserId` | JWT | 200 | Unfollow |
 | GET | `/api/v1/social/follow/following/:userId` | None | 200 | Following list |
@@ -94,8 +107,11 @@
 | POST | `/api/v1/social/eternitas/verify` | Service | 200, 400 | Add verified badge |
 | DELETE | `/api/v1/social/eternitas/verify` | Service | 200, 400 | Remove verified badge |
 | POST | `/api/v1/social/eternitas/webhook` | Service | 200, 400, 401 | Passport lifecycle events; HMAC verification |
+| GET | `/api/v1/social/dashboard-summary` | JWT | 200 | Quick panel: recent posts, contacts, unread counts |
+| GET | `/api/v1/social/ecosystem-status` | JWT | 200 | Cross-product view: chat stats + ecosystem products |
+| GET | `/api/v1/social/profile/:userId` | JWT | 200 | Enriched profile: posts, followers, Eternitas passport |
 
-**Total: 18 endpoints**
+**Total: 25 endpoints**
 
 ---
 
@@ -146,12 +162,12 @@
 
 | Service | Endpoints |
 |---------|-----------|
-| Onboarding (K2) | 13 |
+| Onboarding (K2) | 20 |
 | Directory (K3) | 8 |
-| Push Gateway (K6) | 5 |
+| Push Gateway (K6) | 6 |
 | Backup (K8) | 5 |
-| Social (K10) | 18 |
+| Social (K10) | 25 |
 | Translation (K9) | 8 |
 | Media (K4) | 4 |
 | Call History (K5) | 4 |
-| **Total** | **65** |
+| **Total** | **80** |
