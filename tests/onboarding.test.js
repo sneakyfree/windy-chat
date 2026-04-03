@@ -310,10 +310,10 @@ describe('POST /api/v1/chat/pair/confirm', () => {
     const gen = await request('POST', '/api/v1/chat/pair/generate', {});
     const sessionId = gen.body.sessionId;
 
-    // Confirm
+    // Confirm — use CHAT_API_TOKEN as authToken (service-to-service validation)
     const res = await request('POST', '/api/v1/chat/pair/confirm', {
       sessionId,
-      authToken: 'test-token',
+      authToken: process.env.CHAT_API_TOKEN,
       userId: 'test_user',
     });
     assert.equal(res.status, 200);

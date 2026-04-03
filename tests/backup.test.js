@@ -13,6 +13,7 @@ process.env.WINDY_JWT_SECRET = 'test-jwt-secret';
 process.env.NODE_ENV = 'test';
 
 const { app, encryptBackup, decryptBackup } = require('../services/backup/server');
+const backupDb = require('../services/backup/lib/db');
 
 let server;
 let baseUrl;
@@ -48,6 +49,8 @@ function request(method, path, body, headers = {}) {
 }
 
 before(() => new Promise((resolve) => {
+  // Clean test data to prevent pollution from prior test runs
+  backupDb.db.exec('DELETE FROM backup_registry');
   server = app.listen(0, () => {
     baseUrl = `http://localhost:${server.address().port}`;
     resolve();

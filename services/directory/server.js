@@ -70,11 +70,13 @@ app.use((err, _req, res, _next) => {
 });
 
 // ── Start ──
-app.listen(PORT, () => {
-  console.log(`🌪️  Windy Chat Directory — listening on port ${PORT}`);
-  console.log(`   Health:  http://localhost:${PORT}/health`);
-  console.log(`   Lookup:  http://localhost:${PORT}/api/v1/chat/directory/lookup`);
-  console.log(`   Search:  http://localhost:${PORT}/api/v1/chat/directory/search`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`🌪️  Windy Chat Directory — listening on port ${PORT}`);
+    console.log(`   Health:  http://localhost:${PORT}/health`);
+    console.log(`   Lookup:  http://localhost:${PORT}/api/v1/chat/directory/lookup`);
+    console.log(`   Search:  http://localhost:${PORT}/api/v1/chat/directory/search`);
+  });
+}
 
 module.exports = app;

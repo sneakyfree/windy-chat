@@ -374,9 +374,12 @@ function formatSize(bytes) {
 
 // ── Start ──
 initR2();
-app.listen(PORT, () => {
-  console.log(`🌪️  Windy Chat Backup — listening on port ${PORT}`);
-  console.log(`   R2: ${s3Client ? 'active' : 'stubbed'}`);
-});
+
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`🌪️  Windy Chat Backup — listening on port ${PORT}`);
+    console.log(`   R2: ${s3Client ? 'active' : 'stubbed'}`);
+  });
+}
 
 module.exports = { app, encryptBackup, decryptBackup };

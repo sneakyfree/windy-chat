@@ -443,12 +443,14 @@ initAPNs();
 runScheduledCleanup();
 setInterval(runScheduledCleanup, CLEANUP_INTERVAL_MS);
 
-app.listen(PORT, () => {
-  console.log(`🌪️  Windy Chat Push Gateway — listening on port ${PORT}`);
-  console.log(`   Push: POST /_matrix/push/v1/notify`);
-  console.log(`   FCM: ${fcmApp ? 'active' : 'stubbed'}`);
-  console.log(`   APNs: ${apnProvider ? 'active' : 'stubbed'}`);
-  console.log(`   Token cleanup: every 24h (30-day stale threshold)`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`🌪️  Windy Chat Push Gateway — listening on port ${PORT}`);
+    console.log(`   Push: POST /_matrix/push/v1/notify`);
+    console.log(`   FCM: ${fcmApp ? 'active' : 'stubbed'}`);
+    console.log(`   APNs: ${apnProvider ? 'active' : 'stubbed'}`);
+    console.log(`   Token cleanup: every 24h (30-day stale threshold)`);
+  });
+}
 
 module.exports = app;

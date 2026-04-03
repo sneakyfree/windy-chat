@@ -183,12 +183,9 @@ function startManualService(modulePath) {
 }
 
 before(async () => {
-  // Auto-listen services
   onboardingUrl = await startManualService('../../services/onboarding/server');
-  directoryUrl = await loadAutoListenService('../../services/directory/server');
-  pushUrl = await loadAutoListenService('../../services/push-gateway/server');
-
-  // Manual-listen services
+  directoryUrl = await startManualService('../../services/directory/server');
+  pushUrl = await startManualService('../../services/push-gateway/server');
   socialUrl = await startManualService('../../services/social/server');
   translationUrl = await startManualService('../../services/translation/server');
   mediaUrl = await startManualService('../../services/media/server');

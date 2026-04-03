@@ -15,6 +15,9 @@ listeners:
     resources:
       - names: [client]    # Client API only — federation disabled
         compress: false
+  - port: 9000
+    type: metrics
+    bind_addresses: ["0.0.0.0"]
 
 # ── Database (PostgreSQL) ──
 database:

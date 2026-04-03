@@ -13,6 +13,7 @@ process.env.WINDY_JWT_SECRET = 'test-jwt-secret';
 process.env.NODE_ENV = 'test';
 
 const app = require('../services/directory/server');
+const directoryDb = require('../services/directory/lib/db');
 
 let server;
 let baseUrl;
@@ -46,6 +47,10 @@ function request(method, path, body, headers = {}) {
 }
 
 before(() => new Promise((resolve) => {
+  // Clean test data to prevent pollution from prior test runs (stress tests, etc.)
+  directoryDb.db.exec('DELETE FROM user_directory');
+  directoryDb.db.exec('DELETE FROM hash_directory');
+  directoryDb.db.exec('DELETE FROM invite_tracker');
   server = app.listen(0, () => {
     baseUrl = `http://localhost:${server.address().port}`;
     resolve();
