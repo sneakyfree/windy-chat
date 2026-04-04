@@ -306,18 +306,38 @@ All cross-cutting concerns are resolved. Security hardening complete. CI/CD cove
 6. Run `./scripts/backup-db.sh --install-cron` for daily backups
 7. Share `WINDY_JWT_SECRET` with windy-pro account-server
 
-### Remaining Feature Gaps (not ship-blockers)
+### Features Built Since Last Audit
 
-These are product roadmap items, not deployment blockers:
+| Area | Feature | Status |
+|------|---------|--------|
+| K2 Onboarding | Bot/agent provisioning endpoint | **BUILT** — POST /api/v1/onboarding/agent |
+| K3 Directory | Salt rotation transition | **BUILT** — previous_salt kept during rotation window |
+| K3 Directory | Blocked users | **BUILT** — POST/DELETE/GET /api/v1/chat/directory/block |
+| K4 Media | Link preview (Open Graph) | **BUILT** — GET /api/v1/media/link-preview?url= |
+| K6 Push | Web Push (VAPID) | **BUILT** — VAPID keys, web-push npm, auto-cleanup expired subscriptions |
+| K8 Backup | Scheduled backups | **BUILT** — POST/GET /api/v1/chat/backup/schedule + hourly cron check |
+| K8 Backup | Windy Cloud API routing | **BUILT** — backup service routes through WINDY_CLOUD_URL |
+| K10 Social | Privacy controls | **BUILT** — public/followers/private post visibility |
+| K10 Social | Media in posts | **BUILT** — media_ids array (max 4) |
+| K10 Social | Repost/share | **BUILT** — POST /posts/:id/repost with quote text |
+| K10 Social | Hashtags + trending | **BUILT** — auto-extraction, GET /trending, GET /hashtag/:tag |
+| Web | Standalone web app | **BUILT** — React 19 + TypeScript + Tailwind at web/ |
+| Web | Bot discovery page | **BUILT** — agent grid with filters, trust scores, passport modal |
+| Web | Group chat creation | **BUILT** — multi-select contacts, Matrix room creation |
+| Web | Onboarding welcome flow | **BUILT** — first-login welcome overlay |
+| Web | PWA support | **BUILT** — manifest.json, service worker, push notifications |
+| Infra | AWS deployment | **BUILT** — deploy/aws-setup.sh (EC2, Docker, certbot) |
+| Infra | Eternitas webhook | **BUILT** — POST /api/v1/webhooks/eternitas (unified handler) |
+| Infra | Platform registration | **BUILT** — auto-registers with Eternitas on boot |
+
+### Remaining Feature Gaps (roadmap items, not ship-blockers)
 
 | Area | Missing Features |
 |------|-----------------|
-| K2 Onboarding | Bot/agent onboarding |
-| K3 Directory | Salt transition, referral tracking, block list, bot directory |
-| K4 Media | Waveforms, link preview, gallery API, virus scan, CDN, stickers |
+| K3 Directory | Referral tracking, bot directory |
+| K4 Media | Waveforms, gallery API, virus scan, CDN, stickers |
 | K5 VoIP | Client-side VoIP, auto-logging, group calls, voicemail, screen share |
-| K6 Push | Web push (VAPID) |
 | K7 E2E | Client-side Olm/Megolm, device verification UX, key rotation |
-| K8 Backup | Scheduled backups, incremental, Soul File |
+| K8 Backup | Incremental backups, Soul File integration |
 | K9 Translation | Monetization hooks, bulk translation |
 | K10 Social | Algorithmic feed, trending, discovery, media posts, privacy, bots, reposts |

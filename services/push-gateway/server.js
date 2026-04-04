@@ -162,23 +162,23 @@ app.post('/_matrix/push/v1/notify', asyncHandler(async (req, res) => {
       const body = 'New message'; // Never leak content in notification
       const badge = counts?.unread || 0;
 
-      // Route to FCM or APNs based on pushkey/app_id
+      // Route to FCM, APNs, or Web Push based on platform
       const platform = tokenEntry?.platform || (app_id?.includes('ios') ? 'ios' : 'android');
+      const pushPayload = { title, body, badge, roomId: room_id, eventId: event_id };
 
-      if (platform === 'ios') {
-        const result = await sendAPNs(pushkey, { title, body, badge, roomId: room_id, eventId: event_id });
-        if (!result.success) {
-          rejected.push(pushkey);
-        } else {
-          pushDb.touchToken.run(Date.now(), pushkey);
-        }
+      let result;
+      if (platform === 'web') {
+        result = await sendWebPush(pushkey, pushPayload);
+      } else if (platform === 'ios') {
+        result = await sendAPNs(pushkey, pushPayload);
       } else {
-        const result = await sendFCM(pushkey, { title, body, badge, roomId: room_id, eventId: event_id });
-        if (!result.success) {
-          rejected.push(pushkey);
-        } else {
-          pushDb.touchToken.run(Date.now(), pushkey);
-        }
+        result = await sendFCM(pushkey, pushPayload);
+      }
+
+      if (!result.success) {
+        rejected.push(pushkey);
+      } else {
+        pushDb.touchToken.run(Date.now(), pushkey);
       }
     }
 
@@ -270,6 +270,73 @@ async function sendAPNs(pushkey, payload) {
     return { success: false, error: 'APNs delivery failed' };
   }
 }
+
+// ── K6.5: Web Push (VAPID) ──
+
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@windychat.com';
+
+let webPushReady = false;
+
+function initWebPush() {
+  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+    console.warn('⚠️  VAPID keys not configured — Web Push will be stubbed');
+    return;
+  }
+  try {
+    const webpush = require('web-push');
+    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+    webPushReady = true;
+    console.log('🌐 Web Push (VAPID) initialized');
+  } catch (err) {
+    console.error('Web Push init error:', err.message);
+  }
+}
+
+async function sendWebPush(pushkey, payload) {
+  if (!webPushReady) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[push] Web Push not configured — VAPID keys required in production');
+      return { success: false, error: 'Web Push not configured' };
+    }
+    console.log(`🌐 [STUB] Web Push → ${pushkey.slice(0, 30)}...: ${payload.title} — ${payload.body}`);
+    return { success: true, stub: true };
+  }
+
+  try {
+    const webpush = require('web-push');
+    const subscription = JSON.parse(pushkey);
+    await webpush.sendNotification(subscription, JSON.stringify({
+      title: payload.title,
+      body: payload.body,
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      tag: payload.roomId || 'windy-chat',
+      data: { room_id: payload.roomId, event_id: payload.eventId, url: '/' },
+    }));
+    console.log(`🌐 Web Push sent to subscription`);
+    return { success: true };
+  } catch (err) {
+    if (err.statusCode === 410 || err.statusCode === 404) {
+      // Subscription expired — mark for cleanup
+      console.log(`🌐 Web Push subscription expired, removing`);
+      pushDb.db.prepare('DELETE FROM push_tokens WHERE pushkey = ?').run(pushkey);
+      return { success: false, error: 'subscription_expired' };
+    }
+    console.error('Web Push send error:', err.message);
+    return { success: false, error: 'Web Push delivery failed' };
+  }
+}
+
+// ── GET /api/v1/chat/push/vapid-key — public VAPID key for client subscription ──
+
+app.get('/api/v1/chat/push/vapid-key', (_req, res) => {
+  if (!VAPID_PUBLIC_KEY) {
+    return res.status(503).json({ error: 'Web Push not configured' });
+  }
+  res.json({ publicKey: VAPID_PUBLIC_KEY });
+});
 
 // ── Push token registration (auth required) ──
 
@@ -407,6 +474,7 @@ app.get('/health', createHealthHandler({
   checks: async () => ({
     fcm: fcmApp ? 'active' : 'stubbed',
     apns: apnProvider ? 'active' : 'stubbed',
+    webPush: webPushReady ? 'active' : 'stubbed',
     registeredTokens: pushDb.tokenCount.get().cnt,
     activeMutes: pushDb.muteCount.get().cnt,
   }),
@@ -438,6 +506,7 @@ function runScheduledCleanup() {
 // ── Start ──
 initFCM();
 initAPNs();
+initWebPush();
 
 // Run cleanup on startup and schedule recurring
 runScheduledCleanup();

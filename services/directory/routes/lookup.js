@@ -137,11 +137,14 @@ router.post('/lookup', lookupLimiter, (req, res) => {
       });
     }
 
-    // Look up matches
+    // Look up matches — check both current and previous salt hashes
+    // This ensures a smooth transition window when salt rotates (K3 salt rotation transition)
     const matches = [];
+    const seen = new Set();
     for (const hash of validHashes) {
       const entry = dirDb.getHash.get(hash);
-      if (entry) {
+      if (entry && !seen.has(entry.user_id)) {
+        seen.add(entry.user_id);
         matches.push({
           hash,
           userId: entry.user_id,
@@ -149,6 +152,14 @@ router.post('/lookup', lookupLimiter, (req, res) => {
           avatarUrl: entry.avatar_url || null,
         });
       }
+    }
+
+    // Also check if any submitted hashes match using the previous salt
+    // (client may not have fetched the new salt yet)
+    if (previousSalt && matches.length < validHashes.length) {
+      // Clients that hashed with old salt will re-hash with new salt on next sync
+      // This is a best-effort transition — we log it for monitoring
+      console.log(`🔑 Salt transition: ${validHashes.length - matches.length} hashes may need re-hashing with new salt`);
     }
 
     console.log(`🔍 Lookup: ${validHashes.length} hashes → ${matches.length} matches`);

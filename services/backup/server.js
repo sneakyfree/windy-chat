@@ -419,6 +419,43 @@ app.delete('/api/v1/chat/backup/delete', authMiddleware, asyncHandler(async (req
   }
 }));
 
+// ── POST /api/v1/chat/backup/schedule — trigger scheduled backup for a user ──
+app.post('/api/v1/chat/backup/schedule', authMiddleware, asyncHandler(async (req, res) => {
+  const userId = req.user.sub;
+  const windyId = req.user.windy_identity_id || userId;
+
+  // Store schedule preference
+  backupDb.db.exec(`
+    CREATE TABLE IF NOT EXISTS backup_schedule (
+      user_id TEXT PRIMARY KEY,
+      enabled INTEGER DEFAULT 1,
+      interval_hours INTEGER DEFAULT 24,
+      last_scheduled TEXT,
+      created_at TEXT NOT NULL
+    )
+  `);
+
+  const intervalHours = Math.max(1, Math.min(168, parseInt(req.body.interval_hours) || 24));
+  backupDb.db.prepare(`
+    INSERT OR REPLACE INTO backup_schedule (user_id, enabled, interval_hours, created_at)
+    VALUES (?, 1, ?, datetime('now'))
+  `).run(windyId, intervalHours);
+
+  console.log(`📅 Backup schedule set: ${windyId} every ${intervalHours}h`);
+  res.json({ scheduled: true, interval_hours: intervalHours });
+}));
+
+// ── GET /api/v1/chat/backup/schedule — get schedule status ──
+app.get('/api/v1/chat/backup/schedule', authMiddleware, (req, res) => {
+  const windyId = req.user.windy_identity_id || req.user.sub;
+  try {
+    const row = backupDb.db.prepare('SELECT * FROM backup_schedule WHERE user_id = ?').get(windyId);
+    res.json(row ? { scheduled: true, enabled: !!row.enabled, interval_hours: row.interval_hours, last_scheduled: row.last_scheduled } : { scheduled: false });
+  } catch {
+    res.json({ scheduled: false });
+  }
+});
+
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 
 // ── Error handler ──
@@ -433,6 +470,42 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// ── Scheduled backup runner — checks every hour for users due for backup ──
+const SCHEDULE_CHECK_INTERVAL = 60 * 60 * 1000; // 1 hour
+
+function runScheduledBackups() {
+  try {
+    backupDb.db.exec(`
+      CREATE TABLE IF NOT EXISTS backup_schedule (
+        user_id TEXT PRIMARY KEY,
+        enabled INTEGER DEFAULT 1,
+        interval_hours INTEGER DEFAULT 24,
+        last_scheduled TEXT,
+        created_at TEXT NOT NULL
+      )
+    `);
+
+    const due = backupDb.db.prepare(`
+      SELECT * FROM backup_schedule
+      WHERE enabled = 1
+      AND (last_scheduled IS NULL OR datetime(last_scheduled, '+' || interval_hours || ' hours') < datetime('now'))
+    `).all();
+
+    for (const schedule of due) {
+      console.log(`📅 Scheduled backup due for ${schedule.user_id}`);
+      backupDb.db.prepare('UPDATE backup_schedule SET last_scheduled = datetime(\'now\') WHERE user_id = ?').run(schedule.user_id);
+      // The actual backup is client-initiated (encrypted on device).
+      // This schedule tracks *intent* — the client polls GET /schedule and triggers backup.
+    }
+
+    if (due.length > 0) {
+      console.log(`📅 ${due.length} scheduled backup(s) marked as due`);
+    }
+  } catch (err) {
+    console.error('Scheduled backup check error:', err.message);
+  }
+}
+
 // ── Start ──
 initStorage();
 
@@ -441,6 +514,9 @@ if (require.main === module) {
     console.log(`🌪️  Windy Chat Backup — listening on port ${PORT}`);
     console.log(`   Storage: ${storageMode}`);
   });
+  // Run scheduled backup check on startup and every hour
+  runScheduledBackups();
+  setInterval(runScheduledBackups, SCHEDULE_CHECK_INTERVAL);
 }
 
 module.exports = { app, encryptBackup, decryptBackup };
