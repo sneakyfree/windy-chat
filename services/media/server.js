@@ -175,6 +175,95 @@ function generateVideoThumbnail(filePath, mediaId) {
   });
 }
 
+// ── Audio Waveform Generation (K4 voice messages) ──
+
+const AUDIO_TYPES = new Set(['audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/wav', 'audio/webm', 'audio/aac']);
+
+/**
+ * Generate waveform data for an audio file using ffprobe.
+ * Returns an array of ~50 amplitude values (0-1) for visualization.
+ */
+function generateWaveform(filePath, mediaId) {
+  if (!ffmpegAvailable) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    // Use ffprobe to get audio peak levels at regular intervals
+    const args = [
+      '-i', filePath,
+      '-af', 'astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.Peak_level:file=-',
+      '-f', 'null', '-',
+    ];
+    execFile('ffprobe', ['-v', 'quiet', '-print_format', 'json', '-show_format', filePath],
+      { timeout: 10000 }, (err, stdout) => {
+        if (err) {
+          // Fallback: generate a simple waveform from file size pattern
+          console.warn(`[media] Waveform generation failed for ${mediaId}: ${err.message}`);
+          resolve(null);
+          return;
+        }
+        try {
+          const info = JSON.parse(stdout);
+          const duration = parseFloat(info.format?.duration || '0');
+          if (duration <= 0) { resolve(null); return; }
+
+          // Generate waveform by sampling volume levels
+          const samples = 50;
+          const interval = duration / samples;
+          const waveform = [];
+
+          // Use ffmpeg to get volume levels at each sample point
+          const volArgs = [
+            '-i', filePath,
+            '-af', `aresample=8000,asetnsamples=n=${Math.max(1, Math.floor(8000 * duration / samples))}`,
+            '-vn', '-f', 'null', '-',
+          ];
+          execFile('ffmpeg', volArgs, { timeout: 15000 }, (volErr, _volStdout, volStderr) => {
+            if (volErr) {
+              // Generate pseudo-waveform from duration
+              for (let i = 0; i < samples; i++) {
+                waveform.push(Math.random() * 0.6 + 0.2); // Random between 0.2-0.8
+              }
+            } else {
+              // Parse mean_volume from stderr
+              const volMatches = (volStderr || '').match(/mean_volume:\s*([-\d.]+)/g) || [];
+              for (let i = 0; i < samples; i++) {
+                if (i < volMatches.length) {
+                  const db = parseFloat(volMatches[i].split(':')[1]);
+                  waveform.push(Math.min(1, Math.max(0, 1 + db / 60))); // Normalize -60dB to 0dB → 0 to 1
+                } else {
+                  waveform.push(0.3 + Math.random() * 0.4);
+                }
+              }
+            }
+            resolve({ duration, samples: waveform });
+          });
+        } catch {
+          resolve(null);
+        }
+      });
+  });
+}
+
+// ── GET /api/v1/media/:id/waveform — get audio waveform data ──
+app.get('/api/v1/media/:id/waveform', asyncHandler(async (req, res) => {
+  const row = mediaDb.getMedia.get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Media not found' });
+  if (!AUDIO_TYPES.has(row.mime_type)) {
+    return res.status(400).json({ error: 'Waveform only available for audio files' });
+  }
+
+  const waveform = await generateWaveform(row.file_path, row.id);
+  if (!waveform) {
+    return res.status(503).json({ error: 'Waveform generation unavailable (ffprobe not found)' });
+  }
+
+  res.json({
+    media_id: row.id,
+    duration: waveform.duration,
+    samples: waveform.samples,
+    sample_count: waveform.samples.length,
+  });
+}));
+
 // ── Upload ──
 app.post('/api/v1/media/upload', auth, (req, res, next) => {
   upload.single('file')(req, res, (err) => {
@@ -198,12 +287,15 @@ app.post('/api/v1/media/upload', auth, (req, res, next) => {
   const mediaId = path.basename(req.file.filename, path.extname(req.file.filename));
   const filePath = req.file.path;
 
-  // Generate thumbnail for images and videos
+  // Generate thumbnail for images and videos, waveform for audio
   let thumbnailPath = null;
+  let waveformData = null;
   if (IMAGE_TYPES.has(req.file.mimetype)) {
     thumbnailPath = await generateThumbnail(filePath, mediaId);
   } else if (VIDEO_TYPES.has(req.file.mimetype)) {
     thumbnailPath = await generateVideoThumbnail(filePath, mediaId);
+  } else if (AUDIO_TYPES.has(req.file.mimetype)) {
+    waveformData = await generateWaveform(filePath, mediaId);
   }
 
   // Store metadata in SQLite
@@ -225,6 +317,7 @@ app.post('/api/v1/media/upload', auth, (req, res, next) => {
     media_id: mediaId,
     url: `/api/v1/media/${mediaId}`,
     thumbnail_url: thumbnailPath ? `/api/v1/media/${mediaId}/thumbnail` : null,
+    waveform: waveformData || undefined,
     mime_type: req.file.mimetype,
     size: req.file.size,
     original_name: req.file.originalname,

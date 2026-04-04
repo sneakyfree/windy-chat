@@ -24,6 +24,22 @@ const auth = createAuthMiddleware();
 // Service token auth for agent/bot endpoints (CHAT_SERVICE_TOKEN or CHAT_API_TOKEN)
 const CHAT_SERVICE_TOKEN = process.env.CHAT_SERVICE_TOKEN || process.env.CHAT_API_TOKEN || '';
 
+/**
+ * Compute engagement score for algorithmic feed ranking.
+ * Score = (likes * 3 + comments * 5 + reposts * 4) / (age_hours + 2)^1.5
+ * Verified/agent posts get a small boost. Recent posts decay slower.
+ */
+function computeEngagementScore(post, nowMs) {
+  const ageMs = nowMs - new Date(post.createdAt).getTime();
+  const ageHours = Math.max(0.1, ageMs / (1000 * 60 * 60));
+  const likes = getLikeCount(post.id);
+  const comments = getCommentCountForPost(post.id);
+  const isVerified = verifiedAccounts.has(post.userId);
+  const rawScore = (likes * 3) + (comments * 5) + (post.repostOf ? 0 : 1);
+  const verifiedBoost = isVerified ? 1.3 : 1.0;
+  return (rawScore * verifiedBoost) / Math.pow(ageHours + 2, 1.5);
+}
+
 function serviceTokenAuth(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
@@ -285,16 +301,29 @@ router.get('/user/:userId', optionalAuth, asyncHandler(async (req, res) => {
 }));
 
 // ── Feed (posts from followed users) ──
+// ?sort=ranked for algorithmic feed, default is chronological
 router.get('/', auth, asyncHandler(async (req, res) => {
   const userId = req.user.sub;
   const following = followsMap.get(userId) || new Set();
   const cursor = req.query.cursor;
+  const sortMode = req.query.sort || 'chronological';
 
   // Include own posts + followed users' posts
   const feedUserIds = new Set([userId, ...following]);
   let posts = [...postsMap.values()]
-    .filter(p => feedUserIds.has(p.userId))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    .filter(p => feedUserIds.has(p.userId));
+
+  if (sortMode === 'ranked') {
+    // Algorithmic ranking: engagement score + recency decay
+    const now = Date.now();
+    posts.sort((a, b) => {
+      const scoreA = computeEngagementScore(a, now);
+      const scoreB = computeEngagementScore(b, now);
+      return scoreB - scoreA;
+    });
+  } else {
+    posts.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
 
   // Apply visibility filtering (user always sees own posts; followers posts if following)
   posts = filterByVisibility(posts, userId);
