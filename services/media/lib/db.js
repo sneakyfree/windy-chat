@@ -37,9 +37,33 @@ const insertMedia = db.prepare(`
 `);
 const getUserMedia = db.prepare('SELECT * FROM media WHERE user_id = ? ORDER BY created_at DESC LIMIT ?');
 
+// ── Link Preview Cache ──────────────────────────────────────────────────────
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS link_preview_cache (
+  url_hash TEXT PRIMARY KEY,
+  url TEXT NOT NULL,
+  title TEXT,
+  description TEXT,
+  image TEXT,
+  site_name TEXT,
+  cached_at INTEGER NOT NULL
+);
+`);
+
+const getLinkPreview = db.prepare('SELECT * FROM link_preview_cache WHERE url_hash = ?');
+const insertLinkPreview = db.prepare(`
+  INSERT OR REPLACE INTO link_preview_cache (url_hash, url, title, description, image, site_name, cached_at)
+  VALUES (@url_hash, @url, @title, @description, @image, @site_name, @cached_at)
+`);
+const deleteStaleLinkPreviews = db.prepare('DELETE FROM link_preview_cache WHERE cached_at < ?');
+
 module.exports = {
   db,
   getMedia,
   insertMedia,
   getUserMedia,
+  getLinkPreview,
+  insertLinkPreview,
+  deleteStaleLinkPreviews,
 };

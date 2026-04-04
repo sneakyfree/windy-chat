@@ -88,6 +88,27 @@ const upsertInviteTracker = db.prepare(`
   INSERT OR REPLACE INTO invite_tracker (user_id, count, reset_at) VALUES (?, ?, ?)
 `);
 
+// ── Blocked Users ──────────────────────────────────────────────────────────
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS blocked_users (
+  blocker_id TEXT NOT NULL,
+  blocked_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (blocker_id, blocked_id)
+);
+CREATE INDEX IF NOT EXISTS idx_blocked_users_blocker ON blocked_users(blocker_id);
+CREATE INDEX IF NOT EXISTS idx_blocked_users_blocked ON blocked_users(blocked_id);
+`);
+
+const blockUser = db.prepare(`
+  INSERT OR IGNORE INTO blocked_users (blocker_id, blocked_id, created_at)
+  VALUES (?, ?, ?)
+`);
+const unblockUser = db.prepare('DELETE FROM blocked_users WHERE blocker_id = ? AND blocked_id = ?');
+const isBlocked = db.prepare('SELECT 1 FROM blocked_users WHERE blocker_id = ? AND blocked_id = ?');
+const getBlockedList = db.prepare('SELECT blocked_id, created_at FROM blocked_users WHERE blocker_id = ? ORDER BY created_at DESC');
+
 module.exports = {
   db,
   getHash,
@@ -100,4 +121,8 @@ module.exports = {
   searchableUsers,
   getInviteTracker,
   upsertInviteTracker,
+  blockUser,
+  unblockUser,
+  isBlocked,
+  getBlockedList,
 };

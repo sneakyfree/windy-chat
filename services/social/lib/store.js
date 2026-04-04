@@ -96,6 +96,35 @@ CREATE INDEX IF NOT EXISTS idx_comments_created_at ON comments(created_at);
 CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(id, content, content='posts', content_rowid='rowid');
 `);
 
+// ── Migrations (ALTER TABLE) ───────────────────────────────────────────────
+
+// Feature 2: Privacy Controls — add visibility column
+try {
+  db.exec("ALTER TABLE posts ADD COLUMN visibility TEXT DEFAULT 'public'");
+} catch (_e) { /* column already exists */ }
+
+// Feature 3: Media in Posts — add media_ids column
+try {
+  db.exec("ALTER TABLE posts ADD COLUMN media_ids TEXT");
+} catch (_e) { /* column already exists */ }
+
+// Feature 5: Repost/Share — add repost_of column
+try {
+  db.exec("ALTER TABLE posts ADD COLUMN repost_of TEXT");
+} catch (_e) { /* column already exists */ }
+
+// Feature 6: Hashtags + Trending
+db.exec(`
+CREATE TABLE IF NOT EXISTS hashtags (
+  tag TEXT NOT NULL,
+  post_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (tag, post_id)
+);
+CREATE INDEX IF NOT EXISTS idx_hashtags_tag ON hashtags(tag);
+CREATE INDEX IF NOT EXISTS idx_hashtags_created_at ON hashtags(created_at);
+`);
+
 // ── FTS Triggers ────────────────────────────────────────────────────────────
 
 // Rebuild FTS index from current posts (safe to run multiple times)
@@ -123,13 +152,16 @@ END;
 const getPost = db.prepare('SELECT * FROM posts WHERE id = ?');
 const getAllPosts = db.prepare('SELECT * FROM posts');
 const upsertPost = db.prepare(`
-  INSERT INTO posts (id, user_id, windy_identity_id, content, translated_versions, created_at, updated_at, like_count)
-  VALUES (@id, @user_id, @windy_identity_id, @content, @translated_versions, @created_at, @updated_at, @like_count)
+  INSERT INTO posts (id, user_id, windy_identity_id, content, translated_versions, created_at, updated_at, like_count, visibility, media_ids, repost_of)
+  VALUES (@id, @user_id, @windy_identity_id, @content, @translated_versions, @created_at, @updated_at, @like_count, @visibility, @media_ids, @repost_of)
   ON CONFLICT(id) DO UPDATE SET
     content = @content,
     translated_versions = @translated_versions,
     updated_at = @updated_at,
-    like_count = @like_count
+    like_count = @like_count,
+    visibility = @visibility,
+    media_ids = @media_ids,
+    repost_of = @repost_of
 `);
 const deletePostStmt = db.prepare('DELETE FROM posts WHERE id = ?');
 
@@ -227,6 +259,9 @@ function migrateFromJSON() {
         created_at: p.createdAt,
         updated_at: p.updatedAt,
         like_count: p.likeCount || 0,
+        visibility: p.visibility || 'public',
+        media_ids: p.mediaIds ? JSON.stringify(p.mediaIds) : null,
+        repost_of: p.repostOf || null,
       });
     }
 
@@ -302,6 +337,9 @@ function rowToPost(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     likeCount: row.like_count,
+    visibility: row.visibility || 'public',
+    mediaIds: row.media_ids ? JSON.parse(row.media_ids) : null,
+    repostOf: row.repost_of || null,
   };
 }
 
@@ -347,6 +385,9 @@ const postsMap = {
       created_at: post.createdAt,
       updated_at: post.updatedAt,
       like_count: post.likeCount || 0,
+      visibility: post.visibility || 'public',
+      media_ids: post.mediaIds ? JSON.stringify(post.mediaIds) : null,
+      repost_of: post.repostOf || null,
     });
   },
   has(id) {
@@ -590,6 +631,65 @@ function updatePostLikeCount(postId) {
   return count;
 }
 
+// ── Hashtag Functions ───────────────────────────────────────────────────────
+
+const insertHashtag = db.prepare('INSERT OR IGNORE INTO hashtags (tag, post_id, created_at) VALUES (?, ?, ?)');
+const deleteHashtagsForPost = db.prepare('DELETE FROM hashtags WHERE post_id = ?');
+const getPostsByHashtag = db.prepare(`
+  SELECT p.* FROM posts p
+  JOIN hashtags h ON p.id = h.post_id
+  WHERE h.tag = ?
+  ORDER BY p.created_at DESC
+  LIMIT ? OFFSET ?
+`);
+const getTrendingHashtags = db.prepare(`
+  SELECT tag, COUNT(*) as post_count
+  FROM hashtags
+  WHERE created_at >= ?
+  GROUP BY tag
+  ORDER BY post_count DESC
+  LIMIT 10
+`);
+
+/**
+ * Extract hashtags from content.
+ * Matches #word patterns (alphanumeric + underscore, 1-50 chars).
+ */
+function extractHashtags(content) {
+  if (!content || typeof content !== 'string') return [];
+  const matches = content.match(/#([a-zA-Z0-9_]{1,50})/g);
+  if (!matches) return [];
+  // Lowercase and deduplicate
+  const tags = [...new Set(matches.map(m => m.slice(1).toLowerCase()))];
+  return tags;
+}
+
+/**
+ * Save hashtags for a post (call after post creation).
+ */
+function saveHashtags(postId, content, createdAt) {
+  const tags = extractHashtags(content);
+  for (const tag of tags) {
+    insertHashtag.run(tag, postId, createdAt);
+  }
+  return tags;
+}
+
+/**
+ * Get posts by hashtag (paginated).
+ */
+function getPostsByTag(tag, limit = 20, offset = 0) {
+  return getPostsByHashtag.all(tag.toLowerCase(), limit, offset).map(rowToPost);
+}
+
+/**
+ * Get trending hashtags (last 7 days).
+ */
+function getTrending() {
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  return getTrendingHashtags.all(sevenDaysAgo);
+}
+
 // ── Persist Functions (no-ops — SQLite auto-persists) ───────────────────────
 
 function persistPosts() {}
@@ -636,4 +736,9 @@ module.exports = {
   getCommentCountForPost,
   deleteCommentById,
   getCommentById,
+  // Hashtags
+  extractHashtags,
+  saveHashtags,
+  getPostsByTag,
+  getTrending,
 };

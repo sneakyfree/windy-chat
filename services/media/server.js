@@ -95,6 +95,8 @@ const upload = multer({
   limits: { fileSize: MAX_FILE_SIZE },
 });
 
+const linkPreviewRouter = require('./routes/link-preview');
+
 app.use(cors(createCorsOptions()));
 app.use(express.json({ limit: '1mb' }));
 
@@ -260,6 +262,9 @@ app.get('/api/v1/media/:id/thumbnail', asyncHandler(async (req, res) => {
   res.setHeader('Content-Type', 'image/jpeg');
   fs.createReadStream(record.thumbnail_path).pipe(res);
 }));
+
+// ── Link Preview ──
+app.use('/api/v1/media', linkPreviewRouter);
 
 // ── 404 ──
 app.use((_req, res) => {
