@@ -497,10 +497,11 @@ services:
     ports:
       - "3000:80"
     environment:
-      VITE_MATRIX_URL: https://chat.windypro.com
-      VITE_ONBOARDING_URL: /api/v1
-      VITE_SOCIAL_URL: /api/v1/social
-      VITE_MEDIA_URL: /api/v1/media
+      VITE_MATRIX_HOMESERVER: https://chat.windypro.com
+      VITE_ACCOUNT_SERVER_URL: https://account.windypro.com
+      VITE_SOCIAL_API_URL: https://chat.windypro.com/api/v1/social
+      VITE_ETERNITAS_URL: https://api.eternitas.ai
+      VITE_WINDY_WORD_WS: wss://windypro.thewindstorm.uk
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/health"]

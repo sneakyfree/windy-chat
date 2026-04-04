@@ -1,13 +1,17 @@
 import { useState, type FormEvent } from 'react';
+import { env } from '../env';
 
 interface LoginPageProps {
   onLogin: (jwt: string) => Promise<void>;
+  mode: 'signin' | 'register';
+  onToggleMode: () => void;
+  onBack: () => void;
 }
 
-export default function LoginPage({ onLogin }: LoginPageProps) {
-  const [mode, setMode] = useState<'signin' | 'register'>('signin');
+export default function LoginPage({ onLogin, mode, onToggleMode, onBack }: LoginPageProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -16,19 +20,33 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     setError('');
     setLoading(true);
     try {
-      // For now, create a simple JWT for dev/demo. In production,
-      // this would call the account-server login endpoint.
-      const res = await fetch('/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `Login failed (${res.status})`);
+      if (mode === 'register') {
+        // Register new account via account-server
+        const regRes = await fetch(`${env.accountServerUrl}/api/v1/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, display_name: displayName }),
+        });
+        if (!regRes.ok) {
+          const data = await regRes.json().catch(() => ({}));
+          throw new Error(data.error || `Registration failed (${regRes.status})`);
+        }
+        const regData = await regRes.json();
+        await onLogin(regData.token || regData.jwt || regData.access_token);
+      } else {
+        // Sign in via account-server
+        const res = await fetch(`${env.accountServerUrl}/api/v1/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || `Login failed (${res.status})`);
+        }
+        const data = await res.json();
+        await onLogin(data.token || data.jwt || data.access_token);
       }
-      const data = await res.json();
-      await onLogin(data.token || data.jwt || data.access_token);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -40,14 +58,12 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     setError('');
     setLoading(true);
     try {
-      // Redirect to Windy Pro OAuth or use stored JWT
       const existingJwt = localStorage.getItem('windy_pro_jwt');
       if (existingJwt) {
         await onLogin(existingJwt);
         return;
       }
-      // In production, redirect to: https://api.windypro.com/oauth/authorize
-      setError('Windy account sign-in: redirect to windypro.com (not yet configured)');
+      window.location.href = `${env.accountServerUrl}/oauth/authorize?client_id=windy-chat&redirect_uri=${encodeURIComponent(window.location.origin + '/auth/callback')}`;
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -61,14 +77,19 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       <div className="w-full max-w-md rounded-2xl p-8"
            style={{ background: 'var(--bg-secondary)', border: '1px solid var(--bg-tertiary)' }}>
 
+        {/* Back button */}
+        <button onClick={onBack} className="text-sm mb-6 flex items-center gap-1" style={{ color: 'var(--text-secondary)' }}>
+          ← Back
+        </button>
+
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="text-4xl mb-2">🌪️</div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            Windy Chat
+            {mode === 'signin' ? 'Welcome back' : 'Create your account'}
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Messaging, social, agents — all in one place
+            {mode === 'signin' ? 'Sign in to Windy Chat' : 'Join the conversation'}
           </p>
         </div>
 
@@ -79,7 +100,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           className="w-full py-3 px-4 rounded-xl font-medium text-white mb-4 transition-all hover:opacity-90 disabled:opacity-50"
           style={{ background: 'var(--accent)' }}
         >
-          🌪️ Sign in with Windy
+          🌪️ {mode === 'signin' ? 'Sign in with Windy' : 'Register with Windy'}
         </button>
 
         <div className="flex items-center gap-3 my-6">
@@ -88,22 +109,27 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           <div className="flex-1 h-px" style={{ background: 'var(--bg-tertiary)' }} />
         </div>
 
-        {/* Email/Password Form */}
+        {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
+          {mode === 'register' && (
+            <input
+              type="text"
+              placeholder="Display name"
+              value={displayName}
+              onChange={e => setDisplayName(e.target.value)}
+              required
+              className="w-full px-4 py-3 rounded-xl text-sm outline-none"
+              style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+            />
+          )}
           <input
             type="email"
             placeholder="Email"
             value={email}
             onChange={e => setEmail(e.target.value)}
             required
-            className="w-full px-4 py-3 rounded-xl text-sm outline-none transition-all"
-            style={{
-              background: 'var(--bg-tertiary)',
-              color: 'var(--text-primary)',
-              border: '1px solid transparent',
-            }}
-            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-            onBlur={e => e.target.style.borderColor = 'transparent'}
+            className="w-full px-4 py-3 rounded-xl text-sm outline-none"
+            style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
           />
           <input
             type="password"
@@ -111,14 +137,9 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             value={password}
             onChange={e => setPassword(e.target.value)}
             required
-            className="w-full px-4 py-3 rounded-xl text-sm outline-none transition-all"
-            style={{
-              background: 'var(--bg-tertiary)',
-              color: 'var(--text-primary)',
-              border: '1px solid transparent',
-            }}
-            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-            onBlur={e => e.target.style.borderColor = 'transparent'}
+            minLength={8}
+            className="w-full px-4 py-3 rounded-xl text-sm outline-none"
+            style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
           />
 
           {error && (
@@ -133,18 +154,18 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             className="w-full py-3 px-4 rounded-xl font-medium transition-all hover:opacity-90 disabled:opacity-50"
             style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
           >
-            {loading ? 'Signing in...' : mode === 'signin' ? 'Sign In' : 'Create Account'}
+            {loading ? (mode === 'signin' ? 'Signing in...' : 'Creating account...') : (mode === 'signin' ? 'Sign In' : 'Create Account')}
           </button>
         </form>
 
         <p className="text-center text-sm mt-6" style={{ color: 'var(--text-muted)' }}>
           {mode === 'signin' ? (
             <>Don't have an account?{' '}
-              <button onClick={() => setMode('register')} className="underline" style={{ color: 'var(--accent)' }}>Register</button>
+              <button onClick={onToggleMode} className="underline" style={{ color: 'var(--accent)' }}>Register</button>
             </>
           ) : (
             <>Already have an account?{' '}
-              <button onClick={() => setMode('signin')} className="underline" style={{ color: 'var(--accent)' }}>Sign in</button>
+              <button onClick={onToggleMode} className="underline" style={{ color: 'var(--accent)' }}>Sign in</button>
             </>
           )}
         </p>

@@ -189,9 +189,10 @@ export default function ChatPage({ userId }: ChatPageProps) {
   const selectedRoom = selectedRoomId ? rooms.find(r => r.roomId === selectedRoomId) : null;
 
   return (
-    <div className="flex h-screen" style={{ background: 'var(--bg-primary)' }}>
-      {/* ── Left Sidebar ── */}
-      <div className="w-80 shrink-0 flex flex-col border-r" style={{ borderColor: 'var(--bg-tertiary)', background: 'var(--bg-secondary)' }}>
+    <div className="flex h-full" style={{ background: 'var(--bg-primary)' }}>
+      {/* ── Left Sidebar (hidden on mobile when chat selected) ── */}
+      <div className={`${selectedRoomId ? 'hidden md:flex' : 'flex'} w-full md:w-80 shrink-0 flex-col border-r`}
+           style={{ borderColor: 'var(--bg-tertiary)', background: 'var(--bg-secondary)' }}>
         {/* Search */}
         <div className="p-4">
           <input
@@ -235,18 +236,26 @@ export default function ChatPage({ userId }: ChatPageProps) {
         </div>
       </div>
 
-      {/* ── Right Panel — Messages ── */}
-      <div className="flex-1 flex flex-col">
+      {/* ── Right Panel — Messages (hidden on mobile when no chat selected) ── */}
+      <div className={`${selectedRoomId ? 'flex' : 'hidden md:flex'} flex-1 flex-col min-w-0`}>
         {selectedRoom ? (
           <>
             {/* Room header */}
-            <div className="px-6 py-4 border-b flex items-center gap-3" style={{ borderColor: 'var(--bg-tertiary)', background: 'var(--bg-secondary)' }}>
+            <div className="px-4 md:px-6 py-4 border-b flex items-center gap-3" style={{ borderColor: 'var(--bg-tertiary)', background: 'var(--bg-secondary)' }}>
+              {/* Back button (mobile only) */}
+              <button
+                onClick={() => setSelectedRoomId(null)}
+                className="md:hidden w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+              >
+                ←
+              </button>
               <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm"
                    style={{ background: 'var(--bg-tertiary)' }}>
                 {matrix.isAgentRoom(selectedRoom) ? '🪰' : selectedRoom.name?.charAt(0) || '?'}
               </div>
-              <div>
-                <h2 className="font-medium text-sm" style={{ color: 'var(--text-primary)' }}>{selectedRoom.name}</h2>
+              <div className="flex-1 min-w-0">
+                <h2 className="font-medium text-sm truncate" style={{ color: 'var(--text-primary)' }}>{selectedRoom.name}</h2>
                 <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                   {selectedRoom.getJoinedMemberCount()} members
                 </p>
