@@ -485,6 +485,39 @@ services:
         limits:
           memory: 256M
 
+  # ════════════════════════════════════════
+  #  Web Frontend (windychat.com)
+  # ════════════════════════════════════════
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: windy-chat-web
+    ports:
+      - "3000:80"
+    environment:
+      VITE_MATRIX_URL: https://chat.windypro.com
+      VITE_ONBOARDING_URL: /api/v1
+      VITE_SOCIAL_URL: /api/v1/social
+      VITE_MEDIA_URL: /api/v1/media
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
 volumes:
   synapse_data:
   synapse_pgdata:
