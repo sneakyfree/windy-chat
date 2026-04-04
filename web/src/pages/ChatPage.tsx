@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as matrix from '../lib/matrix';
 import { useVoiceInput } from '../hooks/useVoiceInput';
+import CreateGroupModal from '../components/CreateGroupModal';
 import type { Room, MatrixEvent } from 'matrix-js-sdk';
 
 interface ChatPageProps {
@@ -107,6 +108,7 @@ export default function ChatPage({ userId }: ChatPageProps) {
   const [messages, setMessages] = useState<MatrixEvent[]>([]);
   const [input, setInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showGroupModal, setShowGroupModal] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const voice = useVoiceInput();
 
@@ -205,13 +207,21 @@ export default function ChatPage({ userId }: ChatPageProps) {
           />
         </div>
 
-        {/* New Chat Button */}
-        <div className="px-4 pb-3">
+        {/* New Chat / New Group Buttons */}
+        <div className="px-4 pb-3 flex gap-2">
           <button
-            className="w-full py-2 rounded-xl text-sm font-medium transition-all hover:opacity-90"
+            className="flex-1 py-2 rounded-xl text-sm font-medium transition-all hover:opacity-90"
             style={{ background: 'var(--accent)', color: 'white' }}
           >
             + New Chat
+          </button>
+          <button
+            onClick={() => setShowGroupModal(true)}
+            className="py-2 px-3 rounded-xl text-sm font-medium transition-all hover:opacity-90"
+            style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+            title="New Group"
+          >
+            👥
           </button>
         </div>
 
@@ -328,6 +338,14 @@ export default function ChatPage({ userId }: ChatPageProps) {
           </div>
         )}
       </div>
+
+      {/* Group creation modal (Task 4) */}
+      {showGroupModal && (
+        <CreateGroupModal
+          onClose={() => setShowGroupModal(false)}
+          onCreated={(roomId) => { setShowGroupModal(false); setSelectedRoomId(roomId); }}
+        />
+      )}
     </div>
   );
 }

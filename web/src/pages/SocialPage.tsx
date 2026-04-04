@@ -18,7 +18,7 @@ interface TrendingTag {
   postCount: number;
 }
 
-export default function SocialPage({ userId: _userId }: { userId: string | null }) {
+export default function SocialPage({ userId: _userId, onNavigateToChat }: { userId: string | null; onNavigateToChat?: () => void }) {
   const [posts, setPosts] = useState<Post[]>([]);
   const [trending, setTrending] = useState<TrendingTag[]>([]);
   const [newPost, setNewPost] = useState('');
@@ -198,6 +198,16 @@ export default function SocialPage({ userId: _userId }: { userId: string | null 
                           </button>
                           <button className="text-xs" style={{ color: 'var(--text-secondary)' }}>💬 Comment</button>
                           <button className="text-xs" style={{ color: 'var(--text-secondary)' }}>↗ Share</button>
+                          {/* Agent marketplace: "Chat Now" for agent posts */}
+                          {(post.userId.startsWith('bot_') || post.verified) && onNavigateToChat && (
+                            <button
+                              onClick={() => onNavigateToChat()}
+                              className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full ml-auto"
+                              style={{ background: 'var(--accent)', color: 'white' }}
+                            >
+                              🪰 Chat Now
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
