@@ -19,6 +19,7 @@ const verifyRoutes = require('./routes/verify');
 const profileRoutes = require('./routes/profile');
 const pairRoutes = require('./routes/pair');
 const provisionRoutes = require('./routes/provision');
+const agentProvisionRoutes = require('./routes/agent-provision');
 const { createCorsOptions } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
 
@@ -58,6 +59,9 @@ app.get('/health', createHealthHandler({
     sendgrid: !!process.env.SENDGRID_API_KEY,
   }),
 }));
+
+// ── Agent provisioning (service-to-service, own auth) — must be before /api/v1/onboarding catch-all ──
+app.use('/api/v1/onboarding/agent', agentProvisionRoutes);
 
 // ── Auth-protected routes ──
 app.use('/api/v1/chat/verify', authMiddleware, verifyRoutes);

@@ -99,6 +99,7 @@ const postsRouter = require('./routes/posts');
 const followRouter = require('./routes/follow');
 const notificationsRouter = require('./routes/notifications');
 const moderationRouter = require('./routes/moderation');
+const eternitasWebhookRouter = require('./routes/eternitas-webhook');
 
 const app = express();
 const PORT = process.env.PORT || 8105;
@@ -135,6 +136,7 @@ app.use('/api/v1/social/posts', postsRouter);
 app.use('/api/v1/social/follow', followRouter);
 app.use('/api/v1/social/notifications', notificationsRouter);
 app.use('/api/v1/social/moderation', moderationRouter);
+app.use('/api/v1/webhooks/eternitas', eternitasWebhookRouter);
 
 // ── Dashboard Summary (quick panel rendering for unified dashboard) ──
 const WINDY_ACCOUNT_SERVER_URL = process.env.WINDY_ACCOUNT_SERVER_URL || 'http://localhost:8098';
@@ -359,6 +361,9 @@ app.use((err, _req, res, _next) => {
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`[social] listening on :${PORT}`);
+    // Register with Eternitas on startup (fire-and-forget)
+    const { registerWithEternitas } = require('../shared/eternitas-register');
+    registerWithEternitas();
   });
 }
 

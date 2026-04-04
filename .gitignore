@@ -23,3 +23,9 @@ services/.env.generated
 # Firebase / APNs credentials
 *.p8
 *-firebase-adminsdk-*.json
+
+# Eternitas platform registration
+services/.eternitas-platform-id
+
+# DB backups
+backups/
