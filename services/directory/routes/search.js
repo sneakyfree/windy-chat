@@ -306,6 +306,9 @@ router.post('/invite', inviteLimiter, asyncHandler(async (req, res) => {
     // Generate referral deep link
     const referralCode = uuidv4().slice(0, 8);
     const deepLink = `https://windypro.com/chat/join?ref=${referralCode}`;
+
+    // Track referral
+    dirDb.insertReferral.run(referralCode, fromUserId, null, type, identifier, new Date().toISOString(), null);
     const senderName = fromDisplayName ? stripHtml(fromDisplayName) : 'Someone';
 
     if (type === 'sms') {
@@ -393,6 +396,39 @@ router.post('/invite', inviteLimiter, asyncHandler(async (req, res) => {
     console.error('Invite error:', err);
     res.status(500).json({ error: 'Invite failed' });
   }
+}));
+
+// ── GET /api/v1/chat/directory/referrals ──
+
+router.get('/referrals', asyncHandler(async (req, res) => {
+  const userId = req.user.sub;
+  const referrals = dirDb.getReferralsByUser.all(userId);
+  const stats = dirDb.getReferralStats.get(userId);
+
+  res.json({
+    referrals,
+    stats: stats || { total: 0, converted: 0, pending: 0 },
+  });
+}));
+
+// ── POST /api/v1/chat/directory/referrals/convert ──
+
+router.post('/referrals/convert', asyncHandler(async (req, res) => {
+  const { referral_code, new_user_id } = req.body;
+
+  if (!referral_code || typeof referral_code !== 'string') {
+    return res.status(400).json({ error: 'referral_code is required' });
+  }
+  if (!new_user_id || typeof new_user_id !== 'string') {
+    return res.status(400).json({ error: 'new_user_id is required' });
+  }
+
+  const result = dirDb.markReferralConverted.run(new_user_id, new Date().toISOString(), referral_code);
+  if (result.changes === 0) {
+    return res.status(404).json({ error: 'Referral code not found' });
+  }
+
+  res.json({ success: true, referral_code, new_user_id });
 }));
 
 module.exports = router;

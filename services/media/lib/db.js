@@ -30,12 +30,28 @@ CREATE INDEX IF NOT EXISTS idx_media_created_at ON media(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_media_windy_identity_id ON media(windy_identity_id);
 `);
 
+// Migrate: add room_id column if missing (for existing databases)
+try {
+  db.exec('ALTER TABLE media ADD COLUMN room_id TEXT');
+} catch (_e) {
+  // Column already exists — ignore
+}
+
+// Index for room_id queries
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_media_room_id ON media(room_id)');
+} catch (_e) {
+  // Index already exists — ignore
+}
+
 const getMedia = db.prepare('SELECT * FROM media WHERE id = ?');
 const insertMedia = db.prepare(`
   INSERT INTO media (id, user_id, windy_identity_id, original_name, mime_type, size, file_path, thumbnail_path, created_at)
   VALUES (@id, @user_id, @windy_identity_id, @original_name, @mime_type, @size, @file_path, @thumbnail_path, @created_at)
 `);
 const getUserMedia = db.prepare('SELECT * FROM media WHERE user_id = ? ORDER BY created_at DESC LIMIT ?');
+const getUserMediaPaginated = db.prepare('SELECT * FROM media WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?');
+const getRoomMedia = db.prepare('SELECT * FROM media WHERE room_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?');
 
 // ── Link Preview Cache ──────────────────────────────────────────────────────
 
@@ -63,6 +79,8 @@ module.exports = {
   getMedia,
   insertMedia,
   getUserMedia,
+  getUserMediaPaginated,
+  getRoomMedia,
   getLinkPreview,
   insertLinkPreview,
   deleteStaleLinkPreviews,

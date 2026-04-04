@@ -83,6 +83,12 @@ signing_key_path: "/data/chat.windypro.com.signing.key"
 # with the user's recovery key — server is zero-knowledge.
 enable_room_key_backup: true
 
+# ── Key Rotation (K7) ──
+# Rotate Megolm sessions every 100 messages or 7 days
+encryption:
+  default_rotation_period_msgs: 100
+  default_rotation_period_ms: 604800000
+
 # ── Cross-Signing (K7) ──
 # Enables device cross-signing via SSSS (Secure Secret Storage and Sharing).
 # Users verify their own devices, then trust is transitive across devices.

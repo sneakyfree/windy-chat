@@ -184,6 +184,79 @@ app.post('/api/v1/translate', auth, translateLimiter, asyncHandler(async (req, r
   });
 }));
 
+// ── Rate limiter for batch translations: 10/min per user ──
+const batchTranslateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  keyGenerator: (req) => req.user?.sub || req.ip,
+  message: { error: 'Batch translation rate limit exceeded (10/min)' },
+});
+
+// ── Batch Translate ──
+app.post('/api/v1/translate/batch', auth, batchTranslateLimiter, asyncHandler(async (req, res) => {
+  const { texts, target_lang } = req.body;
+
+  if (!target_lang || typeof target_lang !== 'string') {
+    return res.status(400).json({ error: 'target_lang is required' });
+  }
+  if (!Array.isArray(texts) || texts.length === 0) {
+    return res.status(400).json({ error: 'texts must be a non-empty array' });
+  }
+  if (texts.length > 50) {
+    return res.status(400).json({ error: 'texts array cannot exceed 50 items' });
+  }
+
+  // Validate each item
+  for (const item of texts) {
+    if (!item.id || !item.text || typeof item.text !== 'string') {
+      return res.status(400).json({ error: 'Each text item must have id and text fields' });
+    }
+    if (!item.source_lang || typeof item.source_lang !== 'string') {
+      return res.status(400).json({ error: 'Each text item must have a source_lang field' });
+    }
+  }
+
+  const translations = await Promise.all(texts.map(async (item) => {
+    // Skip if source == target
+    if (item.source_lang === target_lang) {
+      return { id: item.id, text: item.text, translated_text: item.text, cached: false };
+    }
+
+    // Check cache
+    const key = cacheKey(item.text, item.source_lang, target_lang);
+    const cutoff = Date.now() - CACHE_TTL_MS;
+    const cached = translationDb.getCache.get(key, cutoff);
+    if (cached) {
+      return { id: item.id, text: item.text, translated_text: cached.translated_text, cached: true };
+    }
+
+    // Forward to translate server
+    const result = await forwardToTranslateServer(item.text, item.source_lang, target_lang);
+
+    if (!result) {
+      if (process.env.NODE_ENV === 'production') {
+        return { id: item.id, text: item.text, translated_text: null, error: 'Translation service unavailable' };
+      }
+      return { id: item.id, text: item.text, translated_text: item.text, stub: true };
+    }
+
+    // Cache the result
+    translationDb.upsertCache.run({
+      cache_key: key,
+      source_text: item.text,
+      source_lang: item.source_lang,
+      target_lang,
+      translated_text: result.translated_text,
+      confidence: result.confidence,
+      created_at: Date.now(),
+    });
+
+    return { id: item.id, text: item.text, translated_text: result.translated_text, cached: false };
+  }));
+
+  res.json({ translations, target_lang });
+}));
+
 // ── Language Preferences ──
 app.get('/api/v1/translate/preferences', auth, asyncHandler(async (req, res) => {
   const userId = req.user.sub;

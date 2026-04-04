@@ -21,6 +21,21 @@ const {
 const router = Router();
 const auth = createAuthMiddleware();
 
+// Service token auth for agent/bot endpoints (CHAT_SERVICE_TOKEN or CHAT_API_TOKEN)
+const CHAT_SERVICE_TOKEN = process.env.CHAT_SERVICE_TOKEN || process.env.CHAT_API_TOKEN || '';
+
+function serviceTokenAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ error: 'Missing Authorization header' });
+  }
+  const token = authHeader.replace(/^Bearer\s+/i, '');
+  if (!CHAT_SERVICE_TOKEN || token !== CHAT_SERVICE_TOKEN) {
+    return res.status(403).json({ error: 'Invalid service token' });
+  }
+  next();
+}
+
 // Optional auth: sets req.user if token present, but does not reject
 const optionalAuth = (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -506,6 +521,61 @@ router.get('/:postId/comments', asyncHandler(async (req, res) => {
 
   const comments = getCommentsForPost(postId);
   res.json({ comments, count: comments.length });
+}));
+
+// ── Agent Auto-Post (service-to-service) ──
+router.post('/agent', serviceTokenAuth, asyncHandler(async (req, res) => {
+  const { agent_user_id, content, passport_number } = req.body;
+
+  if (!agent_user_id || typeof agent_user_id !== 'string') {
+    return res.status(400).json({ error: 'agent_user_id is required' });
+  }
+  if (!content || typeof content !== 'string' || !content.trim()) {
+    return res.status(400).json({ error: 'content is required and must be a non-empty string' });
+  }
+  if (content.length > MAX_POST_LENGTH) {
+    return res.status(400).json({ error: `content exceeds max length of ${MAX_POST_LENGTH}` });
+  }
+
+  // Profanity filter
+  const profanityCheck = checkProfanity(content);
+  if (profanityCheck.hasProfanity) {
+    return res.status(422).json({
+      error: 'Post contains prohibited language',
+      matched: profanityCheck.matched,
+    });
+  }
+
+  // Auto-set verified badge if passport is registered
+  if (passport_number && typeof passport_number === 'string') {
+    verifiedAccounts.add(agent_user_id);
+  }
+
+  const now = new Date().toISOString();
+  const post = {
+    id: uuidv4(),
+    userId: agent_user_id,
+    windyIdentityId: null,
+    content: content.trim(),
+    translated_versions: null,
+    createdAt: now,
+    updatedAt: now,
+    likeCount: 0,
+    visibility: 'public',
+    mediaIds: null,
+    repostOf: null,
+    verified: verifiedAccounts.has(agent_user_id),
+  };
+
+  postsMap.set(post.id, post);
+  persistPosts();
+
+  // Extract and save hashtags
+  saveHashtags(post.id, post.content, now);
+
+  console.log(`[social] Agent post: ${agent_user_id} posted ${post.id}`);
+
+  res.status(201).json(post);
 }));
 
 // ── Delete Post ──

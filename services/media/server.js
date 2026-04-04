@@ -231,6 +231,60 @@ app.post('/api/v1/media/upload', auth, (req, res, next) => {
   });
 }));
 
+// ── Gallery: user media ──
+app.get('/api/v1/media/gallery', auth, asyncHandler(async (req, res) => {
+  const userId = req.query.user_id || req.user.sub;
+  const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 100);
+  const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+
+  const items = mediaDb.getUserMediaPaginated.all(userId, limit, offset);
+
+  res.json({
+    items: items.map(m => ({
+      media_id: m.id,
+      url: `/api/v1/media/${m.id}`,
+      thumbnail_url: m.thumbnail_path ? `/api/v1/media/${m.id}/thumbnail` : null,
+      original_name: m.original_name,
+      mime_type: m.mime_type,
+      size: m.size,
+      room_id: m.room_id || null,
+      created_at: m.created_at,
+    })),
+    count: items.length,
+    limit,
+    offset,
+  });
+}));
+
+// ── Gallery: room media ──
+app.get('/api/v1/media/gallery/room', auth, asyncHandler(async (req, res) => {
+  const roomId = req.query.room_id;
+  if (!roomId || typeof roomId !== 'string') {
+    return res.status(400).json({ error: 'room_id query parameter is required' });
+  }
+
+  const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 100);
+  const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+
+  const items = mediaDb.getRoomMedia.all(roomId, limit, offset);
+
+  res.json({
+    room_id: roomId,
+    items: items.map(m => ({
+      media_id: m.id,
+      url: `/api/v1/media/${m.id}`,
+      thumbnail_url: m.thumbnail_path ? `/api/v1/media/${m.id}/thumbnail` : null,
+      original_name: m.original_name,
+      mime_type: m.mime_type,
+      size: m.size,
+      created_at: m.created_at,
+    })),
+    count: items.length,
+    limit,
+    offset,
+  });
+}));
+
 // ── Serve file ──
 app.get('/api/v1/media/:id', asyncHandler(async (req, res) => {
   const record = mediaDb.getMedia.get(req.params.id);

@@ -88,6 +88,39 @@ const upsertInviteTracker = db.prepare(`
   INSERT OR REPLACE INTO invite_tracker (user_id, count, reset_at) VALUES (?, ?, ?)
 `);
 
+// ── Referral Conversions ───────────────────────────────────────────────────
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS referral_conversions (
+  referral_code TEXT PRIMARY KEY,
+  inviter_user_id TEXT NOT NULL,
+  invitee_user_id TEXT,
+  type TEXT NOT NULL,
+  identifier TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  converted_at TEXT,
+  status TEXT DEFAULT 'pending'
+);
+CREATE INDEX IF NOT EXISTS idx_referral_inviter ON referral_conversions(inviter_user_id);
+CREATE INDEX IF NOT EXISTS idx_referral_status ON referral_conversions(status);
+`);
+
+const insertReferral = db.prepare(`
+  INSERT OR IGNORE INTO referral_conversions (referral_code, inviter_user_id, invitee_user_id, type, identifier, created_at, converted_at, status)
+  VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+`);
+const markReferralConverted = db.prepare(`
+  UPDATE referral_conversions SET invitee_user_id = ?, converted_at = ?, status = 'converted' WHERE referral_code = ?
+`);
+const getReferralsByUser = db.prepare('SELECT * FROM referral_conversions WHERE inviter_user_id = ? ORDER BY created_at DESC');
+const getReferralStats = db.prepare(`
+  SELECT
+    COUNT(*) as total,
+    SUM(CASE WHEN status = 'converted' THEN 1 ELSE 0 END) as converted,
+    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending
+  FROM referral_conversions WHERE inviter_user_id = ?
+`);
+
 // ── Blocked Users ──────────────────────────────────────────────────────────
 
 db.exec(`
@@ -125,4 +158,8 @@ module.exports = {
   unblockUser,
   isBlocked,
   getBlockedList,
+  insertReferral,
+  markReferralConverted,
+  getReferralsByUser,
+  getReferralStats,
 };

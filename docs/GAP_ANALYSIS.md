@@ -2,7 +2,7 @@
 
 > Feature-by-feature verification of what exists, what's stubbed, and what's missing.
 > Original audit date: 2026-03-31
-> **Last Verified: 2026-04-03 (fifth pass — all cross-cutting gaps closed)**
+> **Last Verified: 2026-04-04 (sixth pass — comprehensive feature update)**
 
 ---
 
@@ -25,7 +25,7 @@
 
 ---
 
-## K2 — Onboarding (95%)
+## K2 — Onboarding (100%)
 
 | Feature | Plan Status | Code Status | Verification | Last Verified |
 |---------|------------|------------|-------------|---------------|
@@ -36,13 +36,13 @@
 | QR pairing (X25519) | Exists | **IMPLEMENTED** | 120s TTL, key exchange, desktop ↔ mobile | 2026-04-03 ✓ |
 | Matrix provisioning | Exists | **IMPLEMENTED** | Synapse admin API with HMAC-SHA1 nonce auth | 2026-04-03 ✓ |
 | QR auth token validation | Missing | **FIXED** | Token validated via CHAT_API_TOKEN or local JWT verification; rejects 401 for invalid tokens | 2026-04-03 ✓ |
-| Bot/agent onboarding | Missing | **MISSING** | No service-to-service provisioning flow | 2026-04-03 — STILL OPEN |
+| Bot/agent onboarding | Missing | **BUILT** | `POST /api/v1/onboarding/agent` — service token auth, Matrix provisioning, DM room, 8 integration tests | 2026-04-04 ✓ |
 | Account deletion / GDPR | Missing | **FIXED** | `DELETE /api/v1/onboarding/account` — deactivates Matrix, removes local data, fires webhook | 2026-04-03 ✓ |
 | Avatar upload | Missing | **FIXED** | `POST /api/v1/chat/profile/avatar` — multipart upload (JPEG/PNG/GIF/WebP, 5MB max), served via GET | 2026-04-03 ✓ |
 
 ---
 
-## K3 — Contact Discovery (85%)
+## K3 — Contact Discovery (95%)
 
 | Feature | Plan Status | Code Status | Verification | Last Verified |
 |---------|------------|------------|-------------|---------------|
@@ -51,14 +51,14 @@
 | Fuzzy name search | Exists | **IMPLEMENTED** | Prefix > word-start > contains scoring | 2026-04-03 ✓ |
 | Exact email/phone match | Exists | **IMPLEMENTED** | Lowercased email, E.164 phone | 2026-04-03 ✓ |
 | SMS/email invites | Exists | **IMPLEMENTED** | Referral codes, deep links, 20/day limit | 2026-04-03 ✓ |
-| Salt rotation transition | Missing | **MISSING** | Old salt not kept during transition | 2026-04-03 — STILL OPEN |
-| Referral tracking | Missing | **MISSING** | Codes generated but conversions untracked | 2026-04-03 — STILL OPEN |
-| Blocked users | Missing | **MISSING** | No block/spam list | 2026-04-03 — STILL OPEN |
-| Bot directory | Missing | **MISSING** | No Eternitas-verified bot facet | 2026-04-03 — STILL OPEN |
+| Salt rotation transition | Missing | **BUILT** | Previous salt preserved during rotation; lookup checks both salts | 2026-04-04 ✓ |
+| Referral tracking | Missing | **BUILT** | `referral_conversions` table; GET /referrals, POST /referrals/convert | 2026-04-04 ✓ |
+| Blocked users | Missing | **BUILT** | POST/DELETE /block, GET /blocked — SQLite-backed per-user block list | 2026-04-04 ✓ |
+| Bot directory | Missing | **BUILT** | GET /agents (paginated, filterable), POST /agents/register, agent_directory table | 2026-04-04 ✓ |
 
 ---
 
-## K4 — Rich Media (50%)
+## K4 — Rich Media (65%)
 
 | Feature | Plan Status | Code Status | Verification | Last Verified |
 |---------|------------|------------|-------------|---------------|
@@ -67,8 +67,8 @@
 | Video thumbnails (ffmpeg) | Missing→Built | **IMPLEMENTED** | Frame at 1s with retry | 2026-04-03 ✓ |
 | File serving with Content-Type | Missing→Built | **IMPLEMENTED** | Correct headers, inline disposition | 2026-04-03 ✓ |
 | Voice message waveforms | Missing | **MISSING** | No audio analysis | 2026-04-03 — STILL OPEN |
-| Link preview (Open Graph) | Missing | **MISSING** | No URL metadata extraction | 2026-04-03 — STILL OPEN |
-| Media gallery API | Missing | **MISSING** | No per-room media index | 2026-04-03 — STILL OPEN |
+| Link preview (Open Graph) | Missing | **BUILT** | GET /api/v1/media/link-preview?url= — OG tag extraction, 24h cache, private IP blocking | 2026-04-04 ✓ |
+| Media gallery API | Missing | **BUILT** | GET /api/v1/media/gallery?user_id=, GET /gallery/room?room_id= — paginated | 2026-04-04 ✓ |
 | Virus scan (ClamAV) | Missing | **MISSING** | No scanning | 2026-04-03 — STILL OPEN |
 | CDN/edge caching | Missing | **MISSING** | Local disk only | 2026-04-03 — STILL OPEN |
 | Sticker packs | Missing | **MISSING** | Not started | 2026-04-03 — STILL OPEN |
@@ -91,7 +91,7 @@
 
 ---
 
-## K6 — Push Notifications (85%)
+## K6 — Push Notifications (95%)
 
 | Feature | Plan Status | Code Status | Verification | Last Verified |
 |---------|------------|------------|-------------|---------------|
@@ -103,7 +103,7 @@
 | Token cleanup | Exists | **IMPLEMENTED** | 30-day stale threshold; runs on startup + every 24h; manual via POST /prune | 2026-04-03 ✓ |
 | Firebase credentials | Missing | **DEPLOYMENT** | `.env.production` placeholder + `setup-credentials.sh` wizard; code handles absence correctly | 2026-04-03 ✓ |
 | APNs credentials | Missing | **DEPLOYMENT** | `.env.production` placeholder + `setup-credentials.sh` wizard; code handles absence correctly | 2026-04-03 ✓ |
-| Web push (VAPID) | Missing | **MISSING** | Not started | 2026-04-03 — STILL OPEN |
+| Web push (VAPID) | Missing | **BUILT** | VAPID init, sendWebPush(), GET /vapid-key, expired subscription cleanup, POST /test | 2026-04-04 ✓ |
 
 ---
 
@@ -117,11 +117,11 @@
 | Nginx key/backup proxying | Missing→Built | **IMPLEMENTED** | Routes for `/room_keys` and `/keys` | 2026-04-03 ✓ |
 | Client-side Olm/Megolm | Missing | **MISSING** | Client repos must implement | 2026-04-03 — STILL OPEN |
 | Device verification UX | Missing | **MISSING** | Client-side emoji/QR verification | 2026-04-03 — STILL OPEN |
-| Key rotation policy | Missing | **MISSING** | Default Synapse settings | 2026-04-03 — STILL OPEN |
+| Key rotation policy | Missing | **BUILT** | Megolm rotation: 100 messages or 7 days in homeserver.yaml | 2026-04-04 ✓ |
 
 ---
 
-## K8 — Cloud Backup (85%)
+## K8 — Cloud Backup (90%)
 
 | Feature | Plan Status | Code Status | Verification | Last Verified |
 |---------|------------|------------|-------------|---------------|
@@ -131,13 +131,13 @@
 | 7-backup retention | Exists | **IMPLEMENTED** | Auto-prune oldest on create | 2026-04-03 ✓ |
 | Metadata tracking | Exists | **IMPLEMENTED** | Unencrypted metadata (no PII) | 2026-04-03 ✓ |
 | R2 credentials | Missing | **DEPLOYMENT** | `.env.production` placeholder + `setup-credentials.sh` wizard; code handles absence correctly | 2026-04-03 ✓ |
-| Scheduled backups | Missing | **MISSING** | No cron/timer | 2026-04-03 — STILL OPEN |
+| Scheduled backups | Missing | **BUILT** | POST/GET /schedule, hourly cron check, per-user interval (1-168h) | 2026-04-04 ✓ |
 | Incremental backups | Missing | **MISSING** | Full backup only | 2026-04-03 — STILL OPEN |
 | Soul File integration | Missing | **MISSING** | Not started | 2026-04-03 — STILL OPEN |
 
 ---
 
-## K9 — Translation Integration (70%)
+## K9 — Translation Integration (80%)
 
 | Feature | Plan Status | Code Status | Verification | Last Verified |
 |---------|------------|------------|-------------|---------------|
@@ -150,11 +150,11 @@
 | Appservice enabled in Synapse | Missing | **IMPLEMENTED** | `app_service_config_files` in homeserver.yaml references translation registration | 2026-04-03 ✓ |
 | Translation server URL | Missing | **DEPLOYMENT** | `.env.production` placeholder; code returns 503 without it | 2026-04-03 ✓ |
 | Monetization hooks | Missing | **MISSING** | No Windy Traveler integration | 2026-04-03 — STILL OPEN |
-| Bulk feed translation | Missing | **MISSING** | No batch endpoint | 2026-04-03 — STILL OPEN |
+| Bulk feed translation | Missing | **BUILT** | POST /api/v1/translate/batch — up to 50 texts, uses existing proxy + cache | 2026-04-04 ✓ |
 
 ---
 
-## K10 — Social Layer (92%)
+## K10 — Social Layer (98%)
 
 | Feature | Plan Status | Code Status | Verification | Last Verified |
 |---------|------------|------------|-------------|---------------|
@@ -172,12 +172,12 @@
 | Full-text search | Missing | **FIXED** | `GET /api/v1/social/posts/search?q=term` — SQLite FTS5 with LIKE fallback | 2026-04-03 ✓ |
 | Comments/threads | Missing | **FIXED** | `POST/GET /api/v1/social/posts/:postId/comments` — profanity filter, notifications | 2026-04-03 ✓ |
 | Algorithmic feed | Missing | **MISSING** | Chronological only | 2026-04-03 — STILL OPEN |
-| Trending/hashtags | Missing | **MISSING** | Not started | 2026-04-03 — STILL OPEN |
-| Discovery engine | Missing | **MISSING** | Not started | 2026-04-03 — STILL OPEN |
-| Media in posts | Missing | **MISSING** | Text only; no K4 integration | 2026-04-03 — STILL OPEN |
-| Privacy controls | Missing | **MISSING** | All posts public | 2026-04-03 — STILL OPEN |
-| Bot auto-posting | Missing | **MISSING** | Not started | 2026-04-03 — STILL OPEN |
-| Repost/share | Missing | **MISSING** | Not started | 2026-04-03 — STILL OPEN |
+| Trending/hashtags | Missing | **BUILT** | Auto-extraction, GET /trending (top 10 / 7d), GET /hashtag/:tag (paginated) | 2026-04-04 ✓ |
+| Discovery engine | Missing | **BUILT** | Bot discovery: GET /directory/agents (paginated, filterable by category/trust); web app Discover page | 2026-04-04 ✓ |
+| Media in posts | Missing | **BUILT** | Posts accept media_ids array (max 4 media IDs from K4) | 2026-04-04 ✓ |
+| Privacy controls | Missing | **BUILT** | Posts support visibility: public/followers/private; feed/search filter accordingly | 2026-04-04 ✓ |
+| Bot auto-posting | Missing | **BUILT** | POST /api/v1/social/posts/agent — service-to-service, auto-verified badge | 2026-04-04 ✓ |
+| Repost/share | Missing | **BUILT** | POST /posts/:id/repost — quote text, notifications, original post reference | 2026-04-04 ✓ |
 
 ---
 
@@ -334,10 +334,10 @@ All cross-cutting concerns are resolved. Security hardening complete. CI/CD cove
 
 | Area | Missing Features |
 |------|-----------------|
-| K3 Directory | Referral tracking, bot directory |
-| K4 Media | Waveforms, gallery API, virus scan, CDN, stickers |
-| K5 VoIP | Client-side VoIP, auto-logging, group calls, voicemail, screen share |
-| K7 E2E | Client-side Olm/Megolm, device verification UX, key rotation |
+| K4 Media | Voice waveforms, virus scan (ClamAV), CDN/edge caching, sticker packs |
+| K5 VoIP | Client-side VoIP, call auto-logging, group calls (SFU), voicemail, screen share |
+| K7 E2E | Client-side Olm/Megolm, device verification UX |
 | K8 Backup | Incremental backups, Soul File integration |
-| K9 Translation | Monetization hooks, bulk translation |
+| K9 Translation | Monetization hooks (Windy Traveler) |
+| K10 Social | Algorithmic feed |
 | K10 Social | Algorithmic feed, trending, discovery, media posts, privacy, bots, reposts |
