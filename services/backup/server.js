@@ -57,30 +57,133 @@ function isValidUserId(val) {
 
 // ── SQLite-backed persistence (via ./lib/db) ──
 
-// ── R2/S3 Config ──
+// ── Storage Config ──
+// Two modes:
+//   1. Windy Cloud API (preferred) — routes backups through Windy Cloud at WINDY_CLOUD_URL
+//   2. Direct R2/S3 (fallback) — connects directly to Cloudflare R2 via S3-compatible API
+const WINDY_CLOUD_URL = process.env.WINDY_CLOUD_URL || '';
 const R2_BUCKET = process.env.R2_BUCKET || 'windy-chat-backups';
 const R2_ENDPOINT = process.env.R2_ENDPOINT || '';
 const R2_ACCESS_KEY = process.env.R2_ACCESS_KEY_ID || '';
 const R2_SECRET_KEY = process.env.R2_SECRET_ACCESS_KEY || '';
 
 let s3Client = null;
+let storageMode = 'stub'; // 'windy-cloud' | 'r2-direct' | 'stub'
 
-function initR2() {
-  if (!R2_ENDPOINT || !R2_ACCESS_KEY) {
-    console.warn('⚠️  R2/S3 not configured — backups will be stubbed');
+function initStorage() {
+  if (WINDY_CLOUD_URL) {
+    storageMode = 'windy-cloud';
+    console.log(`☁️  Backup storage: Windy Cloud API (${WINDY_CLOUD_URL})`);
     return;
   }
-  try {
-    const { S3Client } = require('@aws-sdk/client-s3');
-    s3Client = new S3Client({
-      region: 'auto',
-      endpoint: R2_ENDPOINT,
-      credentials: { accessKeyId: R2_ACCESS_KEY, secretAccessKey: R2_SECRET_KEY },
-    });
-    console.log('☁️  R2 storage initialized');
-  } catch (err) {
-    console.error('R2 init error:', err.message);
+
+  if (R2_ENDPOINT && R2_ACCESS_KEY) {
+    try {
+      const { S3Client } = require('@aws-sdk/client-s3');
+      s3Client = new S3Client({
+        region: 'auto',
+        endpoint: R2_ENDPOINT,
+        credentials: { accessKeyId: R2_ACCESS_KEY, secretAccessKey: R2_SECRET_KEY },
+      });
+      storageMode = 'r2-direct';
+      console.log('☁️  Backup storage: Direct R2/S3');
+    } catch (err) {
+      console.error('R2 init error:', err.message);
+    }
+    return;
   }
+
+  console.warn('⚠️  No backup storage configured — backups will be stubbed');
+}
+
+// ── Windy Cloud API helpers ──
+const http = require('http');
+const https = require('https');
+
+function cloudRequest(method, path, body) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(path, WINDY_CLOUD_URL);
+    const httpModule = url.protocol === 'https:' ? https : http;
+    const opts = {
+      method,
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname + url.search,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.CHAT_API_TOKEN || ''}`,
+      },
+      timeout: 30000,
+    };
+    if (body) opts.headers['Content-Length'] = Buffer.byteLength(body);
+    const req = httpModule.request(opts, (res) => {
+      let data = '';
+      res.on('data', (c) => data += c);
+      res.on('end', () => {
+        let parsed;
+        try { parsed = JSON.parse(data); } catch { parsed = data; }
+        if (res.statusCode >= 200 && res.statusCode < 300) resolve(parsed);
+        else reject(new Error(`Windy Cloud ${method} ${path}: ${res.statusCode}`));
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Windy Cloud request timeout')); });
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+async function uploadToStorage(path, data, metadata) {
+  if (storageMode === 'windy-cloud') {
+    await cloudRequest('POST', '/api/v1/archive/code-settings', JSON.stringify({
+      type: 'chat-backup',
+      path,
+      data: data.toString('base64'),
+      metadata,
+    }));
+    return;
+  }
+  if (storageMode === 'r2-direct' && s3Client) {
+    const { PutObjectCommand } = require('@aws-sdk/client-s3');
+    await s3Client.send(new PutObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: path,
+      Body: data,
+      ContentType: 'application/octet-stream',
+      Metadata: metadata,
+    }));
+    return;
+  }
+  console.log(`☁️  [STUB] Backup stored: ${path} (${formatSize(data.length)})`);
+}
+
+async function downloadFromStorage(path) {
+  if (storageMode === 'windy-cloud') {
+    const result = await cloudRequest('GET', `/api/v1/archive/code-settings?type=chat-backup&path=${encodeURIComponent(path)}`);
+    return Buffer.from(result.data, 'base64');
+  }
+  if (storageMode === 'r2-direct' && s3Client) {
+    const { GetObjectCommand } = require('@aws-sdk/client-s3');
+    const response = await s3Client.send(new GetObjectCommand({ Bucket: R2_BUCKET, Key: path }));
+    const chunks = [];
+    for await (const chunk of response.Body) chunks.push(chunk);
+    return Buffer.concat(chunks);
+  }
+  console.log(`☁️  [STUB] Restore: ${path}`);
+  return null;
+}
+
+async function deleteFromStorage(path) {
+  if (storageMode === 'windy-cloud') {
+    await cloudRequest('DELETE', `/api/v1/archive/code-settings?type=chat-backup&path=${encodeURIComponent(path)}`);
+    return;
+  }
+  if (storageMode === 'r2-direct' && s3Client) {
+    const { DeleteObjectCommand } = require('@aws-sdk/client-s3');
+    await s3Client.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: path }));
+    return;
+  }
+  console.log(`🗑️  [STUB] Would delete backup: ${path}`);
 }
 
 // ── K8.1.2: Backup Encryption Helpers ──
@@ -131,7 +234,7 @@ app.get('/health', createHealthHandler({
   service: 'windy-chat-backup',
   version: '1.0.0',
   checks: async () => ({
-    r2: s3Client ? 'active' : 'stubbed',
+    storage: storageMode,
     registeredUsers: backupDb.countDistinctUsers.get().cnt,
   }),
 }));
@@ -165,22 +268,10 @@ app.post('/api/v1/chat/backup/create', authMiddleware, asyncHandler(async (req, 
     const timestamp = new Date().toISOString();
     const path = `backups/${userId}/${timestamp.replace(/[:.]/g, '-')}.enc`;
 
-    if (s3Client) {
-      // Upload to R2
-      const { PutObjectCommand } = require('@aws-sdk/client-s3');
-      await s3Client.send(new PutObjectCommand({
-        Bucket: R2_BUCKET,
-        Key: path,
-        Body: Buffer.from(encryptedData, 'base64'),
-        ContentType: 'application/octet-stream',
-        Metadata: {
-          'x-windy-user': userId,
-          'x-windy-backup-id': backupId,
-        },
-      }));
-    } else {
-      console.log(`☁️  [STUB] Backup stored: ${path} (${formatSize(dataSize)})`);
-    }
+    await uploadToStorage(path, Buffer.from(encryptedData, 'base64'), {
+      'x-windy-user': userId,
+      'x-windy-backup-id': backupId,
+    });
 
     // Register backup in SQLite
     backupDb.insertBackup.run({
@@ -198,19 +289,11 @@ app.post('/api/v1/chat/backup/create', authMiddleware, asyncHandler(async (req, 
     if (backupCount > 7) {
       const pruned = backupDb.getOldestBackups.all(userId, 7);
       for (const old of pruned) {
-        if (s3Client) {
-          try {
-            const { DeleteObjectCommand } = require('@aws-sdk/client-s3');
-            await s3Client.send(new DeleteObjectCommand({
-              Bucket: R2_BUCKET,
-              Key: old.path,
-            }));
-            console.log(`🗑️  Deleted pruned backup from R2: ${old.path}`);
-          } catch (err) {
-            console.error(`🗑️  Failed to delete pruned backup from R2: ${old.path}`, err.message);
-          }
-        } else {
-          console.log(`🗑️  [STUB] Would delete pruned backup: ${old.path}`);
+        try {
+          await deleteFromStorage(old.path);
+          console.log(`🗑️  Deleted pruned backup: ${old.path}`);
+        } catch (err) {
+          console.error(`🗑️  Failed to delete pruned backup: ${old.path}`, err.message);
         }
       }
       backupDb.deleteOldBackups.run(userId, userId, 7);
@@ -284,21 +367,8 @@ app.post('/api/v1/chat/backup/restore', authMiddleware, asyncHandler(async (req,
       return res.status(404).json({ error: 'Backup not found' });
     }
 
-    let encryptedData;
-
-    if (s3Client) {
-      const { GetObjectCommand } = require('@aws-sdk/client-s3');
-      const response = await s3Client.send(new GetObjectCommand({
-        Bucket: R2_BUCKET,
-        Key: backup.path,
-      }));
-      const chunks = [];
-      for await (const chunk of response.Body) chunks.push(chunk);
-      encryptedData = Buffer.concat(chunks).toString('base64');
-    } else {
-      console.log(`☁️  [STUB] Restore: ${backup.path}`);
-      encryptedData = null;
-    }
+    const rawData = await downloadFromStorage(backup.path);
+    const encryptedData = rawData ? rawData.toString('base64') : null;
 
     res.json({
       success: true,
@@ -335,20 +405,11 @@ app.delete('/api/v1/chat/backup/delete', authMiddleware, asyncHandler(async (req
     const removed = backupDb.rowToBackup(removedRow);
     backupDb.deleteBackup.run(userId, backupId);
 
-    // M3: Actually delete from R2
-    if (s3Client) {
-      try {
-        const { DeleteObjectCommand } = require('@aws-sdk/client-s3');
-        await s3Client.send(new DeleteObjectCommand({
-          Bucket: R2_BUCKET,
-          Key: removed.path,
-        }));
-        console.log(`🗑️  Deleted backup from R2: ${removed.path}`);
-      } catch (err) {
-        console.error(`🗑️  Failed to delete backup from R2: ${removed.path}`, err.message);
-      }
-    } else {
-      console.log(`🗑️  [STUB] Would delete backup: ${removed.path}`);
+    try {
+      await deleteFromStorage(removed.path);
+      console.log(`🗑️  Deleted backup: ${removed.path}`);
+    } catch (err) {
+      console.error(`🗑️  Failed to delete backup: ${removed.path}`, err.message);
     }
 
     res.json({ success: true, deleted: removed.id });
@@ -373,12 +434,12 @@ function formatSize(bytes) {
 }
 
 // ── Start ──
-initR2();
+initStorage();
 
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`🌪️  Windy Chat Backup — listening on port ${PORT}`);
-    console.log(`   R2: ${s3Client ? 'active' : 'stubbed'}`);
+    console.log(`   Storage: ${storageMode}`);
   });
 }
 

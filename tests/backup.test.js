@@ -102,13 +102,13 @@ describe('Encryption (AES-256-GCM)', () => {
 // ── Health ──
 
 describe('GET /health', () => {
-  it('returns service status with R2 status', async () => {
+  it('returns service status with storage status', async () => {
     const res = await request('GET', '/health', null, { Authorization: '' });
     assert.equal(res.status, 200);
     assert.equal(res.body.service, 'windy-chat-backup');
     assert.ok(res.body.uptime);
     assert.ok(res.body.dependencies);
-    assert.equal(res.body.dependencies.r2, 'stubbed');
+    assert.equal(res.body.dependencies.storage, 'stub');
   });
 });
 
