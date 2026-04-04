@@ -17,6 +17,7 @@ const rateLimit = require('express-rate-limit');
 const lookupRoutes = require('./routes/lookup');
 const searchRoutes = require('./routes/search');
 const blockRoutes = require('./routes/block');
+const agentRoutes = require('./routes/agents');
 const { createCorsOptions } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
 
@@ -59,6 +60,7 @@ app.get('/health', createHealthHandler({
 app.use('/api/v1/chat/directory', authMiddleware, lookupRoutes);
 app.use('/api/v1/chat/directory', authMiddleware, searchRoutes);
 app.use('/api/v1/chat/directory', authMiddleware, blockRoutes);
+app.use('/api/v1/chat/directory', authMiddleware, agentRoutes);
 
 // ── 404 fallback ──
 app.use((_req, res) => {

@@ -20,6 +20,7 @@ const profileRoutes = require('./routes/profile');
 const pairRoutes = require('./routes/pair');
 const provisionRoutes = require('./routes/provision');
 const agentProvisionRoutes = require('./routes/agent-provision');
+const roomsRoutes = require('./routes/rooms');
 const { createCorsOptions } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
 
@@ -69,6 +70,9 @@ app.use('/api/v1/chat/profile', authMiddleware, profileRoutes);
 app.use('/api/v1/chat/pair', authMiddleware, pairRoutes);
 app.use('/api/v1/chat/provision', authMiddleware, provisionRoutes);
 app.use('/api/v1/onboarding', authMiddleware, provisionRoutes);
+
+// ── Room management (group creation, invites) ──
+app.use('/api/v1/rooms', authMiddleware, roomsRoutes);
 
 // ── Agent room lookup shortcut (also available via /api/v1/chat/provision/agent-room) ──
 const onboardingDb = require('./lib/db');

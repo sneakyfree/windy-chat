@@ -454,6 +454,42 @@ app.post('/api/v1/chat/push/unmute', authMiddleware, (req, res) => {
   }
 });
 
+// ── Test push (admin-only, for verifying credentials) ──
+
+app.post('/api/v1/chat/push/test', authMiddleware, asyncHandler(async (req, res) => {
+  const { pushkey, platform, title, body } = req.body;
+
+  if (!pushkey || typeof pushkey !== 'string') {
+    return res.status(400).json({ error: 'pushkey is required' });
+  }
+  if (!platform || !['android', 'ios', 'web'].includes(platform)) {
+    return res.status(400).json({ error: 'platform must be android, ios, or web' });
+  }
+
+  const payload = {
+    title: title || 'Windy Chat Test',
+    body: body || 'Test notification — push is working!',
+    roomId: 'test',
+    eventId: 'test',
+    badge: 1,
+  };
+
+  let result;
+  if (platform === 'web') {
+    result = await sendWebPush(pushkey, payload);
+  } else if (platform === 'ios') {
+    result = await sendAPNs(pushkey, payload);
+  } else {
+    result = await sendFCM(pushkey, payload);
+  }
+
+  if (result.success) {
+    res.json({ success: true, platform, stub: result.stub || false });
+  } else {
+    res.status(502).json({ success: false, platform, error: result.error });
+  }
+}));
+
 // ── Push token cleanup (auth required) ──
 
 app.post('/api/v1/chat/push/prune', authMiddleware, (req, res) => {
