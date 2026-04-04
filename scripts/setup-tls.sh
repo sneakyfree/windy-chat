@@ -10,7 +10,7 @@
 
 set -e
 
-DOMAIN="${1:-chat.windypro.com}"
+DOMAIN="${1:-chat.windyword.ai}"
 EMAIL="${2:-admin@windypro.com}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

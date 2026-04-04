@@ -75,7 +75,7 @@ router.post('/generate', pairGenerateLimiter, (req, res) => {
       session: sessionId,
       pubkey: pubkeyBase64,
       ts: timestamp,
-      server: process.env.SYNAPSE_URL || 'https://chat.windypro.com',
+      server: process.env.SYNAPSE_URL || 'https://chat.windyword.ai',
       version: 1,
     };
 

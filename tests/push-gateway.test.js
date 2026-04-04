@@ -97,8 +97,8 @@ describe('POST /_matrix/push/v1/notify', () => {
   it('handles empty devices array', async () => {
     const res = await request('POST', '/_matrix/push/v1/notify', {
       notification: {
-        room_id: '!test:chat.windypro.com',
-        sender: '@alice:chat.windypro.com',
+        room_id: '!test:chat.windyword.ai',
+        sender: '@alice:chat.windyword.ai',
         devices: [],
       },
     }, { Authorization: '' });
@@ -109,8 +109,8 @@ describe('POST /_matrix/push/v1/notify', () => {
   it('does not require auth (server-to-server)', async () => {
     const res = await request('POST', '/_matrix/push/v1/notify', {
       notification: {
-        room_id: '!test:chat.windypro.com',
-        sender: '@alice:chat.windypro.com',
+        room_id: '!test:chat.windyword.ai',
+        sender: '@alice:chat.windyword.ai',
         devices: [],
       },
     }, { Authorization: '' });
@@ -127,9 +127,9 @@ describe('POST /_matrix/push/v1/notify', () => {
 
     const res = await request('POST', '/_matrix/push/v1/notify', {
       notification: {
-        room_id: '!test:chat.windypro.com',
+        room_id: '!test:chat.windyword.ai',
         event_id: '$test-event',
-        sender: '@alice:chat.windypro.com',
+        sender: '@alice:chat.windyword.ai',
         sender_display_name: 'Alice',
         type: 'm.room.message',
         prio: 'high',
@@ -209,7 +209,7 @@ describe('POST /api/v1/chat/push/register', () => {
 describe('POST /api/v1/chat/push/mute', () => {
   it('rejects missing userId', async () => {
     const res = await request('POST', '/api/v1/chat/push/mute', {
-      roomId: '!room:chat.windypro.com',
+      roomId: '!room:chat.windyword.ai',
     });
     assert.equal(res.status, 400);
     assert.match(res.body.error, /userId/);
@@ -226,7 +226,7 @@ describe('POST /api/v1/chat/push/mute', () => {
   it('mutes a conversation with default duration', async () => {
     const res = await request('POST', '/api/v1/chat/push/mute', {
       userId: 'mute_user',
-      roomId: '!room:chat.windypro.com',
+      roomId: '!room:chat.windyword.ai',
     });
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
@@ -236,7 +236,7 @@ describe('POST /api/v1/chat/push/mute', () => {
   it('mutes with specific duration', async () => {
     const res = await request('POST', '/api/v1/chat/push/mute', {
       userId: 'mute_user',
-      roomId: '!room2:chat.windypro.com',
+      roomId: '!room2:chat.windyword.ai',
       duration: '1w',
       mentionOverride: true,
     });
@@ -248,7 +248,7 @@ describe('POST /api/v1/chat/push/mute', () => {
 describe('POST /api/v1/chat/push/unmute', () => {
   it('rejects missing userId', async () => {
     const res = await request('POST', '/api/v1/chat/push/unmute', {
-      roomId: '!room:chat.windypro.com',
+      roomId: '!room:chat.windyword.ai',
     });
     assert.equal(res.status, 400);
   });
@@ -263,7 +263,7 @@ describe('POST /api/v1/chat/push/unmute', () => {
   it('unmutes a conversation', async () => {
     const res = await request('POST', '/api/v1/chat/push/unmute', {
       userId: 'mute_user',
-      roomId: '!room:chat.windypro.com',
+      roomId: '!room:chat.windyword.ai',
     });
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
@@ -284,7 +284,7 @@ describe('Mute integration', () => {
     // Mute the room
     await request('POST', '/api/v1/chat/push/mute', {
       userId: 'mute_int_user',
-      roomId: '!muted_room:chat.windypro.com',
+      roomId: '!muted_room:chat.windyword.ai',
       duration: '1h',
       mentionOverride: false,
     });
@@ -292,9 +292,9 @@ describe('Mute integration', () => {
     // Send notification — should be silently skipped
     const res = await request('POST', '/_matrix/push/v1/notify', {
       notification: {
-        room_id: '!muted_room:chat.windypro.com',
+        room_id: '!muted_room:chat.windyword.ai',
         event_id: '$mute-test',
-        sender: '@bob:chat.windypro.com',
+        sender: '@bob:chat.windyword.ai',
         type: 'm.room.message',
         devices: [{ pushkey: 'mute-integration-token', app_id: 'com.windypro.chat.android' }],
         counts: { unread: 1 },

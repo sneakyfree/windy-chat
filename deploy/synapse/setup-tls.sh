@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup-tls.sh — Generate TLS certificates for chat.windypro.com (Synapse/nginx)
+# setup-tls.sh — Generate TLS certificates for chat.windyword.ai (Synapse/nginx)
 #
 # Modes:
 #   ./setup-tls.sh letsencrypt   — Use certbot (production)
@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-DOMAIN="chat.windypro.com"
+DOMAIN="chat.windyword.ai"
 CERT_DIR="/etc/letsencrypt/live/${DOMAIN}"
 SELF_SIGNED_DIR="./certs"
 NGINX_CERT_DIR="./certs"  # where docker volume or nginx expects them

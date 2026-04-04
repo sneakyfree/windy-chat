@@ -95,7 +95,7 @@ describe('Onboarding persistence', () => {
     db1.prepare(`INSERT INTO pairing_sessions (session_id, pubkey, private_key, created_at, expires_at, status)
       VALUES (?, ?, ?, ?, ?, ?)`).run('sess_1', 'pubkey123', null, Date.now(), Date.now() + 120000, 'paired');
     db1.prepare(`INSERT INTO onboarding_state (windy_user_id, verified, profile_setup, matrix_provisioned, matrix_user_id, provisioned_at)
-      VALUES (?, ?, ?, ?, ?, ?)`).run('windy_abc', 1, 1, 1, '@windy_abc:chat.windypro.com', '2024-01-01T00:00:00Z');
+      VALUES (?, ?, ?, ?, ?, ?)`).run('windy_abc', 1, 1, 1, '@windy_abc:chat.windyword.ai', '2024-01-01T00:00:00Z');
 
     db1.close();
 
@@ -107,7 +107,7 @@ describe('Onboarding persistence', () => {
     const state = db2.prepare('SELECT * FROM onboarding_state WHERE windy_user_id = ?').get('windy_abc');
     assert.ok(state, 'Onboarding state should survive restart');
     assert.equal(state.matrix_provisioned, 1);
-    assert.equal(state.matrix_user_id, '@windy_abc:chat.windypro.com');
+    assert.equal(state.matrix_user_id, '@windy_abc:chat.windyword.ai');
 
     db2.close();
     cleanDir(TEMP_DIR);
@@ -214,7 +214,7 @@ describe('Push Gateway persistence', () => {
     db1.prepare('INSERT INTO push_tokens (pushkey, user_id, platform, app_id, device_name, registered_at) VALUES (?, ?, ?, ?, ?, ?)')
       .run('fcm-token-xyz', 'user_push_1', 'android', 'com.windypro.chat', 'Pixel 8', Date.now());
     db1.prepare('INSERT INTO mute_settings (user_id, room_id, muted_until, mention_override) VALUES (?, ?, ?, ?)')
-      .run('user_push_1', '!room:chat.windypro.com', Date.now() + 3600000, 1);
+      .run('user_push_1', '!room:chat.windyword.ai', Date.now() + 3600000, 1);
 
     db1.close();
 
@@ -225,7 +225,7 @@ describe('Push Gateway persistence', () => {
     assert.equal(token.platform, 'android');
 
     const mute = db2.prepare('SELECT * FROM mute_settings WHERE user_id = ? AND room_id = ?')
-      .get('user_push_1', '!room:chat.windypro.com');
+      .get('user_push_1', '!room:chat.windyword.ai');
     assert.ok(mute, 'Mute setting should survive restart');
     assert.equal(mute.mention_override, 1);
 

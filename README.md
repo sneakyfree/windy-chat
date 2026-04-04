@@ -14,7 +14,7 @@ This repo is the **Windy Chat backend** — the server infrastructure that power
 
 | Service | Port | Purpose |
 |---------|------|---------|
-| **Synapse** | 8008 | Matrix homeserver (chat.windypro.com) |
+| **Synapse** | 8008 | Matrix homeserver (chat.windyword.ai) |
 | **Onboarding** | 8101 | Phone/email verification, profile setup, QR pairing |
 | **Directory** | 8102 | Privacy-first contact discovery (hash lookup + search) |
 | **Push Gateway** | 8103 | Matrix push → FCM (Android) + APNs (iOS) |

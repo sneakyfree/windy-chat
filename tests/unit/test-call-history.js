@@ -102,7 +102,7 @@ describe('Unknown routes', () => {
 describe('Auth', () => {
   it('rejects missing auth on log endpoint', async () => {
     const res = await request('POST', '/api/v1/calls/log', {
-      room_id: '!room:chat.windypro.com',
+      room_id: '!room:chat.windyword.ai',
       caller_id: 'user1',
       callee_id: 'user2',
       started_at: new Date().toISOString(),
@@ -207,7 +207,7 @@ describe('POST /api/v1/calls/log — create', () => {
     const ended = now.toISOString();
 
     const res = await request('POST', '/api/v1/calls/log', {
-      room_id: '!room1:chat.windypro.com',
+      room_id: '!room1:chat.windyword.ai',
       caller_id: 'call-user-1',
       callee_id: 'call-user-2',
       started_at: started,
@@ -218,7 +218,7 @@ describe('POST /api/v1/calls/log — create', () => {
     });
     assert.equal(res.status, 201);
     assert.ok(res.body.id);
-    assert.equal(res.body.room_id, '!room1:chat.windypro.com');
+    assert.equal(res.body.room_id, '!room1:chat.windyword.ai');
     assert.equal(res.body.caller_id, 'call-user-1');
     assert.equal(res.body.callee_id, 'call-user-2');
     assert.equal(res.body.duration_seconds, 120);
@@ -229,7 +229,7 @@ describe('POST /api/v1/calls/log — create', () => {
   it('logs a video call with no quality_score', async () => {
     const now = new Date();
     const res = await request('POST', '/api/v1/calls/log', {
-      room_id: '!room2:chat.windypro.com',
+      room_id: '!room2:chat.windyword.ai',
       caller_id: 'call-user-1',
       callee_id: 'call-user-3',
       started_at: new Date(now.getTime() - 60000).toISOString(),
@@ -245,7 +245,7 @@ describe('POST /api/v1/calls/log — create', () => {
   it('logs a zero-duration call (missed)', async () => {
     const now = new Date().toISOString();
     const res = await request('POST', '/api/v1/calls/log', {
-      room_id: '!room3:chat.windypro.com',
+      room_id: '!room3:chat.windyword.ai',
       caller_id: 'call-user-4',
       callee_id: 'call-user-1',
       started_at: now,

@@ -389,7 +389,7 @@ describe('Step 7: K5 Call History', () => {
     const started = new Date(now - 120000).toISOString();
     const ended = now.toISOString();
     const res = await jsonRequest('POST', callHistoryUrl, '/api/v1/calls/log', {
-      room_id: '!testroom:chat.windypro.com',
+      room_id: '!testroom:chat.windyword.ai',
       caller_id: USER_A,
       callee_id: USER_B,
       started_at: started,
@@ -407,7 +407,7 @@ describe('Step 7: K5 Call History', () => {
   it('logs a video call', async () => {
     const now = new Date();
     const res = await jsonRequest('POST', callHistoryUrl, '/api/v1/calls/log', {
-      room_id: '!testroom2:chat.windypro.com',
+      room_id: '!testroom2:chat.windyword.ai',
       caller_id: USER_B,
       callee_id: USER_A,
       started_at: new Date(now - 300000).toISOString(),

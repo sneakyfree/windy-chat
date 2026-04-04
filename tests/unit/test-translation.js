@@ -301,8 +301,8 @@ describe('Appservice — /_matrix/app/v1', () => {
     const res = await request('PUT', '/_matrix/app/v1/transactions/txn-test-2', {
       events: [{
         type: 'm.room.message',
-        sender: '@alice:chat.windypro.com',
-        room_id: '!testroom:chat.windypro.com',
+        sender: '@alice:chat.windyword.ai',
+        room_id: '!testroom:chat.windyword.ai',
         event_id: '$event1',
         content: {
           msgtype: 'm.text',
@@ -314,29 +314,29 @@ describe('Appservice — /_matrix/app/v1', () => {
   });
 
   it('GET /rooms/:alias returns 404 (appservice does not create rooms)', async () => {
-    const res = await request('GET', '/_matrix/app/v1/rooms/%23test:chat.windypro.com', null, { Authorization: '' });
+    const res = await request('GET', '/_matrix/app/v1/rooms/%23test:chat.windyword.ai', null, { Authorization: '' });
     assert.equal(res.status, 404);
   });
 
   it('GET /users/:userId returns 404 (appservice does not create users)', async () => {
-    const res = await request('GET', '/_matrix/app/v1/users/@test:chat.windypro.com', null, { Authorization: '' });
+    const res = await request('GET', '/_matrix/app/v1/users/@test:chat.windyword.ai', null, { Authorization: '' });
     assert.equal(res.status, 404);
   });
 
   it('POST /rooms/:roomId/languages sets room language config', async () => {
-    const res = await request('POST', '/_matrix/app/v1/rooms/!room1:chat.windypro.com/languages', {
+    const res = await request('POST', '/_matrix/app/v1/rooms/!room1:chat.windyword.ai/languages', {
       users: {
-        '@alice:chat.windypro.com': 'en',
-        '@bob:chat.windypro.com': 'es',
+        '@alice:chat.windyword.ai': 'en',
+        '@bob:chat.windyword.ai': 'es',
       },
     }, { Authorization: '' });
     assert.equal(res.status, 200);
     assert.equal(res.body.user_count, 2);
-    assert.equal(res.body.languages['@alice:chat.windypro.com'], 'en');
+    assert.equal(res.body.languages['@alice:chat.windyword.ai'], 'en');
   });
 
   it('POST /rooms/:roomId/languages rejects missing users object', async () => {
-    const res = await request('POST', '/_matrix/app/v1/rooms/!room1:chat.windypro.com/languages', {}, { Authorization: '' });
+    const res = await request('POST', '/_matrix/app/v1/rooms/!room1:chat.windyword.ai/languages', {}, { Authorization: '' });
     assert.equal(res.status, 400);
     assert.match(res.body.error, /users/);
   });

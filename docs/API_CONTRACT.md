@@ -83,16 +83,16 @@ after phone/email verification and profile setup are complete.
 
 ```json
 {
-  "matrix_user_id": "@windy_<localpart>:chat.windypro.com",
+  "matrix_user_id": "@windy_<localpart>:chat.windyword.ai",
   "access_token": "string",
   "device_id": "string",
-  "home_server": "chat.windypro.com"
+  "home_server": "chat.windyword.ai"
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `matrix_user_id` | string | Full Matrix user ID on chat.windypro.com |
+| `matrix_user_id` | string | Full Matrix user ID on chat.windyword.ai |
 | `access_token` | string | Matrix access token for the client |
 | `device_id` | string | Matrix device ID |
 | `home_server` | string | Homeserver domain |
@@ -147,7 +147,7 @@ services to resolve "who is this user?" from a JWT.
   "avatar_url": "string | null",
   "created_at": "ISO8601",
   "chat_provisioned": true,
-  "matrix_user_id": "@windy_<localpart>:chat.windypro.com | null"
+  "matrix_user_id": "@windy_<localpart>:chat.windyword.ai | null"
 }
 ```
 
@@ -188,7 +188,7 @@ account.
   "event": "passport.revoked | passport.suspended | passport.reinstated",
   "bot_id": "string (UUID)",
   "passport_id": "string (UUID)",
-  "matrix_user_id": "@bot_<localpart>:chat.windypro.com | null",
+  "matrix_user_id": "@bot_<localpart>:chat.windyword.ai | null",
   "reason": "string",
   "timestamp": "ISO8601"
 }
@@ -432,7 +432,7 @@ Generate a QR pairing session (called by desktop client).
     "session": "UUID",
     "pubkey": "base64 (X25519)",
     "ts": "timestamp",
-    "server": "https://chat.windypro.com",
+    "server": "https://chat.windyword.ai",
     "version": 1
   },
   "qrDataString": "JSON string (for QR encoding)",
@@ -542,10 +542,10 @@ Provision a Matrix account via Synapse admin API.
 {
   "success": true,
   "matrix": {
-    "matrixUserId": "@windy_<localpart>:chat.windypro.com",
+    "matrixUserId": "@windy_<localpart>:chat.windyword.ai",
     "accessToken": "string",
     "deviceId": "string",
-    "homeServer": "chat.windypro.com"
+    "homeServer": "chat.windyword.ai"
   },
   "onboarding": {
     "complete": true,
@@ -572,7 +572,7 @@ Check onboarding completion state.
 {
   "chatUserId": "string",
   "complete": true,
-  "matrixUserId": "@windy_<localpart>:chat.windypro.com",
+  "matrixUserId": "@windy_<localpart>:chat.windyword.ai",
   "steps": {
     "verified": true,
     "profileCreated": true,
@@ -813,9 +813,9 @@ Send an SMS/email invite to someone not on Windy Chat.
 ```json
 {
   "notification": {
-    "room_id": "!abc:chat.windypro.com",
+    "room_id": "!abc:chat.windyword.ai",
     "event_id": "$xyz",
-    "sender": "@windy_alice:chat.windypro.com",
+    "sender": "@windy_alice:chat.windyword.ai",
     "sender_display_name": "Alice",
     "type": "m.room.message",
     "prio": "high",
@@ -891,7 +891,7 @@ Mute notifications for a conversation.
 ```json
 {
   "userId": "string",
-  "roomId": "!abc:chat.windypro.com",
+  "roomId": "!abc:chat.windyword.ai",
   "duration": "1h | 8h | 1d | 1w | forever (default: 1d)",
   "mentionOverride": true
 }
@@ -921,7 +921,7 @@ Unmute a conversation.
 ```json
 {
   "userId": "string",
-  "roomId": "!abc:chat.windypro.com"
+  "roomId": "!abc:chat.windyword.ai"
 }
 ```
 

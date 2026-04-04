@@ -148,9 +148,9 @@ function createMockAccountServer() {
         try {
           const data = JSON.parse(body);
           res.end(JSON.stringify({
-            matrix_user_id: `@${data.localpart || 'mesh_user'}:chat.windypro.com`,
+            matrix_user_id: `@${data.localpart || 'mesh_user'}:chat.windyword.ai`,
             access_token: `syt_mock_${crypto.randomBytes(8).toString('hex')}`,
-            home_server: 'chat.windypro.com',
+            home_server: 'chat.windyword.ai',
           }));
         } catch {
           res.statusCode = 400;
@@ -583,7 +583,7 @@ describe('Category 2: Cross-Service Identity', () => {
 
   it('2.6 Log a call in call-history → user ID matches', trackTest('callhistory-identity', async () => {
     const r = await jsonRequest('POST', callHistoryUrl, '/api/v1/calls/log', {
-      room_id: '!test-room:chat.windypro.com',
+      room_id: '!test-room:chat.windyword.ai',
       caller_id: USER_A,
       callee_id: USER_B,
       started_at: new Date().toISOString(),

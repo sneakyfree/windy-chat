@@ -11,8 +11,8 @@ const DEFAULT_ORIGINS = [
   'https://app.windypro.com',
   'https://windychat.com',
   'https://www.windychat.com',
-  'https://chat.windypro.com',
-  'https://windypro.thewindstorm.uk',
+  'https://chat.windyword.ai',
+  'https://windyword.ai',
   'http://localhost:5173',  // Vite dev server
   'http://localhost:4173',  // Vite preview
 ];

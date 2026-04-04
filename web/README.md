@@ -49,11 +49,11 @@ src/
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `VITE_MATRIX_HOMESERVER` | Synapse homeserver URL | `https://chat.windypro.com` |
+| `VITE_MATRIX_HOMESERVER` | Synapse homeserver URL | `https://chat.windyword.ai` |
 | `VITE_ACCOUNT_SERVER_URL` | Windy Pro account server | `https://account.windypro.com` |
 | `VITE_SOCIAL_API_URL` | Social service API | `/api/v1/social` |
 | `VITE_ETERNITAS_URL` | Eternitas registry API | `https://api.eternitas.ai` |
-| `VITE_WINDY_WORD_WS` | Voice transcription WebSocket | `wss://windypro.thewindstorm.uk` |
+| `VITE_WINDY_WORD_WS` | Voice transcription WebSocket | `wss://windyword.ai` |
 
 ## Build
 

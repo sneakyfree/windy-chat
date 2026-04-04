@@ -76,10 +76,10 @@ Default: `http://localhost:8098`
 
 ```json
 {
-  "matrix_user_id": "@windy_<localpart>:chat.windypro.com",
+  "matrix_user_id": "@windy_<localpart>:chat.windyword.ai",
   "access_token": "string",
   "device_id": "string",
-  "home_server": "chat.windypro.com"
+  "home_server": "chat.windyword.ai"
 }
 ```
 
@@ -108,7 +108,7 @@ Default: `http://localhost:8098`
   "avatar_url": "string | null",
   "created_at": "ISO8601",
   "chat_provisioned": true,
-  "matrix_user_id": "@windy_<localpart>:chat.windypro.com | null"
+  "matrix_user_id": "@windy_<localpart>:chat.windyword.ai | null"
 }
 ```
 

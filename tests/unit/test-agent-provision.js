@@ -152,7 +152,7 @@ describe('POST /api/v1/onboarding/agent — provisioning', () => {
     assert.ok(res.body.dm_room_id);
     assert.equal(res.body.agent_name, 'ProvisionBot');
     assert.equal(res.body.passport_number, 'ET-PROV-001');
-    assert.match(res.body.matrix_user_id, /^@agent_et-prov-001:chat\.windypro\.com$/);
+    assert.match(res.body.matrix_user_id, /^@agent_et-prov-001:chat\.windyword\.ai$/);
   });
 
   it('returns existing provisioning for duplicate passport', async () => {

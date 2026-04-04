@@ -45,7 +45,7 @@ Each strand follows this structure:
 
 ### Vision
 
-Our own Matrix homeserver at `chat.windypro.com`. Federation disabled (Windy-users-only
+Our own Matrix homeserver at `chat.windyword.ai`. Federation disabled (Windy-users-only
 network). All registration goes through the windy-pro account-server — no direct Matrix
 signups. This is the messaging backbone that everything else sits on top of.
 
@@ -61,7 +61,7 @@ signups. This is the messaging backbone that everything else sits on top of.
 | `deploy/synapse/setup.sh` | 276 | One-time init script — generates signing keys, creates turnserver.conf, starts stack |
 
 **Key configuration decisions already made:**
-- `server_name: chat.windypro.com`
+- `server_name: chat.windyword.ai`
 - `enable_registration: false` (enforced by custom module)
 - `federation_domain_whitelist: []` (federation disabled)
 - Rate limits tuned for real-time chat (5 msg/sec, burst 20)
@@ -89,7 +89,7 @@ signups. This is the messaging backbone that everything else sits on top of.
 ### Dependencies
 
 - **windy-pro account-server** must be running at `WINDY_ACCOUNT_SERVER_URL`
-- **DNS** for `chat.windypro.com` pointing to the host
+- **DNS** for `chat.windyword.ai` pointing to the host
 - **TLS certificates** for HTTPS
 
 ### Priority: P0 — Foundation for all other strands

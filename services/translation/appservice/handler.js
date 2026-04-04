@@ -109,7 +109,7 @@ function sendTranslatedEvent(roomId, originalEventId, translatedText, targetLang
       method: 'PUT',
       hostname: url.hostname,
       port: url.port,
-      path: `${url.pathname}?access_token=${AS_TOKEN}&user_id=@windy_translator:chat.windypro.com`,
+      path: `${url.pathname}?access_token=${AS_TOKEN}&user_id=@windy_translator:chat.windyword.ai`,
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(eventBody),
@@ -153,7 +153,7 @@ router.put('/transactions/:txnId', verifyHsToken, async (req, res) => {
     if (!event.content.body) continue;
 
     // Skip our own translated messages
-    if (event.sender === '@windy_translator:chat.windypro.com') continue;
+    if (event.sender === '@windy_translator:chat.windyword.ai') continue;
     if (event.content['com.windypro.translation']?.auto_translated) continue;
 
     const roomId = event.room_id;

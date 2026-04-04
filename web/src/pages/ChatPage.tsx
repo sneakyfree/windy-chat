@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as matrix from '../lib/matrix';
 import { useVoiceInput } from '../hooks/useVoiceInput';
+import { useNotifications } from '../hooks/useNotifications';
 import CreateGroupModal from '../components/CreateGroupModal';
 import type { Room, MatrixEvent } from 'matrix-js-sdk';
 
@@ -63,6 +64,27 @@ function RoomItem({ room, selected, onClick }: { room: Room; selected: boolean; 
   );
 }
 
+// ── Receipt Check Marks ──
+function ReceiptStatus({ event }: { event: MatrixEvent }) {
+  // ✓ = sent, ✓✓ = delivered, blue ✓✓ = read
+  const status = event.getAssociatedStatus?.();
+  const client = matrix.getClient();
+  const room = client?.getRoom(event.getRoomId() || '');
+  const receipts = room?.getReceiptsForEvent?.(event) || [];
+  const hasReadReceipt = receipts.some((r: any) => r.type === 'm.read');
+
+  if (hasReadReceipt) {
+    return <span style={{ color: '#60a5fa' }}>✓✓</span>; // Blue — read
+  }
+  if (status === null || status === undefined) {
+    return <span>✓✓</span>; // Delivered (reached server, no explicit delivery tracking in Matrix)
+  }
+  if (status === 'sending') {
+    return <span style={{ opacity: 0.4 }}>✓</span>; // Sending
+  }
+  return <span>✓</span>; // Sent
+}
+
 // ── Message Bubble ──
 function MessageBubble({ event, isOwn }: { event: MatrixEvent; isOwn: boolean }) {
   const sender = event.getSender();
@@ -92,9 +114,10 @@ function MessageBubble({ event, isOwn }: { event: MatrixEvent; isOwn: boolean })
           </div>
         )}
         <p className="whitespace-pre-wrap break-words">{content.body || ''}</p>
-        <div className={`text-[10px] mt-1 ${isOwn ? 'text-right opacity-70' : ''}`}
+        <div className={`flex items-center gap-1 text-[10px] mt-1 ${isOwn ? 'justify-end' : ''}`}
              style={{ color: isOwn ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)' }}>
-          {time}
+          <span>{time}</span>
+          {isOwn && <ReceiptStatus event={event} />}
         </div>
       </div>
     </div>
@@ -111,6 +134,7 @@ export default function ChatPage({ userId }: ChatPageProps) {
   const [showGroupModal, setShowGroupModal] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const voice = useVoiceInput();
+  const notifications = useNotifications();
 
   // Load rooms
   useEffect(() => {
@@ -146,7 +170,16 @@ export default function ChatPage({ userId }: ChatPageProps) {
     const onTimeline = (event: MatrixEvent) => {
       if (event.getRoomId() === selectedRoomId) {
         const r = client.getRoom(selectedRoomId);
-        if (r) setMessages([...(r.getLiveTimeline()?.getEvents() || [])]);
+        if (r) {
+          setMessages([...(r.getLiveTimeline()?.getEvents() || [])]);
+          // Send read receipt for the latest event
+          if (event.getSender() !== userId) {
+            client.sendReadReceipt(event).catch(() => {});
+            // Trigger notification if tab is hidden
+            const sender = event.getSender()?.split(':')[0]?.replace('@', '') || 'Someone';
+            notifications.notifyNewMessage(sender, r.name || 'Chat', event.getId() || '');
+          }
+        }
       }
     };
 
@@ -228,10 +261,25 @@ export default function ChatPage({ userId }: ChatPageProps) {
         {/* Room List */}
         <div className="flex-1 overflow-y-auto">
           {sortedRooms.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="text-3xl mb-3">💬</div>
-              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No conversations yet</p>
-              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Start a chat to get going</p>
+            <div className="text-center py-8 px-4">
+              <div className="text-4xl mb-3">🌪️</div>
+              <h3 className="text-base font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Welcome to Windy Chat!</h3>
+              <p className="text-xs mb-6" style={{ color: 'var(--text-muted)' }}>Find friends or discover AI agents to get started</p>
+              <div className="space-y-2">
+                <button
+                  className="w-full py-2.5 rounded-xl text-sm font-medium"
+                  style={{ background: 'var(--accent)', color: 'white' }}
+                  onClick={() => {/* navigate to discover */}}
+                >
+                  🪰 Discover Agents
+                </button>
+                <button
+                  className="w-full py-2.5 rounded-xl text-sm font-medium"
+                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                >
+                  📨 Invite Friends
+                </button>
+              </div>
             </div>
           ) : (
             sortedRooms.map(room => (

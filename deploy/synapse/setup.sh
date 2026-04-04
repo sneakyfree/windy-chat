@@ -71,7 +71,7 @@ SYNAPSE_REGISTRATION_SECRET=CHANGE_ME_generate_with_openssl_rand_hex_32
 TURN_SHARED_SECRET=CHANGE_ME_generate_with_openssl_rand_hex_32
 
 # Synapse server name
-SYNAPSE_SERVER_NAME=chat.windypro.com
+SYNAPSE_SERVER_NAME=chat.windyword.ai
 ENV_TEMPLATE
 
     warn "Created .env with placeholder values."
@@ -90,7 +90,7 @@ generate_synapse_config() {
     source .env
     set +a
 
-    SERVER_NAME="${SYNAPSE_SERVER_NAME:-chat.windypro.com}"
+    SERVER_NAME="${SYNAPSE_SERVER_NAME:-chat.windyword.ai}"
 
     # Generate initial config (we'll overlay our own homeserver.yaml)
     docker run --rm \
@@ -134,7 +134,7 @@ use-auth-secret
 static-auth-secret=${TURN_SHARED_SECRET}
 
 # Realm
-realm=chat.windypro.com
+realm=chat.windyword.ai
 
 # Relay port range
 min-port=49152
@@ -192,7 +192,7 @@ copy_generated_files() {
     set -a
     source .env
     set +a
-    SERVER_NAME="${SYNAPSE_SERVER_NAME:-chat.windypro.com}"
+    SERVER_NAME="${SYNAPSE_SERVER_NAME:-chat.windyword.ai}"
 
     if [[ -f "generated/${SERVER_NAME}.signing.key" ]]; then
         docker compose cp \
@@ -247,9 +247,9 @@ print_status() {
     echo "  Redis:       localhost:6379 (internal)"
     echo "  Coturn:      localhost:3478 (STUN/TURN)"
     echo ""
-    echo "  Federation API:   https://chat.windypro.com:8448"
-    echo "  Client API:       https://chat.windypro.com/_matrix/client"
-    echo "  Well-known:       https://chat.windypro.com/.well-known/matrix/client"
+    echo "  Federation API:   https://chat.windyword.ai:8448"
+    echo "  Client API:       https://chat.windyword.ai/_matrix/client"
+    echo "  Well-known:       https://chat.windyword.ai/.well-known/matrix/client"
     echo ""
     echo "  Logs:   docker compose -f deploy/synapse/docker-compose.yml logs -f"
     echo "  Stop:   docker compose -f deploy/synapse/docker-compose.yml down"

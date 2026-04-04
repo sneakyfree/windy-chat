@@ -16,7 +16,7 @@ const router = express.Router();
 
 const SYNAPSE_URL = process.env.SYNAPSE_URL || 'http://localhost:8008';
 const SYNAPSE_ADMIN_URL = process.env.SYNAPSE_ADMIN_URL || `${SYNAPSE_URL}/_synapse/admin`;
-const SYNAPSE_SERVER_NAME = process.env.SYNAPSE_SERVER_NAME || 'chat.windypro.com';
+const SYNAPSE_SERVER_NAME = process.env.SYNAPSE_SERVER_NAME || 'chat.windyword.ai';
 const CHAT_API_TOKEN = process.env.CHAT_API_TOKEN || '';
 
 const roomLimiter = rateLimit({

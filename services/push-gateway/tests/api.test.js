@@ -43,14 +43,14 @@ describe('Auth required on protected routes', () => {
   it('POST /api/v1/chat/push/mute returns 401 without auth', async () => {
     const res = await request(app)
       .post('/api/v1/chat/push/mute')
-      .send({ roomId: '!room:chat.windypro.com', duration: '1h' });
+      .send({ roomId: '!room:chat.windyword.ai', duration: '1h' });
     expect(res.status).toBe(401);
   });
 
   it('POST /api/v1/chat/push/unmute returns 401 without auth', async () => {
     const res = await request(app)
       .post('/api/v1/chat/push/unmute')
-      .send({ roomId: '!room:chat.windypro.com' });
+      .send({ roomId: '!room:chat.windyword.ai' });
     expect(res.status).toBe(401);
   });
 });
@@ -110,7 +110,7 @@ describe('POST /api/v1/chat/push/mute (with auth)', () => {
     const res = await request(app)
       .post('/api/v1/chat/push/mute')
       .set('Authorization', `Bearer ${token}`)
-      .send({ roomId: '!test:chat.windypro.com', duration: '1h' });
+      .send({ roomId: '!test:chat.windyword.ai', duration: '1h' });
     expect(res.status).toBe(400);
   });
 
@@ -128,7 +128,7 @@ describe('POST /api/v1/chat/push/mute (with auth)', () => {
     const res = await request(app)
       .post('/api/v1/chat/push/mute')
       .set('Authorization', `Bearer ${token}`)
-      .send({ userId: 'test-user-001', roomId: '!test:chat.windypro.com', duration: '1h' });
+      .send({ userId: 'test-user-001', roomId: '!test:chat.windyword.ai', duration: '1h' });
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('mutedUntil');
   });
@@ -142,9 +142,9 @@ describe('POST /_matrix/push/v1/notify', () => {
       .post('/_matrix/push/v1/notify')
       .send({
         notification: {
-          room_id: '!test:chat.windypro.com',
+          room_id: '!test:chat.windyword.ai',
           event_id: '$test-event',
-          sender: '@user:chat.windypro.com',
+          sender: '@user:chat.windyword.ai',
           devices: [{ pushkey: 'test-push-key', app_id: 'com.windypro.chat' }],
         },
       });

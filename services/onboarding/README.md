@@ -61,7 +61,7 @@ This service handles the complete chat onboarding pipeline — from identity ver
 | `SENDGRID_FROM_EMAIL` | No | noreply@windypro.com | Sender email |
 | `SYNAPSE_URL` | No | http://localhost:8008 | Synapse homeserver URL |
 | `SYNAPSE_REGISTRATION_SECRET` | No* | — | Synapse admin shared secret |
-| `SYNAPSE_SERVER_NAME` | No | chat.windypro.com | Matrix server name |
+| `SYNAPSE_SERVER_NAME` | No | chat.windyword.ai | Matrix server name |
 
 \* When not configured, the service runs in **dev mode** — OTPs are logged to console and Matrix credentials are stubbed.
 
