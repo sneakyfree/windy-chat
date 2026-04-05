@@ -26,12 +26,15 @@ export default function SocialPage({ userId: _userId, onNavigateToChat }: { user
   const [posting, setPosting] = useState(false);
   const [tab, setTab] = useState<'feed' | 'trending'>('feed');
 
+  const [feedError, setFeedError] = useState<string | null>(null);
+
   const loadFeed = useCallback(async () => {
     try {
+      setFeedError(null);
       const data = await api.getFeed();
       setPosts(data.posts || []);
-    } catch (err) {
-      console.warn('Feed load failed:', err);
+    } catch {
+      setFeedError('Social feed unavailable — check your connection and try again');
     } finally {
       setLoading(false);
     }
@@ -140,7 +143,13 @@ export default function SocialPage({ userId: _userId, onNavigateToChat }: { user
 
             {/* Posts */}
             <div>
-              {loading ? (
+              {feedError ? (
+                <div className="text-center py-12">
+                  <div className="text-3xl mb-3">⚠️</div>
+                  <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>{feedError}</p>
+                  <button onClick={loadFeed} className="px-4 py-2 rounded-xl text-sm" style={{ background: 'var(--accent)', color: 'white' }}>Retry</button>
+                </div>
+              ) : loading ? (
                 <div className="text-center py-12" style={{ color: 'var(--text-muted)' }}>Loading...</div>
               ) : posts.length === 0 ? (
                 <div className="text-center py-12">

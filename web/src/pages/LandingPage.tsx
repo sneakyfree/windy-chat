@@ -91,9 +91,13 @@ export default function LandingPage({ onSignIn, onRegister }: LandingPageProps) 
 
       {/* Footer */}
       <footer className="text-center py-6 border-t" style={{ borderColor: 'var(--bg-tertiary)' }}>
-        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+        <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
           Part of the Windy ecosystem — Windy Pro, Windy Mail, Windy Cloud, Eternitas
         </p>
+        <div className="flex justify-center gap-4">
+          <a href="/privacy" className="text-xs underline" style={{ color: 'var(--text-muted)' }}>Privacy Policy</a>
+          <a href="/terms" className="text-xs underline" style={{ color: 'var(--text-muted)' }}>Terms of Service</a>
+        </div>
       </footer>
     </div>
   );

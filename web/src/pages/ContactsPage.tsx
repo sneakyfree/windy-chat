@@ -13,10 +13,14 @@ export default function ContactsPage({ userId: _userId }: { userId: string | nul
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
 
   const search = useCallback(async () => {
     if (!query || query.length < 2) return;
     setSearching(true);
+    setSearchError(null);
+    setHasSearched(true);
     try {
       const token = localStorage.getItem('windy_jwt');
       const res = await fetch(`${env.directoryUrl}/search?q=${encodeURIComponent(query)}`, {
@@ -25,9 +29,11 @@ export default function ContactsPage({ userId: _userId }: { userId: string | nul
       if (res.ok) {
         const data = await res.json();
         setResults(data.results || []);
+      } else {
+        setSearchError('Search unavailable — directory service not reachable');
       }
-    } catch (err) {
-      console.warn('Search failed:', err);
+    } catch {
+      setSearchError('Search unavailable — check your connection');
     } finally {
       setSearching(false);
     }
@@ -61,11 +67,19 @@ export default function ContactsPage({ userId: _userId }: { userId: string | nul
 
       {/* Results */}
       <div className="flex-1 overflow-y-auto">
-        {results.length === 0 && !searching && (
+        {searchError && (
+          <div className="text-center py-12">
+            <div className="text-3xl mb-3">⚠️</div>
+            <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>{searchError}</p>
+            <button onClick={search} className="px-4 py-2 rounded-xl text-sm" style={{ background: 'var(--accent)', color: 'white' }}>Retry</button>
+          </div>
+        )}
+
+        {!searchError && results.length === 0 && !searching && (
           <div className="text-center py-16">
             <div className="text-4xl mb-3">👥</div>
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-              Search for people and agents to connect with
+              {hasSearched ? 'No results found — try a different search' : 'Search for people and agents to connect with'}
             </p>
           </div>
         )}
