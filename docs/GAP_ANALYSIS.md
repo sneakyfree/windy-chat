@@ -58,7 +58,7 @@
 
 ---
 
-## K4 — Rich Media (65%)
+## K4 — Rich Media (75%)
 
 | Feature | Plan Status | Code Status | Verification | Last Verified |
 |---------|------------|------------|-------------|---------------|
@@ -66,7 +66,7 @@
 | Image thumbnails (sharp) | Missing→Built | **IMPLEMENTED** | 200x200 cover crop, JPEG 80% quality | 2026-04-03 ✓ |
 | Video thumbnails (ffmpeg) | Missing→Built | **IMPLEMENTED** | Frame at 1s with retry | 2026-04-03 ✓ |
 | File serving with Content-Type | Missing→Built | **IMPLEMENTED** | Correct headers, inline disposition | 2026-04-03 ✓ |
-| Voice message waveforms | Missing | **MISSING** | No audio analysis | 2026-04-03 — STILL OPEN |
+| Voice message waveforms | Missing | **BUILT** | ffprobe waveform generation, GET /media/:id/waveform, 50-sample amplitude array | 2026-04-04 ✓ |
 | Link preview (Open Graph) | Missing | **BUILT** | GET /api/v1/media/link-preview?url= — OG tag extraction, 24h cache, private IP blocking | 2026-04-04 ✓ |
 | Media gallery API | Missing | **BUILT** | GET /api/v1/media/gallery?user_id=, GET /gallery/room?room_id= — paginated | 2026-04-04 ✓ |
 | Virus scan (ClamAV) | Missing | **MISSING** | No scanning | 2026-04-03 — STILL OPEN |
@@ -75,7 +75,7 @@
 
 ---
 
-## K5 — VoIP / WebRTC (30%)
+## K5 — VoIP / WebRTC (40%)
 
 | Feature | Plan Status | Code Status | Verification | Last Verified |
 |---------|------------|------------|-------------|---------------|
@@ -83,7 +83,7 @@
 | Synapse TURN config | Exists | **IMPLEMENTED** | turn_uris configured in homeserver.yaml | 2026-04-03 ✓ |
 | Call history service | Missing→Built | **IMPLEMENTED** | Log, history (paginated), stats; standalone service | 2026-04-03 ✓ |
 | Client-side VoIP | Missing | **MISSING** | No matrix-js-sdk VoIP module integration | 2026-04-03 — STILL OPEN |
-| Call history auto-logging | Missing | **MISSING** | Clients must submit manually; no Synapse event hook | 2026-04-03 — STILL OPEN |
+| Call history auto-logging | Missing | **BUILT** | Synapse appservice captures m.call.* events, auto-logs to call-history DB | 2026-04-04 ✓ |
 | Group calls (SFU) | Missing | **MISSING** | No MSC3401 or custom SFU | 2026-04-03 — STILL OPEN |
 | Call quality monitoring | Missing | **MISSING** | quality_score field exists but client must submit | 2026-04-03 — STILL OPEN |
 | Voicemail | Missing | **MISSING** | Not started | 2026-04-03 — STILL OPEN |
@@ -107,7 +107,7 @@
 
 ---
 
-## K7 — E2E Encryption (75%)
+## K7 — E2E Encryption (95%)
 
 | Feature | Plan Status | Code Status | Verification | Last Verified |
 |---------|------------|------------|-------------|---------------|
@@ -115,8 +115,8 @@
 | Key backup server | Missing→Enabled | **IMPLEMENTED** | `enable_room_key_backup: true` | 2026-04-03 ✓ |
 | Cross-signing | Missing→Enabled | **IMPLEMENTED** | `enable_cross_signing: true` | 2026-04-03 ✓ |
 | Nginx key/backup proxying | Missing→Built | **IMPLEMENTED** | Routes for `/room_keys` and `/keys` | 2026-04-03 ✓ |
-| Client-side Olm/Megolm | Missing | **MISSING** | Client repos must implement | 2026-04-03 — STILL OPEN |
-| Device verification UX | Missing | **MISSING** | Client-side emoji/QR verification | 2026-04-03 — STILL OPEN |
+| Client-side Olm/Megolm | Missing | **BUILT** | Web app: initRustCrypto() via matrix-js-sdk v41+, IndexedDB key storage | 2026-04-04 ✓ |
+| Device verification UX | Missing | **BUILT** | DeviceVerification.tsx: emoji SAS verification flow UI (start → compare → confirm) | 2026-04-04 ✓ |
 | Key rotation policy | Missing | **BUILT** | Megolm rotation: 100 messages or 7 days in homeserver.yaml | 2026-04-04 ✓ |
 
 ---
@@ -154,7 +154,7 @@
 
 ---
 
-## K10 — Social Layer (98%)
+## K10 — Social Layer (100%)
 
 | Feature | Plan Status | Code Status | Verification | Last Verified |
 |---------|------------|------------|-------------|---------------|
@@ -171,7 +171,7 @@
 | Post delete by owner | Missing | **FIXED** | `DELETE /api/v1/social/posts/:postId` — verifies ownership (403 if not owner) | 2026-04-03 ✓ |
 | Full-text search | Missing | **FIXED** | `GET /api/v1/social/posts/search?q=term` — SQLite FTS5 with LIKE fallback | 2026-04-03 ✓ |
 | Comments/threads | Missing | **FIXED** | `POST/GET /api/v1/social/posts/:postId/comments` — profanity filter, notifications | 2026-04-03 ✓ |
-| Algorithmic feed | Missing | **MISSING** | Chronological only | 2026-04-03 — STILL OPEN |
+| Algorithmic feed | Missing | **BUILT** | ?sort=ranked: engagement score (likes*3+comments*5)/age_decay^1.5, verified boost | 2026-04-04 ✓ |
 | Trending/hashtags | Missing | **BUILT** | Auto-extraction, GET /trending (top 10 / 7d), GET /hashtag/:tag (paginated) | 2026-04-04 ✓ |
 | Discovery engine | Missing | **BUILT** | Bot discovery: GET /directory/agents (paginated, filterable by category/trust); web app Discover page | 2026-04-04 ✓ |
 | Media in posts | Missing | **BUILT** | Posts accept media_ids array (max 4 media IDs from K4) | 2026-04-04 ✓ |

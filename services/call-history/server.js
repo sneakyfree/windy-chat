@@ -143,6 +143,10 @@ app.get('/api/v1/calls/stats', auth, asyncHandler(async (req, res) => {
   });
 }));
 
+// ── Synapse Application Service — auto-log VoIP calls ──
+const callAppservice = require('./appservice/handler');
+app.use('/_matrix/app/v1', callAppservice);
+
 // ── 404 ──
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
