@@ -1,0 +1,387 @@
+# ═══════════════════════════════════════════════════════════════════
+# Windy Chat — Full Stack (all services)
+# ═══════════════════════════════════════════════════════════════════
+#
+# Starts EVERYTHING: Synapse + PostgreSQL + Redis + Coturn + 8 Node.js
+# microservices + web frontend + nginx reverse proxy.
+#
+# Usage:
+#   docker compose -f docker-compose.full.yml up -d
+#   docker compose -f docker-compose.full.yml ps
+#   docker compose -f docker-compose.full.yml logs -f social
+#
+# Health check all services:
+#   ./deploy/aws-setup.sh --health localhost
+
+services:
+
+  # ════════════════════════════════════════
+  #  Infrastructure
+  # ════════════════════════════════════════
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: windy-postgres
+    environment:
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: ${SYNAPSE_DB_PASSWORD:-changeme}
+      POSTGRES_DB: synapse
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  redis:
+    image: redis:7-alpine
+    container_name: windy-redis
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ════════════════════════════════════════
+  #  Synapse (Matrix Homeserver)
+  # ════════════════════════════════════════
+
+  synapse:
+    image: matrixdotorg/synapse:latest
+    container_name: windy-synapse
+    ports:
+      - "8008:8008"
+    environment:
+      SYNAPSE_CONFIG_PATH: /data/homeserver.yaml
+      SYNAPSE_DB_PASSWORD: ${SYNAPSE_DB_PASSWORD:-changeme}
+    volumes:
+      - synapse_data:/data
+      - ./deploy/synapse/homeserver.yaml:/data/homeserver.yaml:ro
+      - ./deploy/synapse/windy_registration.py:/data/modules/windy_registration.py:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fSs", "http://localhost:8008/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # ════════════════════════════════════════
+  #  Node.js Microservices
+  # ════════════════════════════════════════
+
+  onboarding:
+    build:
+      context: ./services
+      args:
+        SERVICE_DIR: onboarding
+    container_name: windy-onboarding
+    ports:
+      - "8101:8101"
+    volumes:
+      - onboarding_data:/app/service/data
+    environment:
+      PORT: 8101
+      NODE_ENV: ${NODE_ENV:-production}
+      SYNAPSE_URL: http://synapse:8008
+      SYNAPSE_REGISTRATION_SECRET: ${SYNAPSE_REGISTRATION_SECRET:-dev_secret}
+      WINDY_ACCOUNT_SERVER_URL: ${WINDY_ACCOUNT_SERVER_URL:-http://host.docker.internal:8098}
+      WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
+      CHAT_SERVICE_TOKEN: ${CHAT_SERVICE_TOKEN:-}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      synapse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8101/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  directory:
+    build:
+      context: ./services
+      args:
+        SERVICE_DIR: directory
+    container_name: windy-directory
+    ports:
+      - "8102:8102"
+    volumes:
+      - directory_data:/app/service/data
+    environment:
+      PORT: 8102
+      NODE_ENV: ${NODE_ENV:-production}
+      WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8102/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  push-gateway:
+    build:
+      context: ./services
+      args:
+        SERVICE_DIR: push-gateway
+    container_name: windy-push-gateway
+    ports:
+      - "8103:8103"
+    volumes:
+      - push_data:/app/service/data
+    environment:
+      PORT: 8103
+      NODE_ENV: ${NODE_ENV:-production}
+      WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8103/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  backup:
+    build:
+      context: ./services
+      args:
+        SERVICE_DIR: backup
+    container_name: windy-backup
+    ports:
+      - "8104:8104"
+    volumes:
+      - backup_data:/app/service/data
+    environment:
+      PORT: 8104
+      NODE_ENV: ${NODE_ENV:-production}
+      WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
+      WINDY_CLOUD_URL: ${WINDY_CLOUD_URL:-}
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8104/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  social:
+    build:
+      context: ./services
+      args:
+        SERVICE_DIR: social
+    container_name: windy-social
+    ports:
+      - "8105:8105"
+    volumes:
+      - social_data:/app/service/data
+    environment:
+      PORT: 8105
+      NODE_ENV: ${NODE_ENV:-production}
+      SYNAPSE_URL: http://synapse:8008
+      WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
+      ETERNITAS_URL: ${ETERNITAS_URL:-https://api.eternitas.ai}
+      ETERNITAS_WEBHOOK_SECRET: ${ETERNITAS_WEBHOOK_SECRET:-}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      synapse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8105/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  translation:
+    build:
+      context: ./services
+      args:
+        SERVICE_DIR: translation
+    container_name: windy-translation
+    ports:
+      - "8106:8106"
+    volumes:
+      - translation_data:/app/service/data
+    environment:
+      PORT: 8106
+      NODE_ENV: ${NODE_ENV:-production}
+      WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
+      WINDY_TRANSLATE_URL: ${WINDY_TRANSLATE_URL:-http://host.docker.internal:9877}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8106/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  media:
+    build:
+      context: ./services
+      args:
+        SERVICE_DIR: media
+    container_name: windy-media
+    ports:
+      - "8107:8107"
+    volumes:
+      - media_data:/app/service/data
+    environment:
+      PORT: 8107
+      NODE_ENV: ${NODE_ENV:-production}
+      WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8107/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  call-history:
+    build:
+      context: ./services
+      args:
+        SERVICE_DIR: call-history
+    container_name: windy-call-history
+    ports:
+      - "8108:8108"
+    volumes:
+      - callhistory_data:/app/service/data
+    environment:
+      PORT: 8108
+      NODE_ENV: ${NODE_ENV:-production}
+      WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8108/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ════════════════════════════════════════
+  #  Web Frontend
+  # ════════════════════════════════════════
+
+  web:
+    build:
+      context: ./web
+    container_name: windy-web
+    ports:
+      - "3000:80"
+    environment:
+      VITE_MATRIX_HOMESERVER: http://synapse:8008
+      VITE_ACCOUNT_SERVER_URL: ${WINDY_ACCOUNT_SERVER_URL:-http://host.docker.internal:8098}
+      VITE_SOCIAL_API_URL: http://social:8105/api/v1/social
+      VITE_ETERNITAS_URL: ${ETERNITAS_URL:-https://api.eternitas.ai}
+    depends_on:
+      synapse:
+        condition: service_healthy
+      onboarding:
+        condition: service_healthy
+      social:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+volumes:
+  pg_data:
+  redis_data:
+  synapse_data:
+  onboarding_data:
+  directory_data:
+  push_data:
+  backup_data:
+  social_data:
+  translation_data:
+  media_data:
+  callhistory_data:

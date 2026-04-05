@@ -212,14 +212,11 @@ export default function ChatPage({ userId }: ChatPageProps) {
     ? rooms.filter(r => r.name?.toLowerCase().includes(searchQuery.toLowerCase()))
     : rooms;
 
-  // Sort: agent rooms first
-  const sortedRooms = [...filteredRooms].sort((a, b) => {
-    const aAgent = matrix.isAgentRoom(a);
-    const bAgent = matrix.isAgentRoom(b);
-    if (aAgent && !bAgent) return -1;
-    if (!aAgent && bAgent) return 1;
-    return 0;
-  });
+  // Sort: agent rooms first, then by last activity
+  const agentRooms = filteredRooms.filter(r => matrix.isAgentRoom(r));
+  const humanRooms = filteredRooms.filter(r => !matrix.isAgentRoom(r));
+  const sortedRooms = [...agentRooms, ...humanRooms];
+  const hasAgentRooms = agentRooms.length > 0;
 
   const selectedRoom = selectedRoomId ? rooms.find(r => r.roomId === selectedRoomId) : null;
 
@@ -269,7 +266,6 @@ export default function ChatPage({ userId }: ChatPageProps) {
                 <button
                   className="w-full py-2.5 rounded-xl text-sm font-medium"
                   style={{ background: 'var(--accent)', color: 'white' }}
-                  onClick={() => {/* navigate to discover */}}
                 >
                   🪰 Discover Agents
                 </button>
@@ -282,14 +278,61 @@ export default function ChatPage({ userId }: ChatPageProps) {
               </div>
             </div>
           ) : (
-            sortedRooms.map(room => (
-              <RoomItem
-                key={room.roomId}
-                room={room}
-                selected={room.roomId === selectedRoomId}
-                onClick={() => setSelectedRoomId(room.roomId)}
-              />
-            ))
+            <>
+              {/* Hatch a Windy Fly CTA — shown when user has no agent rooms */}
+              {!hasAgentRooms && sortedRooms.length > 0 && (
+                <div className="mx-3 mb-3 p-3 rounded-xl"
+                     style={{ background: 'var(--agent-bg)', border: '1px solid var(--agent-border)' }}>
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">🪰</span>
+                    <div className="flex-1">
+                      <p className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>Hatch a Windy Fly agent</p>
+                      <p className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>Your personal AI assistant with an Eternitas passport</p>
+                    </div>
+                    <button className="px-3 py-1.5 rounded-lg text-[10px] font-medium shrink-0"
+                            style={{ background: 'var(--accent)', color: 'white' }}>
+                      Hatch
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Agent rooms section */}
+              {agentRooms.length > 0 && (
+                <div className="px-4 py-1.5">
+                  <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                    AI Agents ({agentRooms.length})
+                  </span>
+                </div>
+              )}
+
+              {agentRooms.map(room => (
+                <RoomItem
+                  key={room.roomId}
+                  room={room}
+                  selected={room.roomId === selectedRoomId}
+                  onClick={() => setSelectedRoomId(room.roomId)}
+                />
+              ))}
+
+              {/* Conversations section */}
+              {humanRooms.length > 0 && agentRooms.length > 0 && (
+                <div className="px-4 py-1.5 mt-1">
+                  <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                    Conversations ({humanRooms.length})
+                  </span>
+                </div>
+              )}
+
+              {humanRooms.map(room => (
+                <RoomItem
+                  key={room.roomId}
+                  room={room}
+                  selected={room.roomId === selectedRoomId}
+                  onClick={() => setSelectedRoomId(room.roomId)}
+                />
+              ))}
+            </>
           )}
         </div>
       </div>

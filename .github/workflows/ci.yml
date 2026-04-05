@@ -6,41 +6,14 @@ on:
   pull_request:
     branches: [main]
 
-jobs:
-  test-integration:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install shared deps
-        run: cd services/shared && npm ci
-      - name: Install all service deps
-        run: |
-          for svc in onboarding directory push-gateway backup social translation media call-history; do
-            cd services/$svc && npm ci && cd ../..
-          done
-      - name: Run stress test (all 8 services)
-        run: node --test tests/stress/test_full_mesh.js
-        env:
-          NODE_ENV: test
-          WINDY_JWT_SECRET: ci-test-secret
-          CHAT_API_TOKEN: ci-test-token
-      - name: Run unified login integration test
-        run: node --test tests/integration/test_unified_login.js
-        env:
-          NODE_ENV: test
-          WINDY_JWT_SECRET: ci-test-secret
-          CHAT_API_TOKEN: ci-test-token
-      - name: Run full stack integration test
-        run: node --test tests/integration/test_full_stack.js
-        env:
-          NODE_ENV: test
-          WINDY_JWT_SECRET: ci-test-secret
-          CHAT_API_TOKEN: ci-test-token
+env:
+  NODE_ENV: test
+  WINDY_JWT_SECRET: ci-test-secret
+  CHAT_API_TOKEN: ci-test-token
+  CHAT_SERVICE_TOKEN: ci-test-service-token
+  ETERNITAS_WEBHOOK_SECRET: ci-test-eternitas-secret
 
+jobs:
   test-unit:
     name: Unit Tests (${{ matrix.service }})
     runs-on: ubuntu-latest
@@ -59,10 +32,6 @@ jobs:
         run: cd services/${{ matrix.service }} && npm ci
       - name: Test ${{ matrix.service }}
         run: cd services/${{ matrix.service }} && npm test
-        env:
-          NODE_ENV: test
-          WINDY_JWT_SECRET: ci-test-secret
-          CHAT_API_TOKEN: ci-test-token
 
   test-unit-new:
     name: Unit Tests (${{ matrix.test }})
@@ -80,6 +49,15 @@ jobs:
           - test: shared
             file: tests/unit/test-shared.js
             deps: social
+          - test: new-features
+            file: tests/unit/test-new-features.js
+            deps: social
+          - test: eternitas-webhook
+            file: tests/unit/test-eternitas-webhook.js
+            deps: social
+          - test: agent-provision
+            file: tests/unit/test-agent-provision.js
+            deps: onboarding
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -87,14 +65,35 @@ jobs:
           node-version: '22'
       - name: Install shared deps
         run: cd services/shared && npm ci
-      - name: Install ${{ matrix.deps }} deps
-        run: cd services/${{ matrix.deps }} && npm ci
+      - name: Install deps
+        run: |
+          cd services/${{ matrix.deps }} && npm ci
+          cd ../directory && npm ci 2>/dev/null || true
       - name: Test ${{ matrix.test }}
         run: node --test ${{ matrix.file }}
-        env:
-          NODE_ENV: test
-          WINDY_JWT_SECRET: ci-test-secret
-          CHAT_API_TOKEN: ci-test-token
+
+  test-integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install all deps
+        run: |
+          cd services/shared && npm ci && cd ..
+          for svc in onboarding directory push-gateway backup social translation media call-history; do
+            cd $svc && npm ci && cd ..
+          done
+      - name: Run stress test (all 8 services)
+        run: node --test tests/stress/test_full_mesh.js
+      - name: Run full stack integration test
+        run: node --test tests/integration/test_full_stack.js
+      - name: Run agent onboarding integration test
+        run: node --test tests/integration/test_agent_onboarding.js
+      - name: Run unified login integration test
+        run: node --test tests/integration/test_unified_login.js
 
   test-hardening:
     name: Hardening Tests
@@ -104,54 +103,69 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install shared deps
-        run: cd services/shared && npm ci
-      - name: Install all service deps
+      - name: Install all deps
         run: |
+          cd services/shared && npm ci && cd ..
           for svc in onboarding directory push-gateway backup social translation media call-history; do
-            cd services/$svc && npm ci && cd ../..
+            cd $svc && npm ci && cd ..
           done
-      - name: Run auth hardening tests
-        run: node --test tests/hardening/test_auth_hardening.js
-        env:
-          NODE_ENV: test
-          WINDY_JWT_SECRET: ci-test-secret
-          CHAT_API_TOKEN: ci-test-token
-      - name: Run input validation tests
-        run: node --test tests/hardening/test_input_validation.js
-        env:
-          NODE_ENV: test
-          WINDY_JWT_SECRET: ci-test-secret
-          CHAT_API_TOKEN: ci-test-token
-      - name: Run concurrency tests
-        run: node --test tests/hardening/test_concurrency.js
-        env:
-          NODE_ENV: test
-          WINDY_JWT_SECRET: ci-test-secret
-          CHAT_API_TOKEN: ci-test-token
-      - name: Run lifecycle tests
-        run: node --test tests/hardening/test_lifecycle.js
-        env:
-          NODE_ENV: test
-          WINDY_JWT_SECRET: ci-test-secret
-          CHAT_API_TOKEN: ci-test-token
-      - name: Run webhook replay tests
-        run: node --test tests/hardening/test_webhook_replay.js
-        env:
-          NODE_ENV: test
-          WINDY_JWT_SECRET: ci-test-secret
-          CHAT_API_TOKEN: ci-test-token
+      - name: Run hardening tests
+        run: |
+          for f in tests/hardening/*.js; do
+            echo "Running $f..."
+            node --test "$f"
+          done
 
   lint:
-    name: Lint
+    name: Lint + Syntax Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Check for syntax errors
+      - name: Check for syntax errors (all .js files)
         run: |
           for f in $(find services -name '*.js' -not -path '*/node_modules/*'); do
             node --check "$f" || exit 1
           done
+
+  build-web:
+    name: Build Web App
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install deps
+        run: cd web && npm ci
+      - name: TypeScript check
+        run: cd web && npx tsc --noEmit
+      - name: Build
+        run: cd web && npm run build
+      - name: Verify dist output
+        run: |
+          test -f web/dist/index.html || (echo "Missing dist/index.html" && exit 1)
+          echo "Web app built successfully ($(du -sh web/dist | cut -f1))"
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: [lint, build-web]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build service images
+        run: |
+          for svc in onboarding directory push-gateway backup social translation media call-history; do
+            echo "Building $svc..."
+            docker build --build-arg SERVICE_DIR=$svc -t windy-$svc:ci services/
+          done
+      - name: Build web image
+        run: docker build -t windy-web:ci web/
+      - name: Verify images exist
+        run: |
+          for svc in onboarding directory push-gateway backup social translation media call-history web; do
+            docker image inspect windy-$svc:ci > /dev/null 2>&1 || (echo "Missing image: windy-$svc" && exit 1)
+          done
+          echo "All 9 images built successfully"
