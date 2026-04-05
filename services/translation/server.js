@@ -20,6 +20,7 @@ const rateLimit = require('express-rate-limit');
 const { createHealthHandler } = require('../shared/health');
 const { asyncHandler } = require('../shared/async-handler');
 const { createAuthMiddleware } = require('../shared/jwt-verify');
+const { initSentry, sentryErrorHandler } = require('../shared/sentry');
 const translationDb = require('./lib/db');
 
 const appserviceRouter = require('./appservice/handler');
@@ -31,6 +32,8 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 app.use(cors(createCorsOptions()));
 app.use(express.json({ limit: '1mb' }));
+
+initSentry(app, 'windy-chat-translation');
 
 const auth = createAuthMiddleware();
 
@@ -323,6 +326,7 @@ app.use((_req, res) => {
 });
 
 // ── Error handler ──
+app.use(sentryErrorHandler());
 app.use((err, _req, res, _next) => {
   console.error('[translation] Error:', err.message);
   res.status(500).json({ error: 'Internal server error' });

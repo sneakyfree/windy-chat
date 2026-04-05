@@ -7,9 +7,11 @@ import SocialPage from './pages/SocialPage';
 import ContactsPage from './pages/ContactsPage';
 import DiscoverPage from './pages/DiscoverPage';
 import SettingsPage from './pages/SettingsPage';
+import PrivacyPage from './pages/PrivacyPage';
+import TermsPage from './pages/TermsPage';
 import WelcomeOverlay from './components/WelcomeOverlay';
 
-type View = 'chat' | 'social' | 'contacts' | 'discover' | 'settings';
+type View = 'chat' | 'social' | 'contacts' | 'discover' | 'settings' | 'privacy' | 'terms';
 type AuthScreen = 'landing' | 'signin' | 'register';
 
 function NavButton({ icon, label, active, onClick, badge }: {
@@ -102,7 +104,9 @@ export default function App() {
         {view === 'social' && <SocialPage userId={auth.userId} onNavigateToChat={() => setView('chat')} />}
         {view === 'discover' && <DiscoverPage onNavigateToChat={() => setView('chat')} />}
         {view === 'contacts' && <ContactsPage userId={auth.userId} />}
-        {view === 'settings' && <SettingsPage userId={auth.userId} onLogout={logout} />}
+        {view === 'settings' && <SettingsPage userId={auth.userId} onLogout={logout} onNavigate={(v: string) => setView(v as View)} />}
+        {view === 'privacy' && <PrivacyPage />}
+        {view === 'terms' && <TermsPage />}
       </main>
 
       {/* Mobile Bottom Tabs */}

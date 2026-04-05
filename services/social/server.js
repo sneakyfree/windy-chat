@@ -22,6 +22,7 @@ const cors = require('cors');
 const { createHealthHandler } = require('../shared/health');
 const { asyncHandler } = require('../shared/async-handler');
 const { createAuthMiddleware } = require('../shared/jwt-verify');
+const { initSentry, sentryErrorHandler } = require('../shared/sentry');
 const { verifiedAccounts, persistVerified } = require('./lib/store');
 
 /**
@@ -106,6 +107,8 @@ const PORT = process.env.PORT || 8105;
 
 app.use(cors(createCorsOptions()));
 app.use(express.json({ limit: '1mb' }));
+
+initSentry(app, 'windy-chat-social');
 
 // ── Health ──
 app.get('/health', createHealthHandler({
@@ -346,12 +349,21 @@ app.post('/api/v1/social/eternitas/webhook', serviceAuth, asyncHandler(async (re
   });
 }));
 
+// ── Admin Analytics (service-to-service only) ──
+const { getAnalytics } = require('../shared/analytics');
+
+app.get('/api/v1/admin/analytics', serviceAuth, asyncHandler(async (_req, res) => {
+  const data = getAnalytics();
+  res.json(data);
+}));
+
 // ── 404 ──
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
 // ── Error handler ──
+app.use(sentryErrorHandler());
 app.use((err, _req, res, _next) => {
   console.error('[social] Error:', err.message);
   res.status(500).json({ error: 'Internal server error' });

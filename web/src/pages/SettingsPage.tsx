@@ -3,9 +3,10 @@ import { useState } from 'react';
 interface SettingsPageProps {
   userId: string | null;
   onLogout: () => void;
+  onNavigate?: (view: string) => void;
 }
 
-export default function SettingsPage({ userId, onLogout }: SettingsPageProps) {
+export default function SettingsPage({ userId, onLogout, onNavigate }: SettingsPageProps) {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [language, setLanguage] = useState('en');
   const [notifications, setNotifications] = useState(true);
@@ -112,6 +113,15 @@ export default function SettingsPage({ userId, onLogout }: SettingsPageProps) {
         </Row>
         <Row label="Eternitas">
           <span className="text-xs px-2 py-1 rounded" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>Not connected</span>
+        </Row>
+      </Section>
+
+      <Section title="Legal">
+        <Row label="Privacy Policy">
+          <button onClick={() => onNavigate?.('privacy')} className="text-xs underline" style={{ color: 'var(--accent)' }}>View</button>
+        </Row>
+        <Row label="Terms of Service">
+          <button onClick={() => onNavigate?.('terms')} className="text-xs underline" style={{ color: 'var(--accent)' }}>View</button>
         </Row>
       </Section>
 

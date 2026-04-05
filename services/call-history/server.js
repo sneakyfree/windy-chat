@@ -15,6 +15,7 @@ const cors = require('cors');
 const { createHealthHandler } = require('../shared/health');
 const { asyncHandler } = require('../shared/async-handler');
 const { createAuthMiddleware } = require('../shared/jwt-verify');
+const { initSentry, sentryErrorHandler } = require('../shared/sentry');
 const callDb = require('./lib/db');
 
 const app = express();
@@ -22,6 +23,8 @@ const PORT = process.env.PORT || 8108;
 
 app.use(cors(createCorsOptions()));
 app.use(express.json({ limit: '1mb' }));
+
+initSentry(app, 'windy-chat-call-history');
 
 const auth = createAuthMiddleware();
 
@@ -146,6 +149,7 @@ app.use((_req, res) => {
 });
 
 // ── Error handler ──
+app.use(sentryErrorHandler());
 app.use((err, _req, res, _next) => {
   console.error('[call-history] Error:', err.message);
   res.status(500).json({ error: 'Internal server error' });

@@ -20,6 +20,7 @@ const blockRoutes = require('./routes/block');
 const agentRoutes = require('./routes/agents');
 const { createCorsOptions } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
+const { initSentry, sentryErrorHandler } = require('../shared/sentry');
 
 const app = express();
 const PORT = process.env.PORT || 8102;
@@ -28,6 +29,8 @@ const PORT = process.env.PORT || 8102;
 app.use(cors(createCorsOptions()));
 
 app.use(express.json({ limit: '2mb' }));
+
+initSentry(app, 'windy-chat-directory');
 
 // ── Auth middleware — JWT + bot API key + legacy CHAT_API_TOKEN fallback ──
 // Phase 6A: Replaced static CHAT_API_TOKEN with proper JWT validation.
@@ -68,6 +71,7 @@ app.use((_req, res) => {
 });
 
 // ── Error handler ──
+app.use(sentryErrorHandler());
 app.use((err, _req, res, _next) => {
   console.error('❌ Unhandled error:', err);
   res.status(500).json({ error: 'Internal server error' });

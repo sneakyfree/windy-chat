@@ -20,6 +20,7 @@ const rateLimit = require('express-rate-limit');
 const { createCorsOptions } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
 const { asyncHandler } = require('../shared/async-handler');
+const { initSentry, sentryErrorHandler } = require('../shared/sentry');
 const pushDb = require('./lib/db');
 
 const app = express();
@@ -29,6 +30,8 @@ const PORT = process.env.PORT || 8103;
 app.use(cors(createCorsOptions()));
 
 app.use(express.json({ limit: '1mb' }));
+
+initSentry(app, 'windy-chat-push-gateway');
 
 // ── Auth middleware — JWT + bot API key + legacy CHAT_API_TOKEN fallback ──
 // Phase 6A: Replaced static CHAT_API_TOKEN with proper JWT validation.
@@ -516,9 +519,15 @@ app.get('/health', createHealthHandler({
   }),
 }));
 
+// ── Digest & engagement notifications ──
+const digestRoutes = require('./routes/digest');
+app.use('/api/v1/chat/push/digest', authMiddleware, digestRoutes);
+app.use('/api/v1/chat/push', authMiddleware, digestRoutes); // notify-owner at /api/v1/chat/push/notify-owner
+
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 
 // ── Error handler ──
+app.use(sentryErrorHandler());
 app.use((err, _req, res, _next) => {
   console.error('❌ Unhandled error:', err);
   res.status(500).json({ error: 'Internal server error' });
