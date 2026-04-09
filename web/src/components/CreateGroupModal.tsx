@@ -27,6 +27,7 @@ export default function CreateGroupModal({ onClose, onCreated }: CreateGroupModa
     const client = matrix.getClient();
     if (!client) return;
     const myId = client.getUserId();
+    if (!myId) return;
     const rooms = matrix.getRooms();
     const contactMap = new Map<string, Contact>();
 

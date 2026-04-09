@@ -9,6 +9,7 @@ export const env = {
   accountServerUrl: import.meta.env.VITE_ACCOUNT_SERVER_URL || 'https://account.windypro.com',
   eternitasUrl: import.meta.env.VITE_ETERNITAS_URL || 'https://api.eternitas.ai',
   windyWordWs: import.meta.env.VITE_WINDY_WORD_WS || 'wss://windyword.ai',
+  windyMailUrl: import.meta.env.VITE_WINDY_MAIL_URL || 'https://windymail.ai',
   appName: 'Windy Chat',
   serverName: 'chat.windyword.ai',
 };

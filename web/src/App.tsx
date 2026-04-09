@@ -10,6 +10,7 @@ import SettingsPage from './pages/SettingsPage';
 import PrivacyPage from './pages/PrivacyPage';
 import TermsPage from './pages/TermsPage';
 import WelcomeOverlay from './components/WelcomeOverlay';
+import MailPanel from './components/MailPanel';
 
 type View = 'chat' | 'social' | 'contacts' | 'discover' | 'settings' | 'privacy' | 'terms';
 type AuthScreen = 'landing' | 'signin' | 'register';
@@ -43,6 +44,8 @@ export default function App() {
   const [view, setView] = useState<View>('chat');
   const [authScreen, setAuthScreen] = useState<AuthScreen>('landing');
   const [showWelcome, setShowWelcome] = useState(false);
+  const [mailOpen, setMailOpen] = useState(false);
+  const [mailCompose, setMailCompose] = useState<{ body?: string; to?: string } | null>(null);
 
   const handleLogin = useCallback(async (jwt: string) => {
     const state = await login(jwt);
@@ -94,13 +97,14 @@ export default function App() {
         <NavButton icon="📝" label="Social" active={view === 'social'} onClick={() => setView('social')} />
         <NavButton icon="🪰" label="Discover" active={view === 'discover'} onClick={() => setView('discover')} />
         <NavButton icon="👥" label="Contacts" active={view === 'contacts'} onClick={() => setView('contacts')} />
+        <NavButton icon="✉️" label="Mail" active={mailOpen} onClick={() => { setMailCompose(null); setMailOpen(true); }} />
         <div className="flex-1" />
         <NavButton icon="⚙️" label="Settings" active={view === 'settings'} onClick={() => setView('settings')} />
       </nav>
 
       {/* Main Content */}
       <main className="flex-1 min-w-0 min-h-0">
-        {view === 'chat' && <ChatPage userId={auth.matrixUserId} />}
+        {view === 'chat' && <ChatPage userId={auth.matrixUserId} onEmailMessage={(body, to) => { setMailCompose({ body, to }); setMailOpen(true); }} />}
         {view === 'social' && <SocialPage userId={auth.userId} onNavigateToChat={() => setView('chat')} />}
         {view === 'discover' && <DiscoverPage onNavigateToChat={() => setView('chat')} />}
         {view === 'contacts' && <ContactsPage userId={auth.userId} />}
@@ -116,8 +120,12 @@ export default function App() {
         <NavButton icon="📝" label="Social" active={view === 'social'} onClick={() => setView('social')} />
         <NavButton icon="🪰" label="Discover" active={view === 'discover'} onClick={() => setView('discover')} />
         <NavButton icon="👥" label="Contacts" active={view === 'contacts'} onClick={() => setView('contacts')} />
+        <NavButton icon="✉️" label="Mail" active={mailOpen} onClick={() => { setMailCompose(null); setMailOpen(true); }} />
         <NavButton icon="⚙️" label="Settings" active={view === 'settings'} onClick={() => setView('settings')} />
       </nav>
+
+      {/* Mail slide-over panel */}
+      <MailPanel open={mailOpen} onClose={() => setMailOpen(false)} compose={mailCompose} />
 
       {/* Welcome overlay for new users (Task 3) */}
       {showWelcome && (

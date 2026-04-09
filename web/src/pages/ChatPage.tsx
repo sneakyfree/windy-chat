@@ -7,6 +7,7 @@ import type { Room, MatrixEvent } from 'matrix-js-sdk';
 
 interface ChatPageProps {
   userId: string | null;
+  onEmailMessage?: (body: string, to?: string) => void;
 }
 
 // ── Room List Item ──
@@ -86,16 +87,23 @@ function ReceiptStatus({ event }: { event: MatrixEvent }) {
 }
 
 // ── Message Bubble ──
-function MessageBubble({ event, isOwn }: { event: MatrixEvent; isOwn: boolean }) {
+function MessageBubble({ event, isOwn, onEmail }: { event: MatrixEvent; isOwn: boolean; onEmail?: (body: string) => void }) {
   const sender = event.getSender();
   const content = event.getContent();
   const isAgent = sender?.startsWith('@agent_');
   const time = event.getDate()?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || '';
+  const [showActions, setShowActions] = useState(false);
 
   if (event.getType() !== 'm.room.message') return null;
 
+  const body = content.body || '';
+
   return (
-    <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'} mb-3`}>
+    <div
+      className={`flex ${isOwn ? 'justify-end' : 'justify-start'} mb-3 group relative`}
+      onMouseEnter={() => setShowActions(true)}
+      onMouseLeave={() => setShowActions(false)}
+    >
       <div
         className={`max-w-[70%] px-4 py-2.5 rounded-2xl text-sm ${isAgent ? 'agent-message' : ''}`}
         style={{
@@ -113,19 +121,31 @@ function MessageBubble({ event, isOwn }: { event: MatrixEvent; isOwn: boolean })
             </span>
           </div>
         )}
-        <p className="whitespace-pre-wrap break-words">{content.body || ''}</p>
+        <p className="whitespace-pre-wrap break-words">{body}</p>
         <div className={`flex items-center gap-1 text-[10px] mt-1 ${isOwn ? 'justify-end' : ''}`}
              style={{ color: isOwn ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)' }}>
           <span>{time}</span>
           {isOwn && <ReceiptStatus event={event} />}
         </div>
       </div>
+
+      {/* Email this action */}
+      {showActions && onEmail && body && (
+        <button
+          onClick={() => onEmail(body)}
+          className={`absolute ${isOwn ? 'left-0 -translate-x-full mr-1' : 'right-0 translate-x-full ml-1'} top-1/2 -translate-y-1/2 px-2 py-1.5 rounded-lg text-[10px] font-medium flex items-center gap-1 transition-opacity`}
+          style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--bg-hover)' }}
+          title="Email this message"
+        >
+          ✉️ Email
+        </button>
+      )}
     </div>
   );
 }
 
 // ── Main Chat Page ──
-export default function ChatPage({ userId }: ChatPageProps) {
+export default function ChatPage({ userId, onEmailMessage }: ChatPageProps) {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MatrixEvent[]>([]);
@@ -185,7 +205,7 @@ export default function ChatPage({ userId }: ChatPageProps) {
 
     client.on('Room.timeline' as any, onTimeline);
     return () => { client.removeListener('Room.timeline' as any, onTimeline); };
-  }, [selectedRoomId]);
+  }, [selectedRoomId, userId, notifications]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -370,6 +390,14 @@ export default function ChatPage({ userId }: ChatPageProps) {
                   key={event.getId() || i}
                   event={event}
                   isOwn={event.getSender() === userId}
+                  onEmail={onEmailMessage ? (body) => {
+                    // Extract recipient email: check if the sender's Matrix ID encodes an email (e.g. @user_jane.doe=40example.com:server)
+                    const sender = event.getSender() || '';
+                    const localpart = sender.split(':')[0]?.replace('@', '') || '';
+                    // Matrix encodes @ as =40 in localparts for bridged/email-based accounts
+                    const emailMatch = localpart.includes('=40') ? localpart.replace('=40', '@') : undefined;
+                    onEmailMessage(body, emailMatch);
+                  } : undefined}
                 />
               ))}
               <div ref={messagesEndRef} />

@@ -1,5 +1,4 @@
 /** Task 3: Onboarding welcome flow for new users */
-import { useState } from 'react';
 
 interface WelcomeOverlayProps {
   displayName: string | null;
@@ -8,12 +7,9 @@ interface WelcomeOverlayProps {
 }
 
 export default function WelcomeOverlay({ displayName, onDismiss, onNavigate }: WelcomeOverlayProps) {
-  const [step] = useState(0);
-
   const name = displayName || 'there';
 
-  if (step === 0) {
-    return (
+  return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onDismiss}>
         <div className="absolute inset-0 bg-black/60" />
         <div
@@ -85,9 +81,6 @@ export default function WelcomeOverlay({ displayName, onDismiss, onNavigate }: W
         </div>
       </div>
     );
-  }
-
-  return null;
 }
 
 /** Mic button tooltip — shown once to teach users about voice input */
