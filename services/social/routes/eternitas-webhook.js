@@ -199,15 +199,15 @@ router.post('/', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: `Invalid event type. Must be one of: ${validEvents.join(', ')}` });
   }
 
-  // Verify HMAC signature
-  if (process.env.ETERNITAS_WEBHOOK_SECRET) {
-    if (!verifySignature(req)) {
-      return res.status(401).json({ error: 'Invalid webhook signature' });
-    }
-  } else if (process.env.NODE_ENV === 'production') {
-    return res.status(500).json({ error: 'ETERNITAS_WEBHOOK_SECRET not configured' });
-  } else {
-    console.warn('[eternitas-webhook] ETERNITAS_WEBHOOK_SECRET not set — skipping signature verification (development mode)');
+  // Verify HMAC signature. Fail-closed when the secret is unset
+  // regardless of NODE_ENV — P1-8 removes the "skip in development"
+  // escape hatch. Tests must set ETERNITAS_WEBHOOK_SECRET explicitly.
+  if (!process.env.ETERNITAS_WEBHOOK_SECRET) {
+    console.error('[eternitas-webhook] ETERNITAS_WEBHOOK_SECRET not configured — rejecting');
+    return res.status(503).json({ error: 'Webhook secret not configured' });
+  }
+  if (!verifySignature(req)) {
+    return res.status(401).json({ error: 'Invalid webhook signature' });
   }
 
   // Return 200 immediately, process async

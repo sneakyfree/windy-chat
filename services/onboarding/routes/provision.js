@@ -363,12 +363,15 @@ router.post('/eternitas/webhook', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: `Invalid event type. Must be one of: ${validEvents.join(', ')}` });
   }
 
-  if (process.env.ETERNITAS_WEBHOOK_SECRET) {
-    if (!verifyEternitasSignature(req)) {
-      return res.status(401).json({ error: 'Invalid webhook signature' });
-    }
-  } else {
-    console.warn('[onboarding] ETERNITAS_WEBHOOK_SECRET not set — skipping signature verification');
+  // Fail-closed when the secret is unset — P1-8 removes the
+  // "skip verification outside production" escape hatch. Tests must
+  // set ETERNITAS_WEBHOOK_SECRET explicitly.
+  if (!process.env.ETERNITAS_WEBHOOK_SECRET) {
+    console.error('[onboarding] ETERNITAS_WEBHOOK_SECRET not configured — rejecting');
+    return res.status(503).json({ error: 'Webhook secret not configured' });
+  }
+  if (!verifyEternitasSignature(req)) {
+    return res.status(401).json({ error: 'Invalid webhook signature' });
   }
 
   // Look up the agent by passport_id in the DB, then fallback to bot_ prefix
