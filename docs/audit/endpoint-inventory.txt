@@ -1,0 +1,196 @@
+Windy Chat — HTTP Endpoint Inventory
+Generated: 2026-04-17 during wave-7-gap-analysis
+Method of enumeration: grep of router.<method>() + app.<method>() across services/**/*.js
+
+Legend:
+  AUTH      = express authMiddleware (JWT or CHAT_API_TOKEN) required
+  HMAC      = HMAC-SHA256 signature required
+  SVC       = service-only (CHAT_SERVICE_TOKEN / CHAT_API_TOKEN)
+  PUB       = public, no auth
+  HS-TOKEN  = Matrix AS homeserver-token required
+  PUSH-BUS  = X-Push-Bus-Token required
+  ???       = mount chain unclear — needs verification
+
+───────────────────────────────────────────────────────────────────────
+ONBOARDING (:8101)     services/onboarding/
+───────────────────────────────────────────────────────────────────────
+GET    /health                                           PUB    server.js:56
+GET    /api/v1/chat/agent-room                           AUTH   server.js:91
+DELETE /api/v1/onboarding/account                        AUTH   server.js:113
+POST   /api/v1/chat/profile/avatar                       AUTH   server.js:234
+GET    /api/v1/chat/profile/avatar/:filename             PUB    server.js:268
+POST   /api/v1/webhooks/identity/created                 HMAC   routes/webhooks.js:229
+POST   /api/v1/webhooks/passport/revoked                 HMAC   routes/webhooks.js:305
+POST   /api/v1/webhooks/trust/changed                    HMAC   routes/webhooks.js:348
+POST   /api/v1/onboarding/agent (provision)              SVC    routes/agent-provision.js:233
+POST   /api/v1/chat/provision                            AUTH   routes/provision.js:466
+POST   /api/v1/onboarding                                AUTH   routes/provision.js:466 (dup mount)
+POST   /api/v1/chat/provision/unified-login              AUTH   routes/provision.js:639
+POST   /api/v1/onboarding/unified-login                  AUTH   routes/provision.js:639 (dup mount)
+POST   /api/v1/chat/provision/eternitas/webhook          AUTH+HMAC routes/provision.js:354  !! legacy, duplicate of webhooks.js
+GET    /api/v1/chat/provision/agent-room                 AUTH   routes/provision.js:318
+GET    /api/v1/chat/provision/onboarding/status          AUTH   routes/provision.js:577
+POST   /api/v1/chat/verify/send                          AUTH   routes/verify.js:189
+POST   /api/v1/chat/verify/check                         AUTH   routes/verify.js:291
+GET    /api/v1/chat/verify/status                        AUTH   routes/verify.js:377
+GET    /api/v1/chat/profile/check-name                   AUTH   routes/profile.js:115
+POST   /api/v1/chat/profile/setup                        AUTH   routes/profile.js:144
+GET    /api/v1/chat/profile/:userId                      AUTH   routes/profile.js:253
+POST   /api/v1/chat/pair/generate                        AUTH   routes/pair.js:60
+POST   /api/v1/chat/pair/confirm                         AUTH   routes/pair.js:111
+GET    /api/v1/chat/pair/status/:sessionId               AUTH   routes/pair.js:239
+DELETE /api/v1/chat/pair/session/:sessionId              AUTH   routes/pair.js:291
+POST   /api/v1/rooms/create-group                        AUTH   routes/rooms.js:55
+POST   /api/v1/rooms/:roomId/invite                      AUTH   routes/rooms.js:149
+
+───────────────────────────────────────────────────────────────────────
+DIRECTORY (:8102)     services/directory/
+───────────────────────────────────────────────────────────────────────
+GET    /health                                           PUB    server.js:53
+GET    /api/v1/chat/directory/agents                     AUTH   routes/agents.js:90
+GET    /api/v1/chat/directory/agents/:passportNumber     AUTH   routes/agents.js:135
+POST   /api/v1/chat/directory/agents/register            AUTH   routes/agents.js:154   !! P0 — any authed user can inject
+POST   /api/v1/chat/directory/agents/gate/dm             AUTH   routes/agents.js:232
+POST   /api/v1/chat/directory/agents/gate/broadcast      AUTH   routes/agents.js:258
+POST   /api/v1/chat/directory/agents/gate/mention        AUTH   routes/agents.js:273
+POST   /api/v1/chat/directory/lookup                     AUTH   routes/lookup.js:113
+GET    /api/v1/chat/directory/salt                       AUTH   routes/lookup.js:93
+POST   /api/v1/chat/directory/register-hash              AUTH   routes/lookup.js:181
+GET    /api/v1/chat/directory/stats                      AUTH   routes/lookup.js:268
+POST   /api/v1/chat/directory/register                   AUTH   routes/search.js:116
+GET    /api/v1/chat/directory/search                     AUTH   routes/search.js:178
+POST   /api/v1/chat/directory/invite                     AUTH   routes/search.js:267
+GET    /api/v1/chat/directory/referrals                  AUTH   routes/search.js:403
+POST   /api/v1/chat/directory/referrals/convert          AUTH   routes/search.js:416
+POST   /api/v1/chat/directory/block                      AUTH   routes/block.js:18
+DELETE /api/v1/chat/directory/block                      AUTH   routes/block.js:40
+GET    /api/v1/chat/directory/blocked                    AUTH   routes/block.js:54
+
+───────────────────────────────────────────────────────────────────────
+PUSH-GATEWAY (:8103)   services/push-gateway/
+───────────────────────────────────────────────────────────────────────
+GET    /health                                           PUB    server.js:510
+POST   /_matrix/push/v1/notify                           PUB    server.js:116   (Synapse-origin only, no middleware)
+GET    /api/v1/chat/push/vapid-key                       PUB    server.js:337
+POST   /api/v1/chat/push/register                        AUTH   server.js:354
+POST   /api/v1/chat/push/mute                            AUTH   server.js:400
+POST   /api/v1/chat/push/unmute                          AUTH   server.js:440
+POST   /api/v1/chat/push/test                            AUTH   server.js:462
+POST   /api/v1/chat/push/prune                           AUTH   server.js:498
+POST   /api/v1/chat/push/digest/subscribe                AUTH   routes/digest.js:40
+DELETE /api/v1/chat/push/digest/subscribe                AUTH   routes/digest.js:52
+GET    /api/v1/chat/push/digest/status                   AUTH   routes/digest.js:59
+POST   /api/v1/chat/push/notify-owner                    AUTH   routes/digest.js:72
+POST   /api/v1/push/notify                               PUSH-BUS routes/notify.js:54
+
+───────────────────────────────────────────────────────────────────────
+BACKUP (:8104)         services/backup/
+───────────────────────────────────────────────────────────────────────
+GET    /health                                           PUB    server.js:236
+POST   /api/v1/chat/backup/create                        AUTH   server.js:247
+GET    /api/v1/chat/backup/list                          AUTH   server.js:324
+POST   /api/v1/chat/backup/restore                       AUTH   server.js:354
+DELETE /api/v1/chat/backup/delete                        AUTH   server.js:393
+POST   /api/v1/chat/backup/schedule                      AUTH   server.js:426
+GET    /api/v1/chat/backup/schedule                      AUTH   server.js:452
+
+───────────────────────────────────────────────────────────────────────
+SOCIAL (:8105)         services/social/
+───────────────────────────────────────────────────────────────────────
+GET    /health                                           PUB    server.js:114
+GET    /api/v1/social/presence/:userId                   PUB    server.js:120
+GET    /api/v1/social/dashboard-summary                  AUTH   server.js:148
+GET    /api/v1/social/ecosystem-status                   AUTH   server.js:182
+GET    /api/v1/social/profile/:userId                    AUTH   server.js:229
+POST   /api/v1/social/eternitas/verify                   SVC    server.js:267
+DELETE /api/v1/social/eternitas/verify                   SVC    server.js:287
+POST   /api/v1/social/eternitas/webhook                  SVC+HMAC server.js:298
+POST   /api/v1/webhooks/eternitas                        HMAC   routes/eternitas-webhook.js:189  !! external-facing per .env.example
+GET    /api/v1/admin/analytics                           SVC    server.js:355
+GET    /api/v1/social/posts/trending                     PUB    routes/posts.js:104
+GET    /api/v1/social/posts/hashtag/:tag                 PUB    routes/posts.js:113
+POST   /api/v1/social/posts                              AUTH   routes/posts.js:137
+GET    /api/v1/social/posts/search                       PUB    routes/posts.js:223
+GET    /api/v1/social/posts/:postId                      PUB(opt) routes/posts.js:241
+GET    /api/v1/social/posts/user/:userId                 PUB(opt) routes/posts.js:272
+GET    /api/v1/social/posts/                             AUTH   routes/posts.js:305
+POST   /api/v1/social/posts/:postId/repost               AUTH   routes/posts.js:365
+POST   /api/v1/social/posts/:postId/like                 AUTH   routes/posts.js:452
+DELETE /api/v1/social/posts/:postId/like                 AUTH   routes/posts.js:481
+POST   /api/v1/social/posts/:postId/comments             AUTH   routes/posts.js:496
+GET    /api/v1/social/posts/:postId/comments             PUB    routes/posts.js:546
+POST   /api/v1/social/posts/agent                        SVC    routes/posts.js:556
+DELETE /api/v1/social/posts/:postId                      AUTH   routes/posts.js:611
+POST   /api/v1/social/follow/:targetUserId               AUTH   routes/follow.js:21
+DELETE /api/v1/social/follow/:targetUserId               AUTH   routes/follow.js:49
+GET    /api/v1/social/follow/following/:userId           PUB    routes/follow.js:60
+GET    /api/v1/social/follow/followers/:userId           PUB    routes/follow.js:67
+GET    /api/v1/social/notifications                      AUTH   routes/notifications.js:20
+POST   /api/v1/social/notifications/read                 AUTH   routes/notifications.js:39
+POST   /api/v1/social/moderation/:postId/report          AUTH   routes/moderation.js:21
+
+───────────────────────────────────────────────────────────────────────
+MEDIA (:8107)          services/media/
+───────────────────────────────────────────────────────────────────────
+GET    /health                                           PUB    server.js:109
+GET    /api/v1/media/:id/waveform                        PUB    server.js:250
+POST   /api/v1/media/upload                              AUTH   server.js:271
+GET    /api/v1/media/gallery                             AUTH   server.js:331
+GET    /api/v1/media/gallery/room                        AUTH   server.js:356
+GET    /api/v1/media/:id                                 PUB    server.js:385   !! shadows link-preview
+GET    /api/v1/media/:id/thumbnail                       PUB    server.js:402
+GET    /api/v1/media/link-preview (ROUTED via /:id)      PUB(broken) routes/link-preview.js:216  !! P0
+
+───────────────────────────────────────────────────────────────────────
+CALL-HISTORY (:8108)   services/call-history/
+───────────────────────────────────────────────────────────────────────
+GET    /health                                           PUB    server.js:32
+POST   /api/v1/calls/log                                 AUTH   server.js:38
+GET    /api/v1/calls/history                             AUTH   server.js:100
+GET    /api/v1/calls/stats                               AUTH   server.js:130
++ Matrix AS endpoints (/transactions/:txnId, etc.)       HS-TOKEN appservice/handler.js
+
+───────────────────────────────────────────────────────────────────────
+TRANSLATION (:8106)    services/translation/
+───────────────────────────────────────────────────────────────────────
+GET    /health                                           PUB    server.js:45
+POST   /api/v1/translate                                 AUTH   server.js:121
+POST   /api/v1/translate/batch                           AUTH   server.js:199
+GET    /api/v1/translate/preferences                     AUTH   server.js:264
+POST   /api/v1/translate/preferences                     AUTH   server.js:284
++ Matrix AS endpoints (/transactions/:txnId, etc.)       HS-TOKEN appservice/handler.js
+
+───────────────────────────────────────────────────────────────────────
+SYNAPSE (:8008)        deploy/synapse/
+───────────────────────────────────────────────────────────────────────
+Standard Matrix Client-Server API (/_matrix/client/*)    per-spec
+Admin API (/_synapse/admin/*)                            shared-secret HMAC
+Custom modules: windy_registration (auth), windy_push_bus (on_new_event)
+
+───────────────────────────────────────────────────────────────────────
+OBSERVATIONS
+───────────────────────────────────────────────────────────────────────
+1. THREE separate Eternitas-webhook endpoints exist across services:
+     /api/v1/webhooks/eternitas               (social, per .env.example)
+     /api/v1/webhooks/passport/revoked        (onboarding, Wave 2-4)
+     /api/v1/webhooks/trust/changed           (onboarding, Wave 4)
+     /api/v1/chat/provision/eternitas/webhook (onboarding, legacy)
+   .env.example's ETERNITAS_WEBHOOK_URL points at the social one — my
+   trust-cache flush endpoints in onboarding are NOT reachable from
+   Eternitas with the documented config.
+
+2. `/api/v1/chat/directory/agents/register` only requires auth, no
+   service-token. Any authed caller (including humans) can inject a
+   directory row with arbitrary trust_score and clearance_level. The
+   ACTION gates still check Eternitas — but directory-driven UI/UX
+   believes the injected row.
+
+3. `/api/v1/media/link-preview` is SHADOWED by `/api/v1/media/:id` due
+   to route-order bug — the feature returns 404 for every URL.
+
+4. `/api/v1/social/presence/:userId` is public — any anonymous caller
+   can probe who's online.
+
+5. Onboarding mounts `/api/v1/onboarding` → provisionRoutes AND
+   `/api/v1/chat/provision` → provisionRoutes. Same router, two mount
+   prefixes. Clients using either path work; docs mention only one.
