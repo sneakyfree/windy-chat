@@ -39,35 +39,73 @@ const agentListLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Per-passport rate limit on the trust gates. Every gate call makes
-// 1–2 Eternitas GETs on cache miss; Eternitas rate-limits 100 req/min
-// per IP, and if one bot bursts through our IP budget it denies
-// gate calls for every other caller in the same deploy for 5 min (the
-// local cache TTL window). 30/min per bot keeps us well under the
-// upstream budget even with a handful of concurrent bots.
+// Per-passport rate limit on the trust gates, SCALED BY tier_multiplier.
 //
-// Humans bypass the gate body early, so this limiter's key generator
-// defaults to req.ip — which matches the existing global per-IP limit
-// behavior — but the typical gate caller is a bot and we want the key
-// to be the bot's passport so one misbehaving bot can't exhaust its IP
-// bucket for its neighbors.
+// trust-api.md explicitly documents tier_multiplier as the value to
+// "Apply directly to rate limits / quotas / privilege budgets." P3-2
+// consumes it here: the P1-6 flat 30/min baseline is multiplied by the
+// bot's tier_multiplier and capped to a safe range.
+//
+//   POOR     (tier=0.5)  →  15/min
+//   FAIR     (tier=1.0)  →  30/min
+//   GOOD     (tier=2.0)  →  60/min
+//   TOP_SEC  (tier=3.0)  →  90/min
+//   EXCEPT.  (tier=5.0)  → 150/min  (capped at CEILING)
+//   CRITICAL (tier=0.0)  →  FLOOR (5/min) — they're denied at the
+//                          allowed_actions layer anyway; the floor
+//                          keeps them from amplifying via retry storms
+//
+// Ceiling exists because Eternitas caps 100 req/min/IP — a single
+// EXCEPTIONAL bot bursting at 300/min would still take down our
+// Eternitas budget for other callers. 150/min leaves headroom for the
+// trust-client cache to absorb repeat calls.
+const GATE_LIMIT_BASE = 30;       // per-minute budget at tier=1.0
+const GATE_LIMIT_FLOOR = 5;       // never below this — avoids degenerate denial
+const GATE_LIMIT_CEILING = 150;   // stay well under Eternitas's 100 req/min/IP
+
+function resolveGateLimit(req) {
+  const m = req.trustProfile && typeof req.trustProfile.tier_multiplier === 'number'
+    ? req.trustProfile.tier_multiplier
+    : 1.0; // unknown profile → baseline; happens when Eternitas is unreachable
+           // on this request. We prefer letting them through over hard-denying
+           // at the rate-limiter layer; the gate body itself will deny.
+  const scaled = Math.round(GATE_LIMIT_BASE * m);
+  return Math.max(GATE_LIMIT_FLOOR, Math.min(scaled, GATE_LIMIT_CEILING));
+}
+
+/**
+ * Pre-fetch the caller's trust profile and attach to req. Runs BEFORE
+ * the gate rate limiter so the limiter can read tier_multiplier off
+ * req.trustProfile. Humans (no passport) are left untouched.
+ *
+ * The fetch is cheap — trust-client coalesces via its in-memory cache,
+ * so the handler's subsequent requireAllowedAction call (which fetches
+ * the same passport) hits cache.
+ */
+async function attachTrustProfile(req, _res, next) {
+  const passport = req.user?.passport_id || req.user?.eternitas_passport;
+  if (!passport) return next();
+  try {
+    req.trustProfile = await getTrustProfile(passport);
+  } catch {
+    // trust-client handles its own errors and returns null; this try/
+    // catch is belt-and-suspenders.
+  }
+  next();
+}
+
 const gateLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 30,
+  max: resolveGateLimit,
   message: { error: 'Gate call rate limit exceeded' },
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
     const passport = req.user?.passport_id || req.user?.eternitas_passport;
     if (passport) return `bot:${passport}`;
-    // Bucket human callers together but with a much higher budget —
-    // human gate calls all return true anyway, so this is just belt-
-    // and-suspenders against runaway client loops.
     return `human:${req.ip || 'unknown'}`;
   },
-  // Humans short-circuit the gate body; don't debit their bucket on
-  // the success path. This keeps the effective per-bot limit at 30/min
-  // regardless of how many humans share the IP.
+  // Humans short-circuit the gate body; don't debit their bucket.
   skip: (req) => !(req.user?.passport_id || req.user?.eternitas_passport),
 });
 
@@ -261,7 +299,7 @@ async function requireAllowedAction(passport, action) {
 // POST /api/v1/chat/directory/agents/gate/dm
 // Body: { recipient_passport: string }
 // Sender passport is taken from the caller's JWT claims.
-router.post('/agents/gate/dm', gateLimiter, asyncHandler(async (req, res) => {
+router.post('/agents/gate/dm', attachTrustProfile, gateLimiter, asyncHandler(async (req, res) => {
   if (isHumanCaller(req)) {
     return res.json({ allowed: true, caller: 'human', gate: 'dm' });
   }
@@ -287,7 +325,7 @@ router.post('/agents/gate/dm', gateLimiter, asyncHandler(async (req, res) => {
 }));
 
 // POST /api/v1/chat/directory/agents/gate/broadcast
-router.post('/agents/gate/broadcast', gateLimiter, asyncHandler(async (req, res) => {
+router.post('/agents/gate/broadcast', attachTrustProfile, gateLimiter, asyncHandler(async (req, res) => {
   if (isHumanCaller(req)) {
     return res.json({ allowed: true, caller: 'human', gate: 'broadcast' });
   }
@@ -302,7 +340,7 @@ router.post('/agents/gate/broadcast', gateLimiter, asyncHandler(async (req, res)
 // POST /api/v1/chat/directory/agents/gate/mention
 // Body: { target_matrix_id?: string, is_connected: boolean }
 // Gate only fires when the bot is mentioning a human it's NOT connected to.
-router.post('/agents/gate/mention', gateLimiter, asyncHandler(async (req, res) => {
+router.post('/agents/gate/mention', attachTrustProfile, gateLimiter, asyncHandler(async (req, res) => {
   if (isHumanCaller(req)) {
     return res.json({ allowed: true, caller: 'human', gate: 'mention' });
   }
@@ -337,3 +375,10 @@ router.post('/agents/gate/mention', gateLimiter, asyncHandler(async (req, res) =
 }));
 
 module.exports = router;
+// Internals for unit testing the rate-scaling math (P3-2).
+module.exports.__test_internals__ = {
+  resolveGateLimit,
+  GATE_LIMIT_BASE,
+  GATE_LIMIT_FLOOR,
+  GATE_LIMIT_CEILING,
+};
