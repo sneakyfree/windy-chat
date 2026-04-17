@@ -62,11 +62,23 @@ enable_registration: false
 enable_registration_without_verification: false
 
 # ── Custom Auth Module (Windy Pro Account Integration) ──
+# Second module (windy_push_bus) is an additive new-event subscriber that
+# publishes room messages to the Windy shared notification bus at
+# push-gateway:8103. It does NOT replace or intercept the native Matrix
+# push gateway at /_matrix/push/v1/notify — device push still flows through
+# that path. See deploy/synapse/windy_push_bus.py for details.
 modules:
   - module: windy_registration.WindyRegistrationModule
     config:
       windy_account_server: "http://host.docker.internal:8098"
       registration_shared_secret: "${SYNAPSE_REGISTRATION_SECRET}"
+  - module: windy_push_bus.WindyPushBusModule
+    config:
+      push_gateway_url: "http://host.docker.internal:8103"
+      push_bus_token: "${PUSH_BUS_TOKEN}"
+      include_event_types:
+        - m.room.message
+        - m.room.encrypted
 
 # ── Federation (DISABLED — Windy-users-only network) ──
 federation_domain_whitelist: []

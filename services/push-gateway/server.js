@@ -524,6 +524,14 @@ const digestRoutes = require('./routes/digest');
 app.use('/api/v1/chat/push/digest', authMiddleware, digestRoutes);
 app.use('/api/v1/chat/push', authMiddleware, digestRoutes); // notify-owner at /api/v1/chat/push/notify-owner
 
+// ── Shared notification bus (cross-service publish endpoint) ──
+// Mail/Chat-homeserver/Clone/Fly/Code POST here with a windy_identity_id
+// and the gateway fans out to every device the user has registered.
+// Auth: X-Push-Bus-Token header (service-to-service).
+app.locals.transports = { sendFCM, sendAPNs, sendWebPush };
+const notifyRoutes = require('./routes/notify');
+app.use('/api/v1/push', notifyRoutes);
+
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 
 // ── Error handler ──

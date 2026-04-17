@@ -29,6 +29,56 @@ GET  /api/v1/identity/chat/profile    → Returns chat profile (never exposes ac
 POST /api/v1/identity/eternitas/webhook → Bot passport events (provision/revoke chat)
 ```
 
+## Push-side Webhooks (Wave 2)
+
+Chat receives identity lifecycle events directly so it can provision eagerly
+(no wait for the client to call /unified-login). HMAC-SHA256 verified.
+
+```
+POST /api/v1/webhooks/identity/created   (onboarding:8101, X-Windy-Signature)
+POST /api/v1/webhooks/passport/revoked   (onboarding:8101, X-Eternitas-Signature)
+```
+
+Matrix localparts from identity/created are mail-aligned — `grant.whitmer`
+for Matrix lines up with `grant.whitmer@windymail.ai`.
+
+## Shared Notification Bus
+
+```
+POST /api/v1/push/notify                 (push-gateway:8103, X-Push-Bus-Token)
+Body: { windy_identity_id, event_type, title, body, deep_link?, subscribers_only? }
+```
+
+Canonical publish endpoint for every Windy service — Mail, Chat homeserver,
+Clone, Fly, and Code all publish here. The gateway fans out to every device
+the user has registered (FCM/APNs/Web Push). Set `subscribers_only: true`
+when the caller has already delivered device push via another path
+(e.g. Synapse's native `/_matrix/push/v1/notify`) — the bus then only
+dispatches to cross-service subscribers.
+
+## Synapse Push-Bus Module (Wave 3)
+
+`deploy/synapse/windy_push_bus.py` hooks Synapse's `on_new_event` callback
+and republishes every `m.room.message` / `m.room.encrypted` event to the
+shared bus with `subscribers_only: true`. Additive — does NOT replace the
+native Matrix push gateway. Wired in `homeserver.yaml` alongside
+`windy_registration`.
+
+## Trust Gates (Wave 3)
+
+Directory service enforces three gates on bot actions:
+
+```
+POST /api/v1/chat/directory/agents/gate/dm        (bot→bot DM)
+POST /api/v1/chat/directory/agents/gate/broadcast (bot→public)
+POST /api/v1/chat/directory/agents/gate/mention   (bot→disconnected human)
+```
+
+Humans (Pro JWT, no `passport_id` claim) bypass all three. Bots are checked
+against their Eternitas trust profile via `services/shared/trust-client.js`
+(5-min Redis cache, in-memory fallback). Full rules in
+`services/directory/docs/trust-gates.md`.
+
 The account-server base URL defaults to: `http://localhost:8098`
 Set via env var: `WINDY_ACCOUNT_SERVER_URL`
 
