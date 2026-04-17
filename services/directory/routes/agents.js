@@ -39,6 +39,38 @@ const agentListLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Per-passport rate limit on the trust gates. Every gate call makes
+// 1–2 Eternitas GETs on cache miss; Eternitas rate-limits 100 req/min
+// per IP, and if one bot bursts through our IP budget it denies
+// gate calls for every other caller in the same deploy for 5 min (the
+// local cache TTL window). 30/min per bot keeps us well under the
+// upstream budget even with a handful of concurrent bots.
+//
+// Humans bypass the gate body early, so this limiter's key generator
+// defaults to req.ip — which matches the existing global per-IP limit
+// behavior — but the typical gate caller is a bot and we want the key
+// to be the bot's passport so one misbehaving bot can't exhaust its IP
+// bucket for its neighbors.
+const gateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: { error: 'Gate call rate limit exceeded' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const passport = req.user?.passport_id || req.user?.eternitas_passport;
+    if (passport) return `bot:${passport}`;
+    // Bucket human callers together but with a much higher budget —
+    // human gate calls all return true anyway, so this is just belt-
+    // and-suspenders against runaway client loops.
+    return `human:${req.ip || 'unknown'}`;
+  },
+  // Humans short-circuit the gate body; don't debit their bucket on
+  // the success path. This keeps the effective per-bot limit at 30/min
+  // regardless of how many humans share the IP.
+  skip: (req) => !(req.user?.passport_id || req.user?.eternitas_passport),
+});
+
 // ── Schema: agent_directory table ──
 dirDb.db.exec(`
 CREATE TABLE IF NOT EXISTS agent_directory (
@@ -229,7 +261,7 @@ async function requireAllowedAction(passport, action) {
 // POST /api/v1/chat/directory/agents/gate/dm
 // Body: { recipient_passport: string }
 // Sender passport is taken from the caller's JWT claims.
-router.post('/agents/gate/dm', asyncHandler(async (req, res) => {
+router.post('/agents/gate/dm', gateLimiter, asyncHandler(async (req, res) => {
   if (isHumanCaller(req)) {
     return res.json({ allowed: true, caller: 'human', gate: 'dm' });
   }
@@ -255,7 +287,7 @@ router.post('/agents/gate/dm', asyncHandler(async (req, res) => {
 }));
 
 // POST /api/v1/chat/directory/agents/gate/broadcast
-router.post('/agents/gate/broadcast', asyncHandler(async (req, res) => {
+router.post('/agents/gate/broadcast', gateLimiter, asyncHandler(async (req, res) => {
   if (isHumanCaller(req)) {
     return res.json({ allowed: true, caller: 'human', gate: 'broadcast' });
   }
@@ -270,7 +302,7 @@ router.post('/agents/gate/broadcast', asyncHandler(async (req, res) => {
 // POST /api/v1/chat/directory/agents/gate/mention
 // Body: { target_matrix_id?: string, is_connected: boolean }
 // Gate only fires when the bot is mentioning a human it's NOT connected to.
-router.post('/agents/gate/mention', asyncHandler(async (req, res) => {
+router.post('/agents/gate/mention', gateLimiter, asyncHandler(async (req, res) => {
   if (isHumanCaller(req)) {
     return res.json({ allowed: true, caller: 'human', gate: 'mention' });
   }
