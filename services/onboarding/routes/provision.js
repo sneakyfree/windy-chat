@@ -21,6 +21,7 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 const { asyncHandler } = require('../../shared/async-handler');
+const { mailAlignedLocalpart } = require('../../shared/localpart');
 
 const onboardingDb = require('../lib/db');
 
@@ -57,23 +58,20 @@ function isValidUserId(val) {
 
 /**
  * Generate a Matrix-safe localpart from a display name.
- * Matrix localpart: [a-z0-9._=/-]
+ *
+ * Delegates to services/shared/localpart.js so this path produces the
+ * same handle as the identity/created webhook path for the same user —
+ * before P1-2 this path produced `windy_grant_whitmer` while the
+ * webhook path produced `grant.whitmer`, so which handle a user got
+ * depended on which code path won the race.
+ *
+ * EXISTING users whose profiles already carry a `windy_*` chat_user_id
+ * keep it — /unified-login looks up by windy_identity_id FIRST and
+ * returns the stored handle before this function is ever called. Only
+ * brand-new users flow through the new mail-aligned naming.
  */
 function displayNameToLocalpart(displayName) {
-  const base = displayName
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, '_')
-    .replace(/[^a-z0-9._/-]/g, '')
-    .slice(0, 32);
-
-  if (base.length >= 3) {
-    return `windy_${base}`;
-  }
-
-  // Fallback: hash-based
-  const hash = crypto.createHash('sha256').update(displayName).digest('hex').slice(0, 12);
-  return `windy_${hash}`;
+  return mailAlignedLocalpart({ displayName });
 }
 
 /**

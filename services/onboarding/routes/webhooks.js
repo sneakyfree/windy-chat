@@ -16,6 +16,10 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const { asyncHandler } = require('../../shared/async-handler');
 const { invalidateTrustCache } = require('../../shared/trust-client');
+const {
+  mailAlignedLocalpart,
+  resolveUniqueLocalpart: sharedResolveUniqueLocalpart,
+} = require('../../shared/localpart');
 
 const onboardingDb = require('../lib/db');
 
@@ -86,55 +90,18 @@ function hmacMiddleware({ header, secret, name }) {
   };
 }
 
-// ── Mail-aligned localpart generation ──
-
-/**
- * Generate a Matrix localpart aligned with Mail's email_local algorithm so
- * @grant.whitmer:chat.windyword.ai matches grant.whitmer@windymail.ai.
- *
- * Priority: first+last → username → email local-part → display_name.
- * Matrix allows `[a-z0-9._=/-]` in localparts; Mail allows `[a-z0-9._-]`.
- * We use the narrower intersection to guarantee handle parity.
- */
-function mailAlignedLocalpart({ firstName, lastName, username, email, displayName }) {
-  let base;
-  if (firstName && lastName) {
-    base = `${firstName}.${lastName}`;
-  } else if (username) {
-    base = username;
-  } else if (email && email.includes('@')) {
-    base = email.split('@')[0];
-  } else {
-    base = (displayName || '').replace(/\s+/g, '.');
-  }
-  base = base.toLowerCase().trim().replace(/[^a-z0-9._-]/g, '');
-  if (!base || !/^[a-z0-9]/.test(base)) {
-    base = `user-${crypto.randomBytes(2).toString('hex')}`;
-  }
-  return base.slice(0, 32);
-}
-
-/**
- * Find an unused localpart by appending a short hex suffix on collision.
- * Collision check: the onboarding profile table (single source of truth for
- * this service's handles).
- */
+// ── Localpart generation ──
+//
+// mailAlignedLocalpart + resolveUniqueLocalpart live in
+// services/shared/localpart.js now — imported above. This wrapper adapts
+// the generic resolveUniqueLocalpart to this service's SQLite profile
+// table as the collision source.
 function resolveUniqueLocalpart(base) {
-  const existing = onboardingDb.db
-    .prepare('SELECT 1 FROM user_profiles WHERE chat_user_id = ?')
-    .get(base);
-  if (!existing) return base;
-
-  // Try up to 3 times with random suffixes
-  for (let i = 0; i < 3; i++) {
-    const suffix = crypto.randomBytes(3).toString('hex');
-    const candidate = `${base}-${suffix}`.slice(0, 32);
-    const taken = onboardingDb.db
+  return sharedResolveUniqueLocalpart(base, (candidate) => {
+    return !!onboardingDb.db
       .prepare('SELECT 1 FROM user_profiles WHERE chat_user_id = ?')
       .get(candidate);
-    if (!taken) return candidate;
-  }
-  throw new Error(`Could not generate unique localpart for base="${base}"`);
+  });
 }
 
 // ── Synapse admin helpers ──
