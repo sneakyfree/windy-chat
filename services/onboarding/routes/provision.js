@@ -339,127 +339,32 @@ router.get('/agent-room', (req, res) => {
   });
 });
 
-// ── Eternitas Webhook (bot passport lifecycle events) ──
-
-function verifyEternitasSignature(req) {
-  const signature = req.headers['x-eternitas-signature'];
-  const secret = process.env.ETERNITAS_WEBHOOK_SECRET;
-  if (!secret || !signature) return false;
-  const payload = JSON.stringify(req.body);
-  const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
-  if (signature.length !== expected.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-}
-
-router.post('/eternitas/webhook', asyncHandler(async (req, res) => {
-  const { event, passport, bot_name, operator_id, reason, timestamp } = req.body;
-
-  if (!event || !passport || !bot_name || !timestamp) {
-    return res.status(400).json({ error: 'Missing required fields: event, passport, bot_name, timestamp' });
-  }
-
-  const validEvents = ['passport.revoked', 'passport.suspended', 'passport.reinstated'];
-  if (!validEvents.includes(event)) {
-    return res.status(400).json({ error: `Invalid event type. Must be one of: ${validEvents.join(', ')}` });
-  }
-
-  if (process.env.ETERNITAS_WEBHOOK_SECRET) {
-    if (!verifyEternitasSignature(req)) {
-      return res.status(401).json({ error: 'Invalid webhook signature' });
-    }
-  } else {
-    console.warn('[onboarding] ETERNITAS_WEBHOOK_SECRET not set — skipping signature verification');
-  }
-
-  // Look up the agent by passport_id in the DB, then fallback to bot_ prefix
-  let state = onboardingDb.getOnboardingStateByPassport.get(passport);
-  if (!state) {
-    state = onboardingDb.getOnboardingState.get(`bot_${passport}`);
-  }
-
-  if (!state || !state.matrix_user_id) {
-    console.log(`[onboarding] Eternitas webhook: no account found for passport ${passport}`);
-    return res.status(404).json({
-      error: 'Passport not found in onboarding DB',
-      passport,
-    });
-  }
-
-  const matrixUserId = state.matrix_user_id;
-  const encodedUserId = encodeURIComponent(matrixUserId);
-  let actionTaken;
-
-  switch (event) {
-    case 'passport.revoked': {
-      // Deactivate the Matrix account entirely
-      try {
-        await fetch(`${SYNAPSE_ADMIN_URL}/v1/deactivate/${encodedUserId}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${CHAT_API_TOKEN}`,
-          },
-          body: JSON.stringify({ erase: false }),
-          signal: AbortSignal.timeout(10000),
-        });
-        console.log(`[onboarding] Deactivated Matrix account: ${matrixUserId}`);
-      } catch (err) {
-        console.warn(`[onboarding] Failed to deactivate Matrix account: ${err.message}`);
-      }
-      actionTaken = 'account_deactivated';
-      break;
-    }
-    case 'passport.suspended': {
-      // Shadow-ban / lock the Matrix user
-      try {
-        await fetch(`${SYNAPSE_ADMIN_URL}/v2/users/${encodedUserId}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${CHAT_API_TOKEN}`,
-          },
-          body: JSON.stringify({ deactivated: false, locked: true }),
-          signal: AbortSignal.timeout(10000),
-        });
-        console.log(`[onboarding] Locked Matrix account: ${matrixUserId}`);
-      } catch (err) {
-        console.warn(`[onboarding] Failed to lock Matrix account: ${err.message}`);
-      }
-      actionTaken = 'account_locked';
-      break;
-    }
-    case 'passport.reinstated': {
-      // Unlock the Matrix user
-      try {
-        await fetch(`${SYNAPSE_ADMIN_URL}/v2/users/${encodedUserId}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${CHAT_API_TOKEN}`,
-          },
-          body: JSON.stringify({ locked: false }),
-          signal: AbortSignal.timeout(10000),
-        });
-        console.log(`[onboarding] Unlocked Matrix account: ${matrixUserId}`);
-      } catch (err) {
-        console.warn(`[onboarding] Failed to unlock Matrix account: ${err.message}`);
-      }
-      actionTaken = 'account_reactivated';
-      break;
-    }
-  }
-
-  console.log(`[onboarding] Eternitas webhook: ${event} for bot ${bot_name} (${passport}), operator: ${operator_id || 'unknown'}, reason: ${reason || 'none'}`);
-
-  res.json({
-    acknowledged: true,
-    action_taken: actionTaken,
-    matrix_user_id: matrixUserId,
-    bot_user_id: state.windy_user_id,
-    event,
-    timestamp,
+// ── /eternitas/webhook — RETIRED (P2-1) ──
+//
+// This endpoint was the pre-Wave-2 Eternitas webhook handler. Its Matrix
+// deactivate / lock / unlock logic is a subset of what the canonical
+// `/api/v1/webhooks/eternitas` handler in services/social already does
+// (which additionally marks social posts as suspended, removes the bot
+// from rooms, flushes the trust cache, and updates the verified badge).
+//
+// Retired per P2-1 of the Wave-7 gap analysis — three redundant Eternitas
+// webhook handlers made it easy for Eternitas config drift to point at
+// a subset-of-behavior endpoint. Keeping the URL live with a 410 Gone
+// so any producer still configured against it gets a clear signal
+// rather than silent dropping.
+router.post('/eternitas/webhook', (req, res) => {
+  console.warn(
+    `[onboarding] /eternitas/webhook is retired (P2-1). ` +
+    `Caller should use /api/v1/webhooks/eternitas on the social service ` +
+    `(see .env.example ETERNITAS_WEBHOOK_URL). ` +
+    `event=${req.body?.event || 'unknown'} passport=${req.body?.passport || 'unknown'}`
+  );
+  res.status(410).json({
+    error: 'This endpoint has been retired. Use /api/v1/webhooks/eternitas on the social service (port 8105). See eternitas/docs/webhooks.md for the current contract.',
+    moved_to: '/api/v1/webhooks/eternitas',
+    code: 'ENDPOINT_RETIRED',
   });
-}));
+});
 
 // ── POST /api/v1/chat/provision ──
 
