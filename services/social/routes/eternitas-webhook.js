@@ -13,7 +13,7 @@ const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
 const { asyncHandler } = require('../../shared/async-handler');
-const { verifiedAccounts, persistVerified } = require('../lib/store');
+const { verifiedAccounts, persistVerified, flushEternitasVerifyCache } = require('../lib/store');
 
 const router = express.Router();
 
@@ -113,6 +113,14 @@ async function handleRevocationOrSuspension(event, passport, botName, operatorId
   const matrixUserId = `@agent_${passport}:${SYNAPSE_SERVER_NAME}`;
   const actions = [];
 
+  // 0. Flush the social service's own Eternitas-verify cache
+  //    (1-hour TTL otherwise). Without this, a revoked bot stays
+  //    "verified" in /api/v1/social/presence responses for up to an
+  //    hour. P1-3 fix.
+  const verifyCacheFlushed = flushEternitasVerifyCache(passport)
+    || flushEternitasVerifyCache(botUserId);
+  actions.push(verifyCacheFlushed ? 'verify_cache_flushed' : 'verify_cache_empty');
+
   // 1. Remove verified badge
   verifiedAccounts.delete(botUserId);
   persistVerified();
@@ -160,6 +168,12 @@ async function handleReinstatement(passport, botName, operatorId, reason) {
   const botUserId = `bot_${passport}`;
   const matrixUserId = `@agent_${passport}:${SYNAPSE_SERVER_NAME}`;
   const actions = [];
+
+  // 0. Flush the verify cache so the next /presence lookup refetches
+  //    instead of seeing the suspended-era cached "false".
+  const verifyCacheFlushed = flushEternitasVerifyCache(passport)
+    || flushEternitasVerifyCache(botUserId);
+  actions.push(verifyCacheFlushed ? 'verify_cache_flushed' : 'verify_cache_empty');
 
   // 1. Restore verified badge
   verifiedAccounts.add(botUserId);
