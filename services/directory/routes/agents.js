@@ -16,7 +16,13 @@ const dirDb = require('../lib/db');
 
 const router = express.Router();
 
-const ETERNITAS_API_URL = process.env.ETERNITAS_API_URL || process.env.ETERNITAS_URL || 'https://api.eternitas.ai';
+// Canonical env var is ETERNITAS_URL; ETERNITAS_API_URL accepted for
+// backwards compat. Default matches services/shared/trust-client.js.
+// Not used by any code in this file currently — retained for parity
+// with how other services surface the URL in their config.
+const ETERNITAS_API_URL = process.env.ETERNITAS_URL
+  || process.env.ETERNITAS_API_URL
+  || 'http://localhost:8500';
 
 // ── Caller classification ──
 //
