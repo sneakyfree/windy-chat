@@ -21,6 +21,7 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 const { asyncHandler } = require('../../shared/async-handler');
+const { withKeyLock } = require('../../shared/keyed-lock');
 
 const onboardingDb = require('../lib/db');
 
@@ -650,6 +651,16 @@ router.post('/unified-login', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'JWT missing windy_identity_id claim' });
   }
 
+  // Serialize concurrent first-login bursts for the same identity. Before
+  // this guard, 20 simultaneous requests for the same new user would
+  // race past the getProfileByWindyId lookup, all run the provisioning
+  // branch, and mint 20 different Matrix accounts / access_tokens with
+  // 19 orphaned in Synapse (P1-1).
+  //
+  // Under the lock, request #1 provisions + writes the profile row;
+  // requests #2-20 block until #1 releases, then see the existing row
+  // and return `already_existed: true` without minting new credentials.
+  return withKeyLock(`unified-login:${windyIdentityId}`, async () => {
   // Check if user already has a Chat profile (by windy_identity_id)
   const existing = onboardingDb.getProfileByWindyId.get(windyIdentityId);
 
@@ -777,6 +788,7 @@ router.post('/unified-login', asyncHandler(async (req, res) => {
     chat_user_id: chatUserId,
     room_id: dmRoom ? dmRoom.room_id : null,
   });
+  }); // close withKeyLock
 }));
 
 module.exports = router;
