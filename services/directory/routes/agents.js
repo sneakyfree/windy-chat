@@ -7,6 +7,7 @@
  */
 
 const express = require('express');
+const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
 const rateLimit = require('express-rate-limit');
@@ -149,16 +150,76 @@ router.get('/agents/:passportNumber', asyncHandler(async (req, res) => {
   });
 }));
 
-// ── POST /api/v1/chat/directory/agents/register — register/update agent in directory (service-to-service) ──
+// ── POST /api/v1/chat/directory/agents/register ──
+//
+// Service-to-service: used by onboarding/agent-provision.js and by the
+// Windy Pro account-server to publish a bot into the public directory
+// after Eternitas has issued its passport. Callers present a service
+// token (CHAT_SERVICE_TOKEN, or CHAT_API_TOKEN as fallback) — NOT a
+// regular user JWT. Without the service-token gate, any authenticated
+// human could inject a `trust_score:999, clearance_level:top_secret` row
+// (P0-2 in GAP_ANALYSIS.md).
+//
+// We also re-verify the passport against the Trust API and take the
+// authoritative trust_score / clearance_level from there — whatever the
+// caller sent for those fields is ignored. Callers can still supply
+// presentation data (agent_name, description, category, avatar_url).
+const AGENT_REGISTER_SERVICE_TOKEN =
+  process.env.CHAT_SERVICE_TOKEN || process.env.CHAT_API_TOKEN || '';
 
-router.post('/agents/register', asyncHandler(async (req, res) => {
-  const { passport_number, agent_name, description, category, trust_score, clearance_level, operator_name, avatar_url } = req.body;
+function requireAgentRegisterServiceToken(req, res, next) {
+  if (!AGENT_REGISTER_SERVICE_TOKEN) {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(503).json({
+        error: 'agent-register service token not configured',
+      });
+    }
+    // Dev: fail open so tests + local dev without a token can still
+    // publish fixtures. Prod branch above fails closed.
+    console.warn('[agents] CHAT_SERVICE_TOKEN/CHAT_API_TOKEN not set — skipping service-token check (NODE_ENV != production)');
+    return next();
+  }
+  const header = req.headers['authorization'] || '';
+  const expected = `Bearer ${AGENT_REGISTER_SERVICE_TOKEN}`;
+  // Constant-time compare to avoid timing oracles on the shared secret.
+  if (header.length !== expected.length) {
+    return res.status(403).json({ error: 'agent register requires service token' });
+  }
+  try {
+    if (!crypto.timingSafeEqual(Buffer.from(header), Buffer.from(expected))) {
+      return res.status(403).json({ error: 'agent register requires service token' });
+    }
+  } catch {
+    return res.status(403).json({ error: 'agent register requires service token' });
+  }
+  next();
+}
+
+router.post('/agents/register', requireAgentRegisterServiceToken, asyncHandler(async (req, res) => {
+  const { passport_number, agent_name, description, category, operator_name, avatar_url } = req.body;
 
   if (!passport_number || typeof passport_number !== 'string') {
     return res.status(400).json({ error: 'passport_number is required' });
   }
   if (!agent_name || typeof agent_name !== 'string') {
     return res.status(400).json({ error: 'agent_name is required' });
+  }
+
+  // Re-verify the passport actually exists and is active in Eternitas.
+  // Callers MUST NOT be able to publish a directory row for a passport
+  // that doesn't exist or has been revoked.
+  const profile = await getTrustProfile(passport_number);
+  if (!profile) {
+    return res.status(502).json({ error: 'Trust API unreachable — cannot verify passport' });
+  }
+  if (profile.status === 'not_found') {
+    return res.status(404).json({ error: 'passport not found in Eternitas', passport_number });
+  }
+  if (profile.status !== 'active') {
+    return res.status(403).json({
+      error: `passport is not active (status=${profile.status})`,
+      passport_number,
+    });
   }
 
   const now = new Date().toISOString();
@@ -169,8 +230,10 @@ router.post('/agents/register', asyncHandler(async (req, res) => {
     agent_name: agent_name.replace(/<[^>]*>/g, '').trim(),
     description: (description || '').slice(0, 500),
     category: category || 'assistant',
-    trust_score: typeof trust_score === 'number' ? Math.max(0, Math.min(1000, trust_score)) : null,
-    clearance_level: clearance_level || null,
+    // trust_score + clearance_level come from Eternitas, NOT the caller.
+    // Display layer may map trust_score to a 0–100 scale separately.
+    trust_score: typeof profile.integrity_score === 'number' ? profile.integrity_score : null,
+    clearance_level: profile.clearance_level || null,
     operator_name: operator_name || null,
     avatar_url: avatar_url || null,
     discoverable: 1,
@@ -178,9 +241,14 @@ router.post('/agents/register', asyncHandler(async (req, res) => {
     updated_at: now,
   });
 
-  console.log(`[agents] Registered: ${agent_name} (${passport_number}) trust=${trust_score || 'n/a'}`);
+  console.log(`[agents] Registered: ${agent_name} (${passport_number}) trust=${profile.integrity_score} clearance=${profile.clearance_level}`);
 
-  res.status(existing ? 200 : 201).json({ registered: true, passport_number });
+  res.status(existing ? 200 : 201).json({
+    registered: true,
+    passport_number,
+    trust_score: profile.integrity_score,
+    clearance_level: profile.clearance_level,
+  });
 }));
 
 // ── Trust Gates (Wave 3, updated for Eternitas live contract in Wave 4) ──
