@@ -6,13 +6,25 @@
  */
 
 const DEFAULT_ORIGINS = [
+  // Legacy windypro.com hosts (pre-domain-migration)
   'https://windypro.com',
   'https://www.windypro.com',
   'https://app.windypro.com',
   'https://windychat.com',
   'https://www.windychat.com',
-  'https://chat.windyword.ai',
+  // windyword.ai — root + every sibling Windy product. Each of these
+  // hosts hosts a frontend that legitimately XHRs into chat's REST API
+  // (cross-product integrations). P2-2: was missing mail/clone/fly/code.
   'https://windyword.ai',
+  'https://www.windyword.ai',
+  'https://chat.windyword.ai',
+  'https://mail.windyword.ai',
+  'https://clone.windyword.ai',
+  'https://fly.windyword.ai',
+  'https://code.windyword.ai',
+  'https://cloud.windyword.ai',
+  'https://eternitas.windyword.ai',
+  // Dev servers
   'http://localhost:5173',  // Vite dev server
   'http://localhost:4173',  // Vite preview
 ];
