@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "jest --forceExit --detectOpenHandles"
+    "test": "jest --forceExit --detectOpenHandles && node --test tests/notify.test.js",
+    "test:jest": "jest --forceExit --detectOpenHandles",
+    "test:integration": "node --test tests/notify.test.js"
   },
   "dependencies": {
     "apn": "^2.2.0",
@@ -21,5 +23,15 @@
   "devDependencies": {
     "jest": "^30.3.0",
     "supertest": "^7.2.2"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "moduleNameMapper": {
+      "^jwks-rsa$": "<rootDir>/../shared/__mocks__/jwks-rsa.js"
+    },
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/tests/notify.test.js"
+    ]
   }
 }
