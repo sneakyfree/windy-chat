@@ -277,19 +277,24 @@ router.post('/', agentLimiter, serviceTokenAuth, asyncHandler(async (req, res) =
   // 2. Set avatar
   await setAgentAvatar(matrixResult.matrixUserId, matrixResult.accessToken);
 
-  // 3. Resolve owner Matrix ID
+  // 3. Resolve owner Matrix ID — skip DM creation entirely if the owner
+  // has no Chat profile yet. The owner's first /unified-login or
+  // /identity/created webhook will flush the pending welcome via the
+  // post-provision hook in provision.js. Previously we invited a guessed
+  // owner Matrix ID that never existed, leaving an empty ghost room.
   const ownerProfile = onboardingDb.getProfileByWindyId.get(owner_windy_identity_id);
-  let ownerMatrixId;
+  let ownerMatrixId = null;
   if (ownerProfile) {
     const ownerState = onboardingDb.getOnboardingState.get(ownerProfile.chat_user_id);
     ownerMatrixId = ownerState?.matrix_user_id || `@${ownerProfile.chat_user_id}:${SYNAPSE_SERVER_NAME}`;
-  } else {
-    // Construct a best-guess Matrix ID from the identity
-    ownerMatrixId = `@windy_${owner_windy_identity_id.slice(0, 12)}:${SYNAPSE_SERVER_NAME}`;
   }
 
-  // 4. Create DM room
-  const dmResult = await createAgentDMRoom(matrixResult.matrixUserId, matrixResult.accessToken, ownerMatrixId, sanitizedName);
+  // 4. Create DM room only if owner already has a real Matrix account
+  const now = new Date().toISOString();
+  let dmResult = { room_id: null, error: null };
+  if (ownerMatrixId) {
+    dmResult = await createAgentDMRoom(matrixResult.matrixUserId, matrixResult.accessToken, ownerMatrixId, sanitizedName);
+  }
 
   // 5. Store onboarding state
   onboardingDb.upsertOnboardingState.run({
@@ -298,7 +303,7 @@ router.post('/', agentLimiter, serviceTokenAuth, asyncHandler(async (req, res) =
     profile_setup: 1,
     matrix_provisioned: 1,
     matrix_user_id: matrixResult.matrixUserId,
-    provisioned_at: new Date().toISOString(),
+    provisioned_at: now,
     passport_id: passport_number,
   });
 
@@ -309,11 +314,27 @@ router.post('/', agentLimiter, serviceTokenAuth, asyncHandler(async (req, res) =
       owner_user_id: owner_windy_identity_id,
       room_id: dmResult.room_id,
       agent_name: sanitizedName,
-      created_at: new Date().toISOString(),
+      created_at: now,
     });
   }
 
-  console.log(`[agent-provision] Agent provisioned: ${sanitizedName} (${passport_number}) → ${matrixResult.matrixUserId}, DM: ${dmResult.room_id || 'none'}`);
+  // 7. Persist agent credentials so we can seed the welcome DM on owner
+  //    first-login even if the owner wasn't provisioned yet. welcomed_at
+  //    stays null until the post-provision hook fires — if we already
+  //    created the room and sent a greeting here (owner existed), mark
+  //    welcomed so the owner's next login doesn't double-seed.
+  onboardingDb.upsertAgentCredentials.run({
+    agent_matrix_id: matrixResult.matrixUserId,
+    owner_windy_id: owner_windy_identity_id,
+    passport_number,
+    agent_name: sanitizedName,
+    access_token: matrixResult.accessToken,
+    hatched_at: now,
+    welcomed_at: dmResult.room_id ? now : null,
+    created_at: now,
+  });
+
+  console.log(`[agent-provision] Agent provisioned: ${sanitizedName} (${passport_number}) → ${matrixResult.matrixUserId}, DM: ${dmResult.room_id || 'deferred'}`);
 
   res.status(201).json({
     matrix_user_id: matrixResult.matrixUserId,
@@ -321,6 +342,7 @@ router.post('/', agentLimiter, serviceTokenAuth, asyncHandler(async (req, res) =
     dm_room_id: dmResult.room_id,
     agent_name: sanitizedName,
     passport_number,
+    welcome_pending: !dmResult.room_id,
   });
 }));
 

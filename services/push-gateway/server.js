@@ -214,19 +214,22 @@ async function sendFCM(pushkey, payload) {
       data: {
         room_id: payload.roomId || '',
         event_id: payload.eventId || '',
-        type: 'chat_message',
+        deep_link: payload.deepLink || '',
+        type: payload.eventType || 'chat_message',
       },
       notification: {
         title: payload.title,
         body: payload.body,
+        ...(payload.imageUrl ? { imageUrl: payload.imageUrl } : {}),
       },
       android: {
         priority: 'high',
         notification: {
-          channelId: 'chat_messages',
+          channelId: payload.eventType === 'agent.hatched' ? 'agent_hatched' : 'chat_messages',
           sound: 'default',
           defaultVibrateTimings: true,
           notificationCount: payload.badge,
+          ...(payload.imageUrl ? { imageUrl: payload.imageUrl } : {}),
         },
       },
     };

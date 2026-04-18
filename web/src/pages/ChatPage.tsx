@@ -3,6 +3,7 @@ import * as matrix from '../lib/matrix';
 import { useVoiceInput } from '../hooks/useVoiceInput';
 import { useNotifications } from '../hooks/useNotifications';
 import CreateGroupModal from '../components/CreateGroupModal';
+import RoomHeader from '../components/RoomHeader';
 import type { Room, MatrixEvent } from 'matrix-js-sdk';
 
 interface ChatPageProps {
@@ -361,27 +362,7 @@ export default function ChatPage({ userId, onEmailMessage }: ChatPageProps) {
       <div className={`${selectedRoomId ? 'flex' : 'hidden md:flex'} flex-1 flex-col min-w-0`}>
         {selectedRoom ? (
           <>
-            {/* Room header */}
-            <div className="px-4 md:px-6 py-4 border-b flex items-center gap-3" style={{ borderColor: 'var(--bg-tertiary)', background: 'var(--bg-secondary)' }}>
-              {/* Back button (mobile only) */}
-              <button
-                onClick={() => setSelectedRoomId(null)}
-                className="md:hidden w-8 h-8 rounded-full flex items-center justify-center shrink-0"
-                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
-              >
-                ←
-              </button>
-              <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm"
-                   style={{ background: 'var(--bg-tertiary)' }}>
-                {matrix.isAgentRoom(selectedRoom) ? '🪰' : selectedRoom.name?.charAt(0) || '?'}
-              </div>
-              <div className="flex-1 min-w-0">
-                <h2 className="font-medium text-sm truncate" style={{ color: 'var(--text-primary)' }}>{selectedRoom.name}</h2>
-                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                  {selectedRoom.getJoinedMemberCount()} members
-                </p>
-              </div>
-            </div>
+            <RoomHeader room={selectedRoom} onBack={() => setSelectedRoomId(null)} />
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
