@@ -14,6 +14,7 @@ const http = require('http');
 const https = require('https');
 const { asyncHandler } = require('../../shared/async-handler');
 const { verifiedAccounts, persistVerified } = require('../lib/store');
+const { invalidateTrustCache } = require('../../shared/trust-client');
 
 const router = express.Router();
 
@@ -122,6 +123,18 @@ async function handleRevocationOrSuspension(event, passport, botName, operatorId
   const matrixUserId = `@agent_${passport}:${SYNAPSE_SERVER_NAME}`;
   const actions = [];
 
+  // 0. Flush the shared trust-client cache so the directory gates stop
+  //    seeing the pre-revoke profile within the 5-min TTL window. Must
+  //    happen BEFORE downstream Matrix work so gate checks racing the
+  //    webhook don't get a stale "allowed" answer.
+  try {
+    const flushed = await invalidateTrustCache(passport);
+    actions.push(flushed ? 'trust_cache_flushed' : 'trust_cache_empty');
+  } catch (err) {
+    console.warn(`[eternitas-webhook] trust cache flush failed: ${err.message}`);
+    actions.push('trust_cache_flush_failed');
+  }
+
   // 1. Remove verified badge
   verifiedAccounts.delete(botUserId);
   persistVerified();
@@ -169,6 +182,16 @@ async function handleReinstatement(passport, botName, operatorId, reason) {
   const botUserId = `bot_${passport}`;
   const matrixUserId = `@agent_${passport}:${SYNAPSE_SERVER_NAME}`;
   const actions = [];
+
+  // 0. Flush the trust-client cache so gates stop seeing the suspended
+  //    profile and re-fetch the now-active one on next check.
+  try {
+    const flushed = await invalidateTrustCache(passport);
+    actions.push(flushed ? 'trust_cache_flushed' : 'trust_cache_empty');
+  } catch (err) {
+    console.warn(`[eternitas-webhook] trust cache flush failed: ${err.message}`);
+    actions.push('trust_cache_flush_failed');
+  }
 
   // 1. Restore verified badge
   verifiedAccounts.add(botUserId);
