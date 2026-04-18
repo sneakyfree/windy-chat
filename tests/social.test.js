@@ -104,8 +104,15 @@ describe('Unknown routes', () => {
 // ── Presence ──
 
 describe('GET /api/v1/social/presence/:userId', () => {
-  it('returns presence info', async () => {
+  // Presence leaks online/offline state — auth-gated since the endpoint
+  // was hardened. Callers must present a valid Pro JWT.
+  it('returns 401 without auth', async () => {
     const res = await request('GET', '/api/v1/social/presence/user123');
+    assert.equal(res.status, 401);
+  });
+
+  it('returns presence info when authenticated', async () => {
+    const res = await request('GET', '/api/v1/social/presence/user123', null, authed(tokenA));
     assert.equal(res.status, 200);
     assert.equal(res.body.userId, 'user123');
     assert.equal(res.body.status, 'online');
@@ -452,7 +459,7 @@ describe('Eternitas Verified Badge', () => {
   });
 
   it('verified user presence shows badge', async () => {
-    const res = await request('GET', `/api/v1/social/presence/${userA}`);
+    const res = await request('GET', `/api/v1/social/presence/${userA}`, null, authed(tokenA));
     assert.equal(res.body.verified, true);
   });
 

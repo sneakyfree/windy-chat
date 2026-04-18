@@ -140,7 +140,7 @@ describe('POST /api/v1/onboarding/agent — validation', () => {
 describe('POST /api/v1/onboarding/agent — provisioning', () => {
   const auth = { Authorization: `Bearer ${process.env.CHAT_SERVICE_TOKEN}` };
 
-  it('provisions a new agent in dev mode', async () => {
+  it('provisions a new agent in dev mode (Wave 8: DM deferred until owner exists)', async () => {
     const res = await request('POST', '/api/v1/onboarding/agent', {
       passport_number: 'ET-PROV-001',
       agent_name: 'ProvisionBot',
@@ -149,7 +149,10 @@ describe('POST /api/v1/onboarding/agent — provisioning', () => {
     assert.equal(res.status, 201);
     assert.ok(res.body.matrix_user_id);
     assert.ok(res.body.access_token);
-    assert.ok(res.body.dm_room_id);
+    // Wave 8: when the owner has no Chat account yet, DM creation is
+    // deferred to owner-first-login. welcome_pending flags the defer.
+    assert.equal(res.body.dm_room_id, null);
+    assert.equal(res.body.welcome_pending, true);
     assert.equal(res.body.agent_name, 'ProvisionBot');
     assert.equal(res.body.passport_number, 'ET-PROV-001');
     assert.match(res.body.matrix_user_id, /^@agent_et-prov-001:chat\.windyword\.ai$/);
