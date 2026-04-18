@@ -67,6 +67,48 @@ let redisConnected = false;
 let redisAttempted = false;
 const fallback = new Map(); // key → { expiresAt, profile }
 
+// ── Telemetry (P3-1) ─────────────────────────────────────────────────
+// In-memory counters so operators / health endpoints can see cache
+// effectiveness without wiring a full metrics stack. Reset at process
+// restart; export getTrustClientMetrics() to surface them.
+//
+//   local_hits       — request served from our Redis/in-memory cache
+//   local_misses     — request forwarded to Eternitas
+//   upstream_hits    — of those forwarded, Eternitas reported
+//                      `X-Trust-Cache: hit` (its server-side cache hit)
+//   upstream_misses  — Eternitas reported `X-Trust-Cache: miss`
+//                      (actual DB read)
+//   fetch_errors     — network/timeout/5xx (a "null" denial from the
+//                      gate layer's perspective)
+//   not_found        — 404 from Eternitas (unknown passport)
+//   rate_limited     — 429 from Eternitas
+const metrics = {
+  local_hits: 0,
+  local_misses: 0,
+  upstream_hits: 0,
+  upstream_misses: 0,
+  fetch_errors: 0,
+  not_found: 0,
+  rate_limited: 0,
+};
+
+function getTrustClientMetrics() {
+  const total = metrics.local_hits + metrics.local_misses;
+  const localHitRate = total > 0 ? metrics.local_hits / total : null;
+  const upstreamTotal = metrics.upstream_hits + metrics.upstream_misses;
+  const upstreamHitRate = upstreamTotal > 0 ? metrics.upstream_hits / upstreamTotal : null;
+  return {
+    ...metrics,
+    local_hit_rate: localHitRate === null ? null : Math.round(localHitRate * 1000) / 1000,
+    upstream_hit_rate: upstreamHitRate === null ? null : Math.round(upstreamHitRate * 1000) / 1000,
+    total_requests: total,
+  };
+}
+
+function _resetMetricsForTest() {
+  for (const k of Object.keys(metrics)) metrics[k] = 0;
+}
+
 async function getRedis() {
   if (redisAttempted) return redisConnected ? redisClient : null;
   redisAttempted = true;
@@ -207,7 +249,11 @@ async function getTrustProfile(passport) {
   }
 
   const cached = await cacheGet(passport);
-  if (cached) return cached;
+  if (cached) {
+    metrics.local_hits += 1;
+    return cached;
+  }
+  metrics.local_misses += 1;
 
   const url = `${eternitasUrl().replace(/\/+$/, '')}/api/v1/trust/${encodeURIComponent(passport)}`;
   try {
@@ -217,21 +263,30 @@ async function getTrustProfile(passport) {
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
 
+    // Record Eternitas's own cache hint if present (P3-1).
+    const upstreamCache = res.headers.get('x-trust-cache');
+    if (upstreamCache === 'hit') metrics.upstream_hits += 1;
+    else if (upstreamCache === 'miss') metrics.upstream_misses += 1;
+
     if (res.status === 404) {
+      metrics.not_found += 1;
       const negative = { passport_number: passport, status: 'not_found', allowed_actions: [], denied_actions: [] };
       await cacheSet(passport, negative, NEGATIVE_CACHE_TTL_SECONDS);
       return negative;
     }
     if (res.status === 400) {
+      metrics.fetch_errors += 1;
       console.warn(`[trust-client] 400 bad-prefix for ${passport}`);
       return null; // caller bug — don't cache
     }
     if (res.status === 429) {
+      metrics.rate_limited += 1;
       const retryAfter = res.headers.get('retry-after');
       console.warn(`[trust-client] 429 rate-limited for ${passport} (retry after ${retryAfter || '?'}s)`);
       return null;
     }
     if (!res.ok) {
+      metrics.fetch_errors += 1;
       console.warn(`[trust-client] Eternitas ${res.status} for ${passport}`);
       return null;
     }
@@ -257,6 +312,7 @@ async function getTrustProfile(passport) {
     await cacheSet(passport, profile, ttl);
     return profile;
   } catch (err) {
+    metrics.fetch_errors += 1;
     console.warn(`[trust-client] fetch failed for ${passport}: ${err.message}`);
     return null;
   }
@@ -343,8 +399,10 @@ module.exports = {
   invalidateTrustCache,
   clearanceMeets,
   isActive,
+  getTrustClientMetrics,
   CLEARANCE_RANK,
   _setCacheForTest,
   _clearCacheForTest,
   _getCacheForTest,
+  _resetMetricsForTest,
 };
