@@ -61,17 +61,23 @@ function verifyHmac(rawBody, signature, secret) {
 
 /**
  * Middleware factory that captures the raw body (for HMAC) and verifies
- * the signature header. Skipping auth when the secret is unset is *only*
- * allowed outside production — matches the behavior in provision.js.
+ * the signature header.
+ *
+ * Fail-closed when the secret is unset, regardless of NODE_ENV. The
+ * previous "skip verification when NODE_ENV !== 'production'" path was
+ * a foot-gun — a container deployed without NODE_ENV explicitly set
+ * (easy to miss in Dockerfiles and pm2 configs) would accept
+ * unauthenticated revoke-the-world webhooks.
+ *
+ * Tests that need to bypass verification must set the secret to a
+ * known value (see tests/webhooks.test.js) — there is no auth-disabled
+ * mode anymore.
  */
 function hmacMiddleware({ header, secret, name }) {
   return (req, res, next) => {
     if (!secret) {
-      if (process.env.NODE_ENV === 'production') {
-        return res.status(503).json({ error: `${name} webhook secret not configured` });
-      }
-      console.warn(`[webhooks] ${name} secret not set — skipping signature verification (NODE_ENV != production)`);
-      return next();
+      console.error(`[webhooks] ${name} secret not configured — rejecting`);
+      return res.status(503).json({ error: `${name} webhook secret not configured` });
     }
     const signature = req.headers[header.toLowerCase()];
     if (!signature) {
