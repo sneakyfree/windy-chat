@@ -342,9 +342,16 @@ router.get('/agent-room', (req, res) => {
 // ── Eternitas Webhook (bot passport lifecycle events) ──
 
 function verifyEternitasSignature(req) {
-  const signature = req.headers['x-eternitas-signature'];
+  const raw = req.headers['x-eternitas-signature'];
   const secret = process.env.ETERNITAS_WEBHOOK_SECRET;
-  if (!secret || !signature) return false;
+  if (!secret || !raw) return false;
+
+  // Accept both `sha256=<hex>` (live Eternitas format, see
+  // eternitas/docs/webhooks.md) and bare `<hex>` (legacy producers).
+  let signature = String(raw).trim();
+  const prefixMatch = signature.match(/^sha256=(.+)$/i);
+  if (prefixMatch) signature = prefixMatch[1];
+
   const payload = JSON.stringify(req.body);
   const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
   if (signature.length !== expected.length) return false;
