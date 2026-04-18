@@ -124,8 +124,23 @@ app.get('/health', createHealthHandler({
   version: '1.0.0',
 }));
 
-// ── Presence (kept from original) ──
-app.get('/api/v1/social/presence/:userId', asyncHandler(async (req, res) => {
+// ── Routes ──
+app.use('/api/v1/social/posts', postsRouter);
+app.use('/api/v1/social/follow', followRouter);
+app.use('/api/v1/social/notifications', notificationsRouter);
+app.use('/api/v1/social/moderation', moderationRouter);
+app.use('/api/v1/webhooks/eternitas', eternitasWebhookRouter);
+
+// ── Dashboard Summary (quick panel rendering for unified dashboard) ──
+const WINDY_ACCOUNT_SERVER_URL = process.env.WINDY_ACCOUNT_SERVER_URL || 'http://localhost:8098';
+const auth = createAuthMiddleware();
+
+// ── Presence — requires auth (P2-5) ──
+// Previously public; any unauthenticated caller could enumerate user
+// IDs and harvest the `verified` boolean for bot passports. Anyone
+// legitimately showing presence in a chat client is already logged in,
+// so requiring auth has zero UX cost and removes the leak.
+app.get('/api/v1/social/presence/:userId', auth, asyncHandler(async (req, res) => {
   const userId = req.params.userId;
   let verified = verifiedAccounts.has(userId);
 
@@ -141,17 +156,6 @@ app.get('/api/v1/social/presence/:userId', asyncHandler(async (req, res) => {
     verified,
   });
 }));
-
-// ── Routes ──
-app.use('/api/v1/social/posts', postsRouter);
-app.use('/api/v1/social/follow', followRouter);
-app.use('/api/v1/social/notifications', notificationsRouter);
-app.use('/api/v1/social/moderation', moderationRouter);
-app.use('/api/v1/webhooks/eternitas', eternitasWebhookRouter);
-
-// ── Dashboard Summary (quick panel rendering for unified dashboard) ──
-const WINDY_ACCOUNT_SERVER_URL = process.env.WINDY_ACCOUNT_SERVER_URL || 'http://localhost:8098';
-const auth = createAuthMiddleware();
 
 app.get('/api/v1/social/dashboard-summary', auth, asyncHandler(async (req, res) => {
   const userId = req.user.sub;
