@@ -289,10 +289,28 @@ router.post(
 
     console.log(`[webhooks] identity/created: ${windy_identity_id} → ${creds.matrixUserId}`);
 
+    // Post-provision hook — flush pending agent DM welcomes. If this owner
+    // had agents hatch before they existed in Chat, their rooms + seeded
+    // welcome messages land here. Lazy-required to avoid a circular import
+    // when provision.js pulls from the same db module at startup.
+    let seeded = [];
+    try {
+      const { seedPendingAgentDMs } = require('./provision');
+      const result = await seedPendingAgentDMs({
+        ownerMatrixId: creds.matrixUserId,
+        ownerWindyId: windy_identity_id,
+        ownerName: resolvedDisplayName,
+      });
+      seeded = result.rooms;
+    } catch (err) {
+      console.warn(`[webhooks] identity/created: seedPendingAgentDMs failed: ${err.message}`);
+    }
+
     return res.status(200).json({
       matrix_user_id: creds.matrixUserId,
       status: 'provisioned',
       display_name: resolvedDisplayName,
+      seeded_agent_rooms: seeded,
     });
   }),
 );

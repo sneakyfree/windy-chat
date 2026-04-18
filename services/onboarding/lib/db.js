@@ -69,6 +69,19 @@ CREATE TABLE IF NOT EXISTS agent_rooms (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_rooms_agent ON agent_rooms(agent_user_id);
 CREATE INDEX IF NOT EXISTS idx_agent_rooms_owner ON agent_rooms(owner_user_id);
+
+CREATE TABLE IF NOT EXISTS agent_credentials (
+  agent_matrix_id TEXT PRIMARY KEY,
+  owner_windy_id TEXT NOT NULL,
+  passport_number TEXT,
+  agent_name TEXT,
+  access_token TEXT,
+  hatched_at TEXT NOT NULL,
+  welcomed_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_credentials_owner ON agent_credentials(owner_windy_id);
+CREATE INDEX IF NOT EXISTS idx_agent_credentials_pending ON agent_credentials(owner_windy_id, welcomed_at);
 `);
 
 // Display names
@@ -170,6 +183,28 @@ const upsertAgentRoom = db.prepare(`
 const getAgentRoomsByOwner = db.prepare('SELECT * FROM agent_rooms WHERE owner_user_id = ?');
 const deleteAgentRoomsByAgent = db.prepare('DELETE FROM agent_rooms WHERE agent_user_id = ?');
 
+// Agent credentials — persisted so we can impersonate an agent to seed a
+// welcome DM when the owner first logs in (the agent may have hatched
+// before the owner's Chat account existed).
+const upsertAgentCredentials = db.prepare(`
+  INSERT OR REPLACE INTO agent_credentials (
+    agent_matrix_id, owner_windy_id, passport_number, agent_name,
+    access_token, hatched_at, welcomed_at, created_at
+  )
+  VALUES (
+    @agent_matrix_id, @owner_windy_id, @passport_number, @agent_name,
+    @access_token, @hatched_at, @welcomed_at, @created_at
+  )
+`);
+const getPendingAgentsForOwner = db.prepare(`
+  SELECT * FROM agent_credentials
+  WHERE owner_windy_id = ? AND welcomed_at IS NULL
+  ORDER BY hatched_at ASC
+`);
+const markAgentWelcomed = db.prepare(
+  'UPDATE agent_credentials SET welcomed_at = ? WHERE agent_matrix_id = ?'
+);
+
 module.exports = {
   db,
   getDisplayName,
@@ -192,4 +227,7 @@ module.exports = {
   upsertAgentRoom,
   getAgentRoomsByOwner,
   deleteAgentRoomsByAgent,
+  upsertAgentCredentials,
+  getPendingAgentsForOwner,
+  markAgentWelcomed,
 };

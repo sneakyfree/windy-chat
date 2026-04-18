@@ -292,6 +292,163 @@ async function createDMRoom(agentMatrixId, agentAccessToken, ownerMatrixId, agen
   return { room_id: roomId, success: true, error: null };
 }
 
+// ── Post-provision hook: seed pending agent DMs ──
+//
+// When an agent hatches before its owner has a Chat account, its welcome DM
+// stays pending — agent_credentials.welcomed_at IS NULL. The first time the
+// owner's Chat account is provisioned (via /unified-login or the
+// /identity/created webhook), we flush every pending agent: create a DM
+// room against the real owner Matrix ID, send the agent's welcome message,
+// and mark welcomed_at. Safe to call on every login — the welcomed_at
+// flag makes the flush idempotent.
+
+const PUSH_BUS_URL = process.env.PUSH_BUS_URL || 'http://localhost:8103';
+const PUSH_BUS_TOKEN = process.env.PUSH_BUS_TOKEN || '';
+
+/**
+ * Render the agent's first message in the bootcamp-demo tone:
+ *   "Hi {owner}, I'm your agent. I just hatched at {time}. My passport
+ *   is {passport}. What do you want me to help with first?"
+ */
+function renderAgentWelcome({ ownerName, hatchedAt, passportNumber }) {
+  const name = ownerName || 'there';
+  const when = hatchedAt
+    ? new Date(hatchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : 'just now';
+  const passport = passportNumber || 'pending';
+  return `Hi ${name}, I'm your agent. I just hatched at ${when}. My passport is ${passport}. What do you want me to help with first?`;
+}
+
+/**
+ * Publish an agent.hatched push event so the owner's phone buzzes the
+ * moment their agent's welcome DM lands. Best-effort — failure to reach
+ * the push gateway must not block the login response.
+ */
+async function publishHatchedPush({ ownerWindyId, agentName, roomId, avatarUrl, passportNumber }) {
+  if (!PUSH_BUS_URL) return false;
+  try {
+    const body = {
+      windy_identity_id: ownerWindyId,
+      event_type: 'agent.hatched',
+      title: 'Your agent just hatched!',
+      body: `${agentName} is ready to chat — tap to say hi.`,
+      deep_link: roomId ? `windychat://room/${roomId}` : null,
+      room_id: roomId || null,
+      agent_name: agentName,
+      agent_avatar_url: avatarUrl || null,
+      passport_number: passportNumber || null,
+    };
+    const res = await fetch(`${PUSH_BUS_URL}/api/v1/push/notify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Push-Bus-Token': PUSH_BUS_TOKEN,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(5000),
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn(`[provision] agent.hatched push failed: ${err.message}`);
+    return false;
+  }
+}
+
+/**
+ * Seed any pending agent DMs for this owner. Called after the owner's
+ * Matrix account is provisioned (first-login path) and after the
+ * identity/created webhook. Idempotent via agent_credentials.welcomed_at.
+ */
+async function seedPendingAgentDMs({ ownerMatrixId, ownerWindyId, ownerName }) {
+  if (!ownerMatrixId || !ownerWindyId) return { seeded: 0, rooms: [] };
+
+  const pending = onboardingDb.getPendingAgentsForOwner.all(ownerWindyId);
+  if (!pending.length) return { seeded: 0, rooms: [] };
+
+  const rooms = [];
+  for (const agent of pending) {
+    try {
+      // Reuse an existing room if one was already created (e.g. owner
+      // signed in, came back later, agent had already opened a room).
+      const existingRoom = onboardingDb.getAgentRoom.get(agent.agent_matrix_id, ownerWindyId);
+      let roomId = existingRoom && !existingRoom.room_id.startsWith('!dev_')
+        ? existingRoom.room_id
+        : null;
+
+      if (!roomId) {
+        const created = await createDMRoom(
+          agent.agent_matrix_id,
+          agent.access_token,
+          ownerMatrixId,
+          agent.agent_name || 'Your agent',
+        );
+        roomId = created.room_id;
+      }
+
+      if (!roomId) {
+        console.warn(`[provision] Could not establish DM room for agent ${agent.agent_matrix_id}`);
+        continue;
+      }
+
+      const message = renderAgentWelcome({
+        ownerName,
+        hatchedAt: agent.hatched_at,
+        passportNumber: agent.passport_number,
+      });
+
+      // Send the pre-seeded welcome as the agent. Dev-stub tokens skip the
+      // network call but still satisfy the contract (room + seed tracked).
+      if (agent.access_token && !agent.access_token.startsWith('dev_token_') && !roomId.startsWith('!dev_')) {
+        try {
+          const txnId = uuidv4();
+          await fetch(`${SYNAPSE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${agent.access_token}`,
+            },
+            body: JSON.stringify({ msgtype: 'm.text', body: message }),
+            signal: AbortSignal.timeout(5000),
+          });
+        } catch (err) {
+          console.warn(`[provision] Welcome send failed for ${agent.agent_matrix_id}: ${err.message}`);
+        }
+      }
+
+      const now = new Date().toISOString();
+      onboardingDb.upsertAgentRoom.run({
+        agent_user_id: agent.agent_matrix_id,
+        owner_user_id: ownerWindyId,
+        room_id: roomId,
+        agent_name: agent.agent_name,
+        created_at: existingRoom?.created_at || now,
+      });
+      onboardingDb.markAgentWelcomed.run(now, agent.agent_matrix_id);
+
+      // Fire the agent.hatched push so the owner's phone buzzes.
+      publishHatchedPush({
+        ownerWindyId,
+        agentName: agent.agent_name || 'Your agent',
+        roomId,
+        avatarUrl: null,
+        passportNumber: agent.passport_number,
+      }).catch(() => { /* already logged */ });
+
+      rooms.push({
+        agent_matrix_id: agent.agent_matrix_id,
+        room_id: roomId,
+        agent_name: agent.agent_name,
+        message,
+      });
+    } catch (err) {
+      console.error(`[provision] seedPendingAgentDMs failed for ${agent.agent_matrix_id}:`, err.message);
+    }
+  }
+
+  console.log(`[provision] Seeded ${rooms.length}/${pending.length} pending agent DM(s) for owner ${ownerWindyId}`);
+  return { seeded: rooms.length, rooms };
+}
+
 /**
  * Look up an owner's Matrix user ID from their windy_identity_id or sub claim.
  * Returns the Matrix user ID or null if not found.
@@ -683,6 +840,14 @@ router.post('/unified-login', asyncHandler(async (req, res) => {
     }
   }
 
+  // Post-provision hook: flush any agents that hatched before this owner
+  // had a Chat account. Best-effort — errors are logged inside the helper.
+  const pendingSeed = await seedPendingAgentDMs({
+    ownerMatrixId: matrixCredentials.matrixUserId,
+    ownerWindyId: windyIdentityId,
+    ownerName: sanitizedName,
+  });
+
   res.status(201).json({
     matrix_user_id: matrixCredentials.matrixUserId,
     access_token: matrixCredentials.accessToken,
@@ -692,8 +857,12 @@ router.post('/unified-login', asyncHandler(async (req, res) => {
     windy_identity_id: windyIdentityId,
     chat_user_id: chatUserId,
     room_id: dmRoom ? dmRoom.room_id : null,
+    seeded_agent_rooms: pendingSeed.rooms,
   });
   }); // close withKeyLock
 }));
 
 module.exports = router;
+module.exports.seedPendingAgentDMs = seedPendingAgentDMs;
+module.exports.renderAgentWelcome = renderAgentWelcome;
+module.exports.publishHatchedPush = publishHatchedPush;
