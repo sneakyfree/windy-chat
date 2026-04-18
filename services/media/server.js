@@ -106,6 +106,11 @@ initSentry(app, 'windy-chat-media');
 
 const auth = createAuthMiddleware();
 
+// Mount the link-preview router BEFORE any /api/v1/media/:id handlers
+// — otherwise `link-preview` is swallowed by the `:id` param. See P0-1
+// in docs/GAP_ANALYSIS.md for the original route-shadowing bug.
+app.use('/api/v1/media', linkPreviewRouter);
+
 // ── Health ──
 app.get('/health', createHealthHandler({
   service: 'windy-chat-media',
@@ -436,8 +441,7 @@ app.get('/api/v1/media/:id/thumbnail', asyncHandler(async (req, res) => {
   fs.createReadStream(record.thumbnail_path).pipe(res);
 }));
 
-// ── Link Preview ──
-app.use('/api/v1/media', linkPreviewRouter);
+// (link-preview mount moved above — see note near app start)
 
 // ── 404 ──
 app.use((_req, res) => {
