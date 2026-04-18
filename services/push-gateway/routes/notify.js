@@ -51,10 +51,33 @@ function busAuthMiddleware(req, res, next) {
   next();
 }
 
+// Renders an agent.hatched notification payload. The event fires the first
+// time an agent's welcome DM is seeded for its owner — Grandma Ribbon's
+// "your phone buzzes the moment your agent says hi" moment. The caller
+// supplies `room_id` + `agent_avatar_url`; we fill reasonable defaults so
+// mis-configured callers still deliver something legible rather than an
+// empty buzz.
+function buildAgentHatchedPayload({ title, body, deep_link, room_id, agent_name, agent_avatar_url, passport_number }) {
+  const resolvedRoomId = room_id || null;
+  const deepLink = deep_link
+    || (resolvedRoomId ? `windychat://room/${resolvedRoomId}` : null);
+  const name = agent_name || 'Your new agent';
+  return {
+    title: title || `${name} just hatched!`,
+    body: body || 'Tap to chat.',
+    deepLink,
+    eventType: 'agent.hatched',
+    imageUrl: agent_avatar_url || null,
+    roomId: resolvedRoomId,
+    agentName: name,
+    passportNumber: passport_number || null,
+  };
+}
+
 router.post('/notify', busAuthMiddleware, asyncHandler(async (req, res) => {
   const {
     windy_identity_id, user_id, event_type, title, body, deep_link,
-    subscribers_only,
+    subscribers_only, room_id, agent_name, agent_avatar_url, passport_number,
   } = req.body || {};
 
   const recipient = windy_identity_id || user_id;
@@ -64,7 +87,9 @@ router.post('/notify', busAuthMiddleware, asyncHandler(async (req, res) => {
   if (!event_type || typeof event_type !== 'string') {
     return res.status(400).json({ error: 'event_type is required' });
   }
-  if (!title || typeof title !== 'string') {
+  // agent.hatched has a default title — other event types still require one
+  // so we keep the stable contract intact for existing publishers.
+  if (event_type !== 'agent.hatched' && (!title || typeof title !== 'string')) {
     return res.status(400).json({ error: 'title is required' });
   }
 
@@ -84,12 +109,16 @@ router.post('/notify', busAuthMiddleware, asyncHandler(async (req, res) => {
     .prepare('SELECT pushkey, platform FROM push_tokens WHERE user_id = ?')
     .all(recipient);
 
-  const payload = {
-    title,
-    body: body || '',
-    deepLink: deep_link || null,
-    eventType: event_type,
-  };
+  const payload = event_type === 'agent.hatched'
+    ? buildAgentHatchedPayload({
+        title, body, deep_link, room_id, agent_name, agent_avatar_url, passport_number,
+      })
+    : {
+        title,
+        body: body || '',
+        deepLink: deep_link || null,
+        eventType: event_type,
+      };
 
   // Delegate actual send to the transports initialized in server.js.
   // We use the global published senders on `app.locals` — see server.js.
@@ -121,3 +150,4 @@ router.post('/notify', busAuthMiddleware, asyncHandler(async (req, res) => {
 }));
 
 module.exports = router;
+module.exports.buildAgentHatchedPayload = buildAgentHatchedPayload;
