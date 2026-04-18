@@ -87,6 +87,52 @@ cd services/push-gateway && npm run dev
 cd services/backup && npm run dev
 ```
 
+## Trust API Integration (Eternitas)
+
+Bot actions that cross trust boundaries (bot-to-bot DMs, public broadcasts,
+mentioning strangers) are gated by `services/directory/routes/agents.js` against
+the live Eternitas Trust API.
+
+**Contract** — `/Users/thewindstorm/eternitas/docs/trust-api.md` is the canonical
+reference. If anything below disagrees with that doc, the doc wins.
+
+- Endpoint: `GET {ETERNITAS_URL}/api/v1/trust/{passport}`
+- Public, no Bearer auth. Rate-limited 100 req/min/IP by Eternitas.
+- Responses are cached for 5 minutes in Redis (or in-memory fallback).
+- `passport.revoked` and `trust.changed` webhooks (onboarding:8101) invalidate
+  the cache on band flip, clearance promotion, revoke, or suspend.
+
+**Env vars**
+
+| Var | Default | Purpose |
+|---|---|---|
+| `ETERNITAS_URL` | `http://localhost:8500` | Base URL of the Trust API |
+| `ETERNITAS_USE_MOCK` | `false` | Set `true` to bypass the network and return a deterministic stub profile (dev/test only) |
+| `ETERNITAS_WEBHOOK_SECRET` | — | Shared HMAC secret for verifying inbound webhook signatures |
+| `REDIS_URL` | `redis://localhost:6379` | Optional — falls back to in-memory cache |
+
+**Gate endpoints** — consumer services POST here before taking the action:
+
+```
+POST /api/v1/chat/directory/agents/gate/dm         (bot→bot DM)
+POST /api/v1/chat/directory/agents/gate/broadcast  (bot→public feed)
+POST /api/v1/chat/directory/agents/gate/mention    (bot→disconnected human)
+```
+
+Humans (Pro JWT without a `passport_id` claim) bypass all three. Full
+enforcement rules and action vocabulary: `services/directory/docs/trust-gates.md`.
+
+**Running the integration test**
+
+```bash
+# Against a stand-in that emits contract-exact responses (always runs):
+node --test tests/integration/test_trust_live.js
+
+# To additionally exercise the live-probe assertions, start Eternitas:
+cd ../eternitas && scripts/dev-start.sh
+# Then re-run — the 2 probe tests stop skipping.
+```
+
 ## Part of the Windy Ecosystem
 
 | Product | Repo | Role |

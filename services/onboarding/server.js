@@ -21,6 +21,7 @@ const pairRoutes = require('./routes/pair');
 const provisionRoutes = require('./routes/provision');
 const agentProvisionRoutes = require('./routes/agent-provision');
 const roomsRoutes = require('./routes/rooms');
+const webhookRoutes = require('./routes/webhooks');
 const { createCorsOptions } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
@@ -31,7 +32,12 @@ const PORT = process.env.PORT || 8101;
 // ── CORS — shared origin whitelist (windypro.com, windychat.com, etc.) ──
 app.use(cors(createCorsOptions()));
 
-app.use(express.json({ limit: '5mb' }));
+// Stash raw body on req.rawBody so webhook routes can verify HMAC signatures
+// over the exact bytes received (re-serializing req.body would be lossy).
+app.use(express.json({
+  limit: '5mb',
+  verify: (req, _res, buf) => { req.rawBody = buf; },
+}));
 
 initSentry(app, 'windy-chat-onboarding');
 
@@ -63,6 +69,9 @@ app.get('/health', createHealthHandler({
     sendgrid: !!process.env.SENDGRID_API_KEY,
   }),
 }));
+
+// ── Webhooks (HMAC-verified, service-to-service) — must mount before auth-protected routes ──
+app.use('/api/v1/webhooks', webhookRoutes);
 
 // ── Agent provisioning (service-to-service, own auth) — must be before /api/v1/onboarding catch-all ──
 app.use('/api/v1/onboarding/agent', agentProvisionRoutes);
