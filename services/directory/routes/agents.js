@@ -347,13 +347,18 @@ router.post('/agents/register', requireAgentRegisterServiceToken, asyncHandler(a
 // only to restrict what *bots* can do. All gates additionally require
 // status='active' and band !== 'critical' (isActive helper).
 
+// NOTE: denial returns intentionally DO NOT include the full Eternitas
+// profile (no integrity_score, dimensions, tier_multiplier, etc.).
+// Leaking scoring internals to rejected callers lets them iterate /
+// game the scoring model. Callers that need the full profile should
+// fetch it themselves from Eternitas. See P1-5.
 async function requireAllowedAction(passport, action) {
   const profile = await getTrustProfile(passport);
   if (!profile) {
     return { ok: false, reason: 'trust_api_unreachable' };
   }
   if (profile.status === 'not_found') {
-    return { ok: false, reason: 'passport_not_found', profile };
+    return { ok: false, reason: 'passport_not_found' };
   }
   if (!isActive(profile)) {
     return {
@@ -361,11 +366,10 @@ async function requireAllowedAction(passport, action) {
       reason: 'passport_not_active',
       status: profile.status,
       band: profile.band,
-      profile,
     };
   }
   if (!profile.allowed_actions.includes(action)) {
-    return { ok: false, reason: 'missing_allowed_action', required: action, profile };
+    return { ok: false, reason: 'missing_allowed_action', required: action };
   }
   return { ok: true, profile };
 }
