@@ -13,8 +13,7 @@ const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
 const { asyncHandler } = require('../../shared/async-handler');
-const { verifiedAccounts, persistVerified } = require('../lib/store');
-const { invalidateTrustCache } = require('../../shared/trust-client');
+const { verifiedAccounts, persistVerified, flushEternitasVerifyCache } = require('../lib/store');
 
 const router = express.Router();
 
@@ -123,17 +122,13 @@ async function handleRevocationOrSuspension(event, passport, botName, operatorId
   const matrixUserId = `@agent_${passport}:${SYNAPSE_SERVER_NAME}`;
   const actions = [];
 
-  // 0. Flush the shared trust-client cache so the directory gates stop
-  //    seeing the pre-revoke profile within the 5-min TTL window. Must
-  //    happen BEFORE downstream Matrix work so gate checks racing the
-  //    webhook don't get a stale "allowed" answer.
-  try {
-    const flushed = await invalidateTrustCache(passport);
-    actions.push(flushed ? 'trust_cache_flushed' : 'trust_cache_empty');
-  } catch (err) {
-    console.warn(`[eternitas-webhook] trust cache flush failed: ${err.message}`);
-    actions.push('trust_cache_flush_failed');
-  }
+  // 0. Flush the social service's own Eternitas-verify cache
+  //    (1-hour TTL otherwise). Without this, a revoked bot stays
+  //    "verified" in /api/v1/social/presence responses for up to an
+  //    hour. P1-3 fix.
+  const verifyCacheFlushed = flushEternitasVerifyCache(passport)
+    || flushEternitasVerifyCache(botUserId);
+  actions.push(verifyCacheFlushed ? 'verify_cache_flushed' : 'verify_cache_empty');
 
   // 1. Remove verified badge
   verifiedAccounts.delete(botUserId);
@@ -183,15 +178,11 @@ async function handleReinstatement(passport, botName, operatorId, reason) {
   const matrixUserId = `@agent_${passport}:${SYNAPSE_SERVER_NAME}`;
   const actions = [];
 
-  // 0. Flush the trust-client cache so gates stop seeing the suspended
-  //    profile and re-fetch the now-active one on next check.
-  try {
-    const flushed = await invalidateTrustCache(passport);
-    actions.push(flushed ? 'trust_cache_flushed' : 'trust_cache_empty');
-  } catch (err) {
-    console.warn(`[eternitas-webhook] trust cache flush failed: ${err.message}`);
-    actions.push('trust_cache_flush_failed');
-  }
+  // 0. Flush the verify cache so the next /presence lookup refetches
+  //    instead of seeing the suspended-era cached "false".
+  const verifyCacheFlushed = flushEternitasVerifyCache(passport)
+    || flushEternitasVerifyCache(botUserId);
+  actions.push(verifyCacheFlushed ? 'verify_cache_flushed' : 'verify_cache_empty');
 
   // 1. Restore verified badge
   verifiedAccounts.add(botUserId);
