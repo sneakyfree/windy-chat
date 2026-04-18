@@ -38,19 +38,6 @@ function isHumanCaller(req) {
   return !callerPassport(req);
 }
 
-// ── Caller classification ──
-//
-// Humans authenticate with a Windy Pro JWT — no `passport_id` / `eternitas_passport`
-// claim. Bots authenticate with an Eternitas JWT (EPT) where that claim is
-// present. Humans bypass every trust gate; bots are gated on the claims in
-// their Eternitas trust profile.
-function callerPassport(req) {
-  return req.user?.passport_id || req.user?.eternitas_passport || null;
-}
-function isHumanCaller(req) {
-  return !callerPassport(req);
-}
-
 const agentListLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 30,
