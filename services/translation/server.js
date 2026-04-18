@@ -21,6 +21,7 @@ const { createHealthHandler } = require('../shared/health');
 const { asyncHandler } = require('../shared/async-handler');
 const { createAuthMiddleware } = require('../shared/jwt-verify');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
+const { bodyErrorHandler } = require('../shared/body-errors');
 const translationDb = require('./lib/db');
 
 const appserviceRouter = require('./appservice/handler');
@@ -326,6 +327,7 @@ app.use((_req, res) => {
 });
 
 // ── Error handler ──
+app.use(bodyErrorHandler());
 app.use(sentryErrorHandler());
 app.use((err, _req, res, _next) => {
   console.error('[translation] Error:', err.message);

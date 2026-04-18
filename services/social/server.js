@@ -23,7 +23,7 @@ const { createHealthHandler } = require('../shared/health');
 const { asyncHandler } = require('../shared/async-handler');
 const { createAuthMiddleware } = require('../shared/jwt-verify');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
-const { verifiedAccounts, persistVerified } = require('./lib/store');
+const { verifiedAccounts, persistVerified, eternitasVerifyCache } = require('./lib/store');
 
 /**
  * Verify Eternitas webhook HMAC signature.
@@ -43,9 +43,17 @@ function verifyEternitasSignature(req) {
 const http = require('http');
 const https = require('https');
 
-const ETERNITAS_API_URL = process.env.ETERNITAS_API_URL || 'https://api.eternitas.ai';
+// Canonical env var is ETERNITAS_URL; ETERNITAS_API_URL accepted for
+// backwards compatibility. Default aligned with
+// services/shared/trust-client.js so every consumer talks to the same
+// Eternitas instance in dev.
+const ETERNITAS_API_URL = process.env.ETERNITAS_URL
+  || process.env.ETERNITAS_API_URL
+  || 'http://localhost:8500';
 const ETERNITAS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
-const eternitasCache = new Map(); // passportId → { valid, timestamp }
+// Shared with routes/eternitas-webhook.js so revoke/suspend/reinstate
+// can synchronously invalidate. Do NOT use a local Map here.
+const eternitasCache = eternitasVerifyCache;
 
 /**
  * Verify a passport against the Eternitas registry API.
@@ -367,6 +375,7 @@ app.use((_req, res) => {
 });
 
 // ── Error handler ──
+app.use(bodyErrorHandler());
 app.use(sentryErrorHandler());
 app.use((err, _req, res, _next) => {
   console.error('[social] Error:', err.message);
