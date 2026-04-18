@@ -14,10 +14,14 @@ const { Router } = require('express');
 const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
+const dns = require('dns');
+const net = require('net');
 const { URL } = require('url');
 const rateLimit = require('express-rate-limit');
 const { asyncHandler } = require('../../shared/async-handler');
 const mediaDb = require('../lib/db');
+
+const dnsLookup = dns.promises ? dns.promises.lookup : require('util').promisify(dns.lookup);
 
 const router = Router();
 
@@ -34,30 +38,156 @@ const linkPreviewLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// ── SSRF defenses ──
+//
+// P1-7 fix. The previous hostname-pattern check had documented bypasses:
+//   1. DNS rebinding — hostname resolves public at check time, private
+//      at fetch time.
+//   2. IPv6-mapped IPv4 — `[::ffff:127.0.0.1]` not matched by IPv4 regex.
+//   3. Integer/hex IP encodings — `http://2130706433/`, `http://0x7f000001/`.
+//   4. Cloud-metadata hostnames — `metadata.google.internal`,
+//      `metadata.azure.com` not in the deny list.
+//
+// The fix: resolve the hostname ourselves, validate every resolved IP
+// against a canonical private-IP deny list, and use a custom
+// http/https Agent whose `lookup` returns the exact IP we validated.
+// That closes the DNS-rebinding window — Node connects to the checked
+// IP, not to a freshly-resolved one.
+
+// Hostnames that should never resolve on our side regardless of what
+// DNS says. Blocked BEFORE resolution.
+const BLOCKED_HOSTNAMES = new Set([
+  'localhost',
+  'metadata',
+  'metadata.google.internal',
+  'metadata.azure.com',
+  'metadata.goog',
+  'instance-data',
+]);
+
 /**
- * Check if an IP address is in a private range.
+ * Return true if an IP address (v4 or v6, normalized) is in any
+ * reserved range we refuse to connect to. Handles IPv6-mapped IPv4
+ * (`::ffff:127.0.0.1` → 127.0.0.1).
  */
-function isPrivateIP(hostname) {
-  // Block common private/reserved ranges by hostname pattern
-  const privatePatterns = [
-    /^localhost$/i,
-    /^127\./,
-    /^10\./,
-    /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
-    /^192\.168\./,
-    /^0\./,
-    /^169\.254\./,
-    /^fc00:/i,
-    /^fd/i,
-    /^fe80:/i,
-    /^::1$/,
-    /^\[::1\]$/,
-  ];
-  return privatePatterns.some(p => p.test(hostname));
+function isPrivateIP(ip) {
+  if (!ip) return true;
+  // Unwrap IPv6-mapped IPv4
+  const mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (mapped) ip = mapped[1];
+
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split('.').map(Number);
+    if (a === 0) return true;                          // 0.0.0.0/8
+    if (a === 10) return true;                         // 10.0.0.0/8
+    if (a === 127) return true;                        // 127.0.0.0/8
+    if (a === 169 && b === 254) return true;           // 169.254.0.0/16 (link-local, AWS/GCP metadata)
+    if (a === 172 && b >= 16 && b <= 31) return true;  // 172.16.0.0/12
+    if (a === 192 && b === 168) return true;           // 192.168.0.0/16
+    if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 (CGNAT)
+    if (a === 198 && (b === 18 || b === 19)) return true; // 198.18.0.0/15 (bench)
+    if (a >= 224) return true;                         // 224.0.0.0/4 + reserved future
+    return false;
+  }
+  if (net.isIPv6(ip)) {
+    const lower = ip.toLowerCase();
+    if (lower === '::' || lower === '::1') return true;
+    if (lower.startsWith('fe80:') || lower.startsWith('fe80::')) return true; // link-local
+    if (lower.startsWith('fc') || lower.startsWith('fd')) return true;        // ULA
+    // IPv6-mapped IPv4. Two wire forms Node produces:
+    //   ::ffff:1.2.3.4        (dotted)  — caught by the regex at top
+    //   ::ffff:0102:0304      (hex)     — caught here
+    if (lower.startsWith('::ffff:')) {
+      const tail = lower.slice('::ffff:'.length);
+      if (net.isIPv4(tail)) return isPrivateIP(tail);
+      const parts = tail.split(':');
+      if (parts.length === 2) {
+        const hi = parseInt(parts[0], 16);
+        const lo = parseInt(parts[1], 16);
+        if (!Number.isNaN(hi) && !Number.isNaN(lo) && hi >= 0 && hi <= 0xFFFF && lo >= 0 && lo <= 0xFFFF) {
+          const dotted = `${(hi >> 8) & 0xFF}.${hi & 0xFF}.${(lo >> 8) & 0xFF}.${lo & 0xFF}`;
+          return isPrivateIP(dotted);
+        }
+      }
+      // Unrecognized mapped form — treat as private (fail-closed).
+      return true;
+    }
+    if (lower.startsWith('fe') || lower.startsWith('ff')) return true;        // multicast / reserved
+    return false;
+  }
+  // Unknown format — refuse
+  return true;
+}
+
+/**
+ * Resolve a hostname to a safe IP we can safely connect to. Returns
+ * the IP + family, or throws a user-facing Error.
+ *
+ * Every resolved address must pass isPrivateIP — if ANY returned IP is
+ * private, we deny the whole fetch (the author could be rotating a
+ * DNS record; better to refuse than to pick arbitrarily).
+ */
+function ssrfDenied(message) {
+  const err = new Error(message);
+  err.code = 'SSRF_DENIED';
+  return err;
+}
+
+async function resolveSafeAddress(hostname) {
+  if (!hostname) throw ssrfDenied('Invalid URL: missing host');
+  const lower = hostname.toLowerCase();
+  if (BLOCKED_HOSTNAMES.has(lower)) {
+    throw ssrfDenied('URL host is blocked');
+  }
+  // Strip brackets from literal IPv6 host
+  const h = lower.replace(/^\[(.+)\]$/, '$1');
+
+  // If the host is already a literal IP, validate it directly. Integer-
+  // encoded URL hosts (e.g. 2130706433) are already unpacked by the URL
+  // parser into dotted-quad form on node ≥ 18 — if not, dns.lookup
+  // below will resolve them.
+  if (net.isIP(h)) {
+    if (isPrivateIP(h)) throw ssrfDenied('URL must not point to a private/reserved IP address');
+    return { address: h, family: net.isIPv6(h) ? 6 : 4 };
+  }
+
+  // Ask the resolver for ALL records, v4 and v6.
+  let addrs;
+  try {
+    addrs = await dnsLookup(hostname, { all: true, verbatim: true });
+  } catch (err) {
+    throw ssrfDenied(`DNS lookup failed: ${err.code || err.message}`);
+  }
+  if (!addrs || addrs.length === 0) {
+    throw ssrfDenied('DNS lookup returned no addresses');
+  }
+  for (const a of addrs) {
+    if (isPrivateIP(a.address)) {
+      throw ssrfDenied('URL resolves to a private/reserved IP address');
+    }
+  }
+  // All IPs pass — pin the first public one so the fetch connects to
+  // the exact IP we validated (defeats DNS rebinding between validation
+  // and connect).
+  return addrs[0];
+}
+
+/**
+ * Build an http/https Agent whose `lookup` always returns the
+ * pre-validated IP. Prevents DNS rebinding at connect time.
+ */
+function pinnedAgent(protocol, address, family) {
+  const opts = {
+    lookup(_host, _opts, cb) { cb(null, address, family); },
+    keepAlive: false,
+  };
+  return protocol === 'https:' ? new https.Agent(opts) : new http.Agent(opts);
 }
 
 /**
  * Validate that a URL is safe to fetch (http/https, not private IP).
+ * NOTE: does NOT resolve the hostname — that's done in fetchUrl so we
+ * can reuse the resolved IP at connect time.
  */
 function validateUrl(urlString) {
   try {
@@ -65,8 +195,8 @@ function validateUrl(urlString) {
     if (!['http:', 'https:'].includes(parsed.protocol)) {
       return { valid: false, error: 'URL must use http or https protocol' };
     }
-    if (isPrivateIP(parsed.hostname)) {
-      return { valid: false, error: 'URL must not point to a private/reserved IP address' };
+    if (BLOCKED_HOSTNAMES.has(parsed.hostname.toLowerCase())) {
+      return { valid: false, error: 'URL host is blocked' };
     }
     return { valid: true, parsed };
   } catch {
@@ -76,18 +206,24 @@ function validateUrl(urlString) {
 
 /**
  * Fetch a URL and return the response body as a string.
- * Enforces timeout and max body size.
+ * Enforces timeout, max body size, and SSRF-safe DNS resolution.
  */
-function fetchUrl(urlString, redirectCount = 0) {
+async function fetchUrl(urlString, redirectCount = 0) {
   if (redirectCount > 3) {
-    return Promise.reject(new Error('Too many redirects'));
+    throw new Error('Too many redirects');
   }
 
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(urlString);
-    const httpModule = parsed.protocol === 'https:' ? https : http;
+  const parsed = new URL(urlString);
+  const httpModule = parsed.protocol === 'https:' ? https : http;
 
+  // Resolve + validate BEFORE connecting. This throws on DNS failure,
+  // blocked host, or private-IP resolution.
+  const { address, family } = await resolveSafeAddress(parsed.hostname);
+  const agent = pinnedAgent(parsed.protocol, address, family);
+
+  return new Promise((resolve, reject) => {
     const req = httpModule.get(urlString, {
+      agent,
       timeout: FETCH_TIMEOUT,
       headers: {
         'User-Agent': 'WindyChat-LinkPreview/1.0',
@@ -97,10 +233,12 @@ function fetchUrl(urlString, redirectCount = 0) {
       // Handle redirects
       if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
         let redirectUrl = res.headers.location;
-        // Handle relative redirects
         if (!redirectUrl.startsWith('http')) {
           redirectUrl = new URL(redirectUrl, urlString).href;
         }
+        // Re-validate AND re-resolve for the new URL. Otherwise an
+        // attacker redirects example.com → 127.0.0.1 and the pinned
+        // agent of the first hop is irrelevant.
         const validation = validateUrl(redirectUrl);
         if (!validation.valid) {
           return reject(new Error(validation.error));
@@ -266,9 +404,15 @@ router.get('/link-preview', linkPreviewLimiter, asyncHandler(async (req, res) =>
       cached: false,
     });
   } catch (err) {
+    if (err && err.code === 'SSRF_DENIED') {
+      return res.status(400).json({ error: err.message });
+    }
     console.warn(`[media] Link preview fetch failed for ${url}:`, err.message);
     res.status(502).json({ error: 'Failed to fetch link preview', detail: err.message });
   }
 }));
 
 module.exports = router;
+// Internals exposed for unit testing the SSRF defense (P1-7). Do not
+// import these from production code.
+module.exports.__test_internals__ = { isPrivateIP, resolveSafeAddress, validateUrl, BLOCKED_HOSTNAMES };

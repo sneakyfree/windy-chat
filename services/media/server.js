@@ -22,6 +22,7 @@ const { createHealthHandler } = require('../shared/health');
 const { asyncHandler } = require('../shared/async-handler');
 const { createAuthMiddleware } = require('../shared/jwt-verify');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
+const { bodyErrorHandler } = require('../shared/body-errors');
 const mediaDb = require('./lib/db');
 
 const app = express();
@@ -104,6 +105,11 @@ app.use(express.json({ limit: '1mb' }));
 initSentry(app, 'windy-chat-media');
 
 const auth = createAuthMiddleware();
+
+// Mount the link-preview router BEFORE any /api/v1/media/:id handlers
+// — otherwise `link-preview` is swallowed by the `:id` param. See P0-1
+// in docs/GAP_ANALYSIS.md for the original route-shadowing bug.
+app.use('/api/v1/media', linkPreviewRouter);
 
 // ── Health ──
 app.get('/health', createHealthHandler({
@@ -393,10 +399,32 @@ app.get('/api/v1/media/:id', asyncHandler(async (req, res) => {
   }
 
   res.setHeader('Content-Type', record.mime_type);
-  res.setHeader('Content-Disposition', `inline; filename="${record.original_name}"`);
+  // Content-Disposition filename comes from user-uploaded metadata —
+  // sanitize before interpolating into the header, otherwise a filename
+  // containing CR/LF (or unescaped quotes) can inject arbitrary response
+  // headers (P2-3). RFC 6266 §4.3 requires quoted-string escaping of `\`
+  // and `"`; we additionally strip CR/LF and control chars.
+  res.setHeader('Content-Disposition', buildContentDisposition(record.original_name));
   res.setHeader('Content-Length', record.size);
   fs.createReadStream(record.file_path).pipe(res);
 }));
+
+/**
+ * Build a safe Content-Disposition header value given a user-supplied
+ * filename. Strips control characters, escapes quotes + backslashes,
+ * and falls back to a generic name if the input is empty.
+ */
+function buildContentDisposition(originalName) {
+  const raw = typeof originalName === 'string' ? originalName : '';
+  // Remove C0/C1 control characters (incl. CR/LF) — these break headers
+  const stripped = raw.replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim();
+  if (!stripped) return 'inline; filename="file"';
+  // RFC 6266 quoted-string: backslash-escape \ and "
+  const quoted = stripped.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  // Cap length to avoid degenerate headers
+  const capped = quoted.slice(0, 200);
+  return `inline; filename="${capped}"`;
+}
 
 // ── Serve thumbnail ──
 app.get('/api/v1/media/:id/thumbnail', asyncHandler(async (req, res) => {
@@ -413,8 +441,7 @@ app.get('/api/v1/media/:id/thumbnail', asyncHandler(async (req, res) => {
   fs.createReadStream(record.thumbnail_path).pipe(res);
 }));
 
-// ── Link Preview ──
-app.use('/api/v1/media', linkPreviewRouter);
+// (link-preview mount moved above — see note near app start)
 
 // ── 404 ──
 app.use((_req, res) => {
@@ -422,6 +449,7 @@ app.use((_req, res) => {
 });
 
 // ── Error handler ──
+app.use(bodyErrorHandler());
 app.use(sentryErrorHandler());
 app.use((err, _req, res, _next) => {
   console.error('[media] Error:', err.message);

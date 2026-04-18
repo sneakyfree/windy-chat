@@ -21,6 +21,7 @@ const agentRoutes = require('./routes/agents');
 const { createCorsOptions } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
+const { bodyErrorHandler } = require('../shared/body-errors');
 
 const app = express();
 const PORT = process.env.PORT || 8102;
@@ -50,12 +51,19 @@ const globalLimiter = rateLimit({
 app.use(globalLimiter);
 
 // ── Health check (no auth required) ──
+// Surfaces trust-client cache effectiveness per P3-1. In prod, scrape
+// /health every ~60s; a sustained local_hit_rate below ~0.7 means the
+// cache isn't paying for itself and we should bump DEFAULT_CACHE_TTL_SECONDS,
+// and an upstream_hit_rate below ~0.5 suggests Eternitas's own cache is
+// cold — usually benign, but a sudden drop is a deployment-health signal.
+const { getTrustClientMetrics } = require('../shared/trust-client');
 app.get('/health', createHealthHandler({
   service: 'windy-chat-directory',
   version: '1.0.0',
   checks: async () => ({
     twilio: !!process.env.TWILIO_ACCOUNT_SID,
     sendgrid: !!process.env.SENDGRID_API_KEY,
+    trust_client: getTrustClientMetrics(),
   }),
 }));
 
@@ -71,6 +79,7 @@ app.use((_req, res) => {
 });
 
 // ── Error handler ──
+app.use(bodyErrorHandler());
 app.use(sentryErrorHandler());
 app.use((err, _req, res, _next) => {
   console.error('❌ Unhandled error:', err);
