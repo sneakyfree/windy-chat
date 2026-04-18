@@ -25,6 +25,7 @@ const webhookRoutes = require('./routes/webhooks');
 const { createCorsOptions } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
+const { bodyErrorHandler } = require('../shared/body-errors');
 
 const app = express();
 const PORT = process.env.PORT || 8101;
@@ -283,6 +284,7 @@ app.use((_req, res) => {
 });
 
 // ── Error handler ──
+app.use(bodyErrorHandler());
 app.use(sentryErrorHandler());
 app.use((err, _req, res, _next) => {
   console.error('❌ Unhandled error:', err);

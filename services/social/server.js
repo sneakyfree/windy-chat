@@ -23,7 +23,7 @@ const { createHealthHandler } = require('../shared/health');
 const { asyncHandler } = require('../shared/async-handler');
 const { createAuthMiddleware } = require('../shared/jwt-verify');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
-const { verifiedAccounts, persistVerified } = require('./lib/store');
+const { verifiedAccounts, persistVerified, eternitasVerifyCache } = require('./lib/store');
 
 /**
  * Verify Eternitas webhook HMAC signature.
@@ -43,9 +43,17 @@ function verifyEternitasSignature(req) {
 const http = require('http');
 const https = require('https');
 
-const ETERNITAS_API_URL = process.env.ETERNITAS_API_URL || 'https://api.eternitas.ai';
+// Canonical env var is ETERNITAS_URL; ETERNITAS_API_URL accepted for
+// backwards compatibility. Default aligned with
+// services/shared/trust-client.js so every consumer talks to the same
+// Eternitas instance in dev.
+const ETERNITAS_API_URL = process.env.ETERNITAS_URL
+  || process.env.ETERNITAS_API_URL
+  || 'http://localhost:8500';
 const ETERNITAS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
-const eternitasCache = new Map(); // passportId → { valid, timestamp }
+// Shared with routes/eternitas-webhook.js so revoke/suspend/reinstate
+// can synchronously invalidate. Do NOT use a local Map here.
+const eternitasCache = eternitasVerifyCache;
 
 /**
  * Verify a passport against the Eternitas registry API.
@@ -116,8 +124,23 @@ app.get('/health', createHealthHandler({
   version: '1.0.0',
 }));
 
-// ── Presence (kept from original) ──
-app.get('/api/v1/social/presence/:userId', asyncHandler(async (req, res) => {
+// ── Routes ──
+app.use('/api/v1/social/posts', postsRouter);
+app.use('/api/v1/social/follow', followRouter);
+app.use('/api/v1/social/notifications', notificationsRouter);
+app.use('/api/v1/social/moderation', moderationRouter);
+app.use('/api/v1/webhooks/eternitas', eternitasWebhookRouter);
+
+// ── Dashboard Summary (quick panel rendering for unified dashboard) ──
+const WINDY_ACCOUNT_SERVER_URL = process.env.WINDY_ACCOUNT_SERVER_URL || 'http://localhost:8098';
+const auth = createAuthMiddleware();
+
+// ── Presence — requires auth (P2-5) ──
+// Previously public; any unauthenticated caller could enumerate user
+// IDs and harvest the `verified` boolean for bot passports. Anyone
+// legitimately showing presence in a chat client is already logged in,
+// so requiring auth has zero UX cost and removes the leak.
+app.get('/api/v1/social/presence/:userId', auth, asyncHandler(async (req, res) => {
   const userId = req.params.userId;
   let verified = verifiedAccounts.has(userId);
 
@@ -133,17 +156,6 @@ app.get('/api/v1/social/presence/:userId', asyncHandler(async (req, res) => {
     verified,
   });
 }));
-
-// ── Routes ──
-app.use('/api/v1/social/posts', postsRouter);
-app.use('/api/v1/social/follow', followRouter);
-app.use('/api/v1/social/notifications', notificationsRouter);
-app.use('/api/v1/social/moderation', moderationRouter);
-app.use('/api/v1/webhooks/eternitas', eternitasWebhookRouter);
-
-// ── Dashboard Summary (quick panel rendering for unified dashboard) ──
-const WINDY_ACCOUNT_SERVER_URL = process.env.WINDY_ACCOUNT_SERVER_URL || 'http://localhost:8098';
-const auth = createAuthMiddleware();
 
 app.get('/api/v1/social/dashboard-summary', auth, asyncHandler(async (req, res) => {
   const userId = req.user.sub;
@@ -363,6 +375,7 @@ app.use((_req, res) => {
 });
 
 // ── Error handler ──
+app.use(bodyErrorHandler());
 app.use(sentryErrorHandler());
 app.use((err, _req, res, _next) => {
   console.error('[social] Error:', err.message);

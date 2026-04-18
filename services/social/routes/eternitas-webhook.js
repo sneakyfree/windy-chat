@@ -13,7 +13,7 @@ const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
 const { asyncHandler } = require('../../shared/async-handler');
-const { verifiedAccounts, persistVerified } = require('../lib/store');
+const { verifiedAccounts, persistVerified, flushEternitasVerifyCache } = require('../lib/store');
 
 const router = express.Router();
 
@@ -24,11 +24,20 @@ const SYNAPSE_SERVER_NAME = process.env.SYNAPSE_SERVER_NAME || 'chat.windyword.a
 
 /**
  * Verify HMAC-SHA256 signature from Eternitas.
+ *
+ * Accepts both live Eternitas format (`sha256=<hex>` per
+ * eternitas/docs/webhooks.md) and the legacy bare-hex format older
+ * producers used. Case-insensitive on the prefix.
  */
 function verifySignature(req) {
-  const signature = req.headers['x-eternitas-signature'];
+  const raw = req.headers['x-eternitas-signature'];
   const secret = process.env.ETERNITAS_WEBHOOK_SECRET;
-  if (!secret || !signature) return false;
+  if (!secret || !raw) return false;
+
+  let signature = String(raw).trim();
+  const prefixMatch = signature.match(/^sha256=(.+)$/i);
+  if (prefixMatch) signature = prefixMatch[1];
+
   const payload = JSON.stringify(req.body);
   const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
   if (signature.length !== expected.length) return false;
@@ -113,6 +122,14 @@ async function handleRevocationOrSuspension(event, passport, botName, operatorId
   const matrixUserId = `@agent_${passport}:${SYNAPSE_SERVER_NAME}`;
   const actions = [];
 
+  // 0. Flush the social service's own Eternitas-verify cache
+  //    (1-hour TTL otherwise). Without this, a revoked bot stays
+  //    "verified" in /api/v1/social/presence responses for up to an
+  //    hour. P1-3 fix.
+  const verifyCacheFlushed = flushEternitasVerifyCache(passport)
+    || flushEternitasVerifyCache(botUserId);
+  actions.push(verifyCacheFlushed ? 'verify_cache_flushed' : 'verify_cache_empty');
+
   // 1. Remove verified badge
   verifiedAccounts.delete(botUserId);
   persistVerified();
@@ -161,6 +178,12 @@ async function handleReinstatement(passport, botName, operatorId, reason) {
   const matrixUserId = `@agent_${passport}:${SYNAPSE_SERVER_NAME}`;
   const actions = [];
 
+  // 0. Flush the verify cache so the next /presence lookup refetches
+  //    instead of seeing the suspended-era cached "false".
+  const verifyCacheFlushed = flushEternitasVerifyCache(passport)
+    || flushEternitasVerifyCache(botUserId);
+  actions.push(verifyCacheFlushed ? 'verify_cache_flushed' : 'verify_cache_empty');
+
   // 1. Restore verified badge
   verifiedAccounts.add(botUserId);
   persistVerified();
@@ -199,15 +222,15 @@ router.post('/', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: `Invalid event type. Must be one of: ${validEvents.join(', ')}` });
   }
 
-  // Verify HMAC signature
-  if (process.env.ETERNITAS_WEBHOOK_SECRET) {
-    if (!verifySignature(req)) {
-      return res.status(401).json({ error: 'Invalid webhook signature' });
-    }
-  } else if (process.env.NODE_ENV === 'production') {
-    return res.status(500).json({ error: 'ETERNITAS_WEBHOOK_SECRET not configured' });
-  } else {
-    console.warn('[eternitas-webhook] ETERNITAS_WEBHOOK_SECRET not set — skipping signature verification (development mode)');
+  // Verify HMAC signature. Fail-closed when the secret is unset
+  // regardless of NODE_ENV — P1-8 removes the "skip in development"
+  // escape hatch. Tests must set ETERNITAS_WEBHOOK_SECRET explicitly.
+  if (!process.env.ETERNITAS_WEBHOOK_SECRET) {
+    console.error('[eternitas-webhook] ETERNITAS_WEBHOOK_SECRET not configured — rejecting');
+    return res.status(503).json({ error: 'Webhook secret not configured' });
+  }
+  if (!verifySignature(req)) {
+    return res.status(401).json({ error: 'Invalid webhook signature' });
   }
 
   // Return 200 immediately, process async
