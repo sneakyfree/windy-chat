@@ -46,6 +46,38 @@ const agentListLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Per-passport rate limit on the trust gates. Every gate call makes
+// 1–2 Eternitas GETs on cache miss; Eternitas rate-limits 100 req/min
+// per IP, and if one bot bursts through our IP budget it denies
+// gate calls for every other caller in the same deploy for 5 min (the
+// local cache TTL window). 30/min per bot keeps us well under the
+// upstream budget even with a handful of concurrent bots.
+//
+// Humans bypass the gate body early, so this limiter's key generator
+// defaults to req.ip — which matches the existing global per-IP limit
+// behavior — but the typical gate caller is a bot and we want the key
+// to be the bot's passport so one misbehaving bot can't exhaust its IP
+// bucket for its neighbors.
+const gateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: { error: 'Gate call rate limit exceeded' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const passport = req.user?.passport_id || req.user?.eternitas_passport;
+    if (passport) return `bot:${passport}`;
+    // Bucket human callers together but with a much higher budget —
+    // human gate calls all return true anyway, so this is just belt-
+    // and-suspenders against runaway client loops.
+    return `human:${req.ip || 'unknown'}`;
+  },
+  // Humans short-circuit the gate body; don't debit their bucket on
+  // the success path. This keeps the effective per-bot limit at 30/min
+  // regardless of how many humans share the IP.
+  skip: (req) => !(req.user?.passport_id || req.user?.eternitas_passport),
+});
+
 // ── Schema: agent_directory table ──
 dirDb.db.exec(`
 CREATE TABLE IF NOT EXISTS agent_directory (
@@ -708,6 +740,127 @@ router.post('/agents/gate/broadcast', asyncHandler(async (req, res) => {
 // Body: { target_matrix_id?: string, is_connected: boolean }
 // Gate only fires when the bot is mentioning a human it's NOT connected to.
 router.post('/agents/gate/mention', asyncHandler(async (req, res) => {
+  if (isHumanCaller(req)) {
+    return res.json({ allowed: true, caller: 'human', gate: 'mention' });
+  }
+  const sender = callerPassport(req);
+  const { is_connected, target_matrix_id } = req.body || {};
+
+  // Only the *disconnected* case is gated — connected mentions are free
+  if (is_connected === true) {
+    return res.json({ allowed: true, gate: 'mention', reason: 'already_connected', sender, target_matrix_id: target_matrix_id || null });
+  }
+  if (typeof is_connected !== 'boolean') {
+    return res.status(400).json({ error: 'is_connected (boolean) is required' });
+  }
+
+  const profile = await getTrustProfile(sender);
+  if (!profile) {
+    return res.status(403).json({ allowed: false, gate: 'mention', reason: 'trust_api_unreachable', sender });
+  }
+  if (!isActive(profile)) {
+    return res.status(403).json({
+      allowed: false, gate: 'mention', reason: 'passport_not_active',
+      status: profile.status, band: profile.band, sender,
+    });
+  }
+  if (!clearanceMeets(profile.clearance_level, 'top_secret')) {
+    return res.status(403).json({
+      allowed: false, gate: 'mention', reason: 'insufficient_clearance',
+      required: 'top_secret', actual: profile.clearance_level, sender,
+    });
+  }
+  return res.json({ allowed: true, gate: 'mention', sender, clearance_level: profile.clearance_level });
+}));
+
+// ── Trust Gates (Wave 3, updated for Eternitas live contract in Wave 4) ──
+//
+// Service-to-service authorization for agent actions. Callers (e.g. Fly,
+// the social service, the chat client on behalf of a bot) POST here BEFORE
+// performing the action; a 200 with `{allowed: true}` means the gate
+// cleared, anything else means deny.
+//
+// Contract: /Users/thewindstorm/eternitas/docs/trust-api.md
+//
+// Enforcement rules:
+//   1. bot→bot DM        : sender AND recipient must have 'dm_bots' in allowed_actions
+//   2. bot→public feed   : sender must have 'broadcast' in allowed_actions
+//   3. bot→disconnected human mention : sender clearance_level ≥ 'top_secret'
+//      (Eternitas also exposes 'mention_strangers' as a discrete action —
+//       either signal denying is sufficient)
+//
+// Humans (Pro JWT without a passport claim) always bypass — the gates exist
+// only to restrict what *bots* can do. All gates additionally require
+// status='active' and band !== 'critical' (isActive helper).
+
+async function requireAllowedAction(passport, action) {
+  const profile = await getTrustProfile(passport);
+  if (!profile) {
+    return { ok: false, reason: 'trust_api_unreachable' };
+  }
+  if (profile.status === 'not_found') {
+    return { ok: false, reason: 'passport_not_found', profile };
+  }
+  if (!isActive(profile)) {
+    return {
+      ok: false,
+      reason: 'passport_not_active',
+      status: profile.status,
+      band: profile.band,
+      profile,
+    };
+  }
+  if (!profile.allowed_actions.includes(action)) {
+    return { ok: false, reason: 'missing_allowed_action', required: action, profile };
+  }
+  return { ok: true, profile };
+}
+
+// POST /api/v1/chat/directory/agents/gate/dm
+// Body: { recipient_passport: string }
+// Sender passport is taken from the caller's JWT claims.
+router.post('/agents/gate/dm', gateLimiter, asyncHandler(async (req, res) => {
+  if (isHumanCaller(req)) {
+    return res.json({ allowed: true, caller: 'human', gate: 'dm' });
+  }
+  const sender = callerPassport(req);
+  const { recipient_passport } = req.body || {};
+  if (!recipient_passport || typeof recipient_passport !== 'string') {
+    return res.status(400).json({ error: 'recipient_passport is required' });
+  }
+
+  const s = await requireAllowedAction(sender, 'dm_bots');
+  if (!s.ok) {
+    return res.status(403).json({
+      allowed: false, gate: 'dm', side: 'sender', sender, ...s,
+    });
+  }
+  const r = await requireAllowedAction(recipient_passport, 'dm_bots');
+  if (!r.ok) {
+    return res.status(403).json({
+      allowed: false, gate: 'dm', side: 'recipient', recipient: recipient_passport, ...r,
+    });
+  }
+  return res.json({ allowed: true, gate: 'dm', sender, recipient: recipient_passport });
+}));
+
+// POST /api/v1/chat/directory/agents/gate/broadcast
+router.post('/agents/gate/broadcast', gateLimiter, asyncHandler(async (req, res) => {
+  if (isHumanCaller(req)) {
+    return res.json({ allowed: true, caller: 'human', gate: 'broadcast' });
+  }
+  const sender = callerPassport(req);
+  const s = await requireAllowedAction(sender, 'broadcast');
+  if (!s.ok) {
+    return res.status(403).json({ allowed: false, gate: 'broadcast', sender, ...s });
+  }
+  return res.json({ allowed: true, gate: 'broadcast', sender });
+}));
+
+// POST /api/v1/chat/directory/agents/gate/mention
+// Body: { target_matrix_id?: string, is_connected: boolean }
+// Gate only fires when the bot is mentioning a human it's NOT connected to.
+router.post('/agents/gate/mention', gateLimiter, asyncHandler(async (req, res) => {
   if (isHumanCaller(req)) {
     return res.json({ allowed: true, caller: 'human', gate: 'mention' });
   }
