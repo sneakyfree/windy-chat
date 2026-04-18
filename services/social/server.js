@@ -44,7 +44,13 @@ function verifyEternitasSignature(req) {
 const http = require('http');
 const https = require('https');
 
-const ETERNITAS_API_URL = process.env.ETERNITAS_API_URL || 'https://api.eternitas.ai';
+// Canonical env var is ETERNITAS_URL; ETERNITAS_API_URL accepted for
+// backwards compatibility. Default aligned with
+// services/shared/trust-client.js so every consumer talks to the same
+// Eternitas instance in dev.
+const ETERNITAS_API_URL = process.env.ETERNITAS_URL
+  || process.env.ETERNITAS_API_URL
+  || 'http://localhost:8500';
 const ETERNITAS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 const eternitasCache = new Map(); // passportId → { valid, timestamp }
 
