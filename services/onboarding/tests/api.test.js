@@ -9,7 +9,7 @@ process.env.WINDY_IDENTITY_WEBHOOK_SECRET = 'test-identity-hmac-secret';
 process.env.ETERNITAS_WEBHOOK_SECRET = 'test-eternitas-hmac-secret';
 
 const crypto = require('crypto');
-const app = require('../server');
+const { app } = require('../server');
 
 const JWT_SECRET = process.env.WINDY_JWT_SECRET;
 
