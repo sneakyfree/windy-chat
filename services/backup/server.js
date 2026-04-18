@@ -23,6 +23,7 @@ const { createCorsOptions } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
 const { asyncHandler } = require('../shared/async-handler');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
+const { bodyErrorHandler } = require('../shared/body-errors');
 const backupDb = require('./lib/db');
 
 const app = express();
@@ -462,6 +463,7 @@ app.get('/api/v1/chat/backup/schedule', authMiddleware, (req, res) => {
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 
 // ── Error handler ──
+app.use(bodyErrorHandler());
 app.use(sentryErrorHandler());
 app.use((err, _req, res, _next) => {
   console.error('❌ Unhandled error:', err);

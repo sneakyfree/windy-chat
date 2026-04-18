@@ -21,6 +21,7 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 const { asyncHandler } = require('../../shared/async-handler');
+const { withKeyLock } = require('../../shared/keyed-lock');
 
 const onboardingDb = require('../lib/db');
 
@@ -342,9 +343,16 @@ router.get('/agent-room', (req, res) => {
 // ── Eternitas Webhook (bot passport lifecycle events) ──
 
 function verifyEternitasSignature(req) {
-  const signature = req.headers['x-eternitas-signature'];
+  const raw = req.headers['x-eternitas-signature'];
   const secret = process.env.ETERNITAS_WEBHOOK_SECRET;
-  if (!secret || !signature) return false;
+  if (!secret || !raw) return false;
+
+  // Accept both `sha256=<hex>` (live Eternitas format, see
+  // eternitas/docs/webhooks.md) and bare `<hex>` (legacy producers).
+  let signature = String(raw).trim();
+  const prefixMatch = signature.match(/^sha256=(.+)$/i);
+  if (prefixMatch) signature = prefixMatch[1];
+
   const payload = JSON.stringify(req.body);
   const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
   if (signature.length !== expected.length) return false;
@@ -363,12 +371,15 @@ router.post('/eternitas/webhook', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: `Invalid event type. Must be one of: ${validEvents.join(', ')}` });
   }
 
-  if (process.env.ETERNITAS_WEBHOOK_SECRET) {
-    if (!verifyEternitasSignature(req)) {
-      return res.status(401).json({ error: 'Invalid webhook signature' });
-    }
-  } else {
-    console.warn('[onboarding] ETERNITAS_WEBHOOK_SECRET not set — skipping signature verification');
+  // Fail-closed when the secret is unset — P1-8 removes the
+  // "skip verification outside production" escape hatch. Tests must
+  // set ETERNITAS_WEBHOOK_SECRET explicitly.
+  if (!process.env.ETERNITAS_WEBHOOK_SECRET) {
+    console.error('[onboarding] ETERNITAS_WEBHOOK_SECRET not configured — rejecting');
+    return res.status(503).json({ error: 'Webhook secret not configured' });
+  }
+  if (!verifyEternitasSignature(req)) {
+    return res.status(401).json({ error: 'Invalid webhook signature' });
   }
 
   // Look up the agent by passport_id in the DB, then fallback to bot_ prefix
@@ -650,6 +661,16 @@ router.post('/unified-login', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'JWT missing windy_identity_id claim' });
   }
 
+  // Serialize concurrent first-login bursts for the same identity. Before
+  // this guard, 20 simultaneous requests for the same new user would
+  // race past the getProfileByWindyId lookup, all run the provisioning
+  // branch, and mint 20 different Matrix accounts / access_tokens with
+  // 19 orphaned in Synapse (P1-1).
+  //
+  // Under the lock, request #1 provisions + writes the profile row;
+  // requests #2-20 block until #1 releases, then see the existing row
+  // and return `already_existed: true` without minting new credentials.
+  return withKeyLock(`unified-login:${windyIdentityId}`, async () => {
   // Check if user already has a Chat profile (by windy_identity_id)
   const existing = onboardingDb.getProfileByWindyId.get(windyIdentityId);
 
@@ -777,6 +798,7 @@ router.post('/unified-login', asyncHandler(async (req, res) => {
     chat_user_id: chatUserId,
     room_id: dmRoom ? dmRoom.room_id : null,
   });
+  }); // close withKeyLock
 }));
 
 module.exports = router;

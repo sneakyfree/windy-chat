@@ -699,6 +699,16 @@ function persistReports() {}
 function persistVerified() {}
 function persistLikes() {}
 
+// ── Eternitas verify cache ────────────────────────────────────────────
+// Shared between server.js (reader via verifyWithEternitas) and
+// routes/eternitas-webhook.js (invalidator on revoke/suspend/reinstate).
+// Per P1-3, this cache MUST be flushed when a passport's status changes;
+// the 1-hour TTL is just a backstop for the common case.
+const eternitasVerifyCache = new Map(); // passportId → { valid, timestamp }
+function flushEternitasVerifyCache(passportId) {
+  return eternitasVerifyCache.delete(passportId);
+}
+
 // ── Exports ─────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -709,6 +719,8 @@ module.exports = {
   notificationsMap,
   reportsMap,
   verifiedAccounts,
+  eternitasVerifyCache,
+  flushEternitasVerifyCache,
   likesMap,
   persistPosts,
   persistFollows,
