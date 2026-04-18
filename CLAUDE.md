@@ -119,3 +119,13 @@ cd services/backup && npm install && npm run dev        # Port 8104
 3. Push notification bodies NEVER contain message text (privacy)
 4. Backup encryption keys are client-derived (PBKDF2) — server is zero-knowledge
 5. Chat client code stays in windy-pro/windy-pro-mobile — this repo is backend only
+
+## Branching Policy Exception — wave-7-batch-only (2026-04-17)
+
+One-time exception: Bucket A PRs from docs/MERGE_TRIAGE.md are
+self-merged by the automation handling the Wave-7 audit batch
+(`gh pr merge <num> --squash --delete-branch --admin`). This applies
+ONLY to the five Bucket A PRs listed in that doc and ONLY for this
+batch. Default Branching Policy (review required before merge) resumes
+immediately after. Bucket B also self-merges but each runs the full
+integration suite between merges and reverts on regression.

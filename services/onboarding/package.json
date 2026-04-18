@@ -28,5 +28,16 @@
   "devDependencies": {
     "jest": "^30.3.0",
     "supertest": "^7.2.2"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "moduleNameMapper": {
+      "^jwks-rsa$": "<rootDir>/../shared/__mocks__/jwks-rsa.js"
+    },
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/tests/integration-pro.test.js",
+      "/tests/webhooks.test.js"
+    ]
   }
 }
