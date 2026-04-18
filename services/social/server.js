@@ -23,6 +23,7 @@ const { createHealthHandler } = require('../shared/health');
 const { asyncHandler } = require('../shared/async-handler');
 const { createAuthMiddleware } = require('../shared/jwt-verify');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
+const { bodyErrorHandler } = require('../shared/body-errors');
 const { verifiedAccounts, persistVerified, eternitasVerifyCache } = require('./lib/store');
 
 /**
