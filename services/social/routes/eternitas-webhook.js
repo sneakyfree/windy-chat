@@ -24,11 +24,20 @@ const SYNAPSE_SERVER_NAME = process.env.SYNAPSE_SERVER_NAME || 'chat.windyword.a
 
 /**
  * Verify HMAC-SHA256 signature from Eternitas.
+ *
+ * Accepts both live Eternitas format (`sha256=<hex>` per
+ * eternitas/docs/webhooks.md) and the legacy bare-hex format older
+ * producers used. Case-insensitive on the prefix.
  */
 function verifySignature(req) {
-  const signature = req.headers['x-eternitas-signature'];
+  const raw = req.headers['x-eternitas-signature'];
   const secret = process.env.ETERNITAS_WEBHOOK_SECRET;
-  if (!secret || !signature) return false;
+  if (!secret || !raw) return false;
+
+  let signature = String(raw).trim();
+  const prefixMatch = signature.match(/^sha256=(.+)$/i);
+  if (prefixMatch) signature = prefixMatch[1];
+
   const payload = JSON.stringify(req.body);
   const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
   if (signature.length !== expected.length) return false;
