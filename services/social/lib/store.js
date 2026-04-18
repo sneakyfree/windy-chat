@@ -6,12 +6,20 @@
 
 const Database = require('better-sqlite3');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const DB_PATH = path.join(__dirname, '..', 'data', 'social.db');
+// In test runs the social app gets imported by multiple test files,
+// sometimes in separate Node processes (`node --test tests/a.js tests/b.js`).
+// A single shared social.db WAL file then hits SQLITE_BUSY under load.
+// Isolating per-process under a PID-scoped tempdir keeps tests independent
+// without touching production behavior — outside tests the shared
+// services/social/data path is still used.
+const DATA_DIR = process.env.NODE_ENV === 'test'
+  ? fs.mkdtempSync(path.join(os.tmpdir(), `windy-social-${process.pid}-`))
+  : path.join(__dirname, '..', 'data');
+const DB_PATH = path.join(DATA_DIR, 'social.db');
 
-// Ensure data directory exists
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const db = new Database(DB_PATH);
