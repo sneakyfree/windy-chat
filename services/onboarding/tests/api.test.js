@@ -9,10 +9,7 @@ process.env.WINDY_IDENTITY_WEBHOOK_SECRET = 'test-identity-hmac-secret';
 process.env.ETERNITAS_WEBHOOK_SECRET = 'test-eternitas-hmac-secret';
 
 const crypto = require('crypto');
-// onboarding server.js exports { app } (unlike other services which
-// export the app directly). Destructure so supertest gets a bare Express
-// app — without this, app.address() throws "not a function".
-const { app } = require('../server');
+const app = require('../server');
 
 const JWT_SECRET = process.env.WINDY_JWT_SECRET;
 
