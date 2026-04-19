@@ -1,0 +1,8 @@
+[windy-chat-directory] Sentry not configured (SENTRY_DSN not set)
+🌪️  Windy Chat Directory — listening on port 8102
+   Health:  http://localhost:8102/health
+   Lookup:  http://localhost:8102/api/v1/chat/directory/lookup
+   Search:  http://localhost:8102/api/v1/chat/directory/search
+[trust-client] fetch failed for ET-EVIL-001: fetch failed
+[trust-client] fetch failed for ET-PROBE-001: fetch failed
+[trust-client] fetch failed for ET-PROBE-001: fetch failed

@@ -1,0 +1,19 @@
+[windy-chat-onboarding] Sentry not configured (SENTRY_DSN not set)
+[onboarding] listening on :8101
+[unified-login] Account-server failed: Account-server provision failed: 401 Invalid token
+[unified-login] No provisioning method — returning dev stub (NODE_ENV != production)
+[unified-login] New user: Owner (wave11-owner) → @windy_owner:chat.windywave11.local
+[agent-provision] Dev mode — stub Matrix account: @agent_et26-defer-11:chat.windywave11.local
+[agent-provision] Failed to set avatar for @agent_et26-defer-11:chat.windywave11.local: fetch failed
+[agent-provision] Agent provisioned: DeferredFly (ET26-DEFER-11) → @agent_et26-defer-11:chat.windywave11.local, DM: deferred
+[webhooks] identity/created: wave11-deferred → @defer.owner:chat.windywave11.local
+[dm-room] Dev mode — stub room: !dev_dm_44cc0f8f:chat.windywave11.local
+[provision] Seeded 1/1 pending agent DM(s) for owner wave11-deferred
+[unified-login] Account-server failed: Account-server provision failed: 401 Invalid token
+[unified-login] No provisioning method — returning dev stub (NODE_ENV != production)
+[unified-login] New user: wave11-user (wave11-user) → @windy_wave11-user:chat.windywave11.local
+[agent-provision] Dev mode — stub Matrix account: @agent_et26-xss-01:chat.windywave11.local
+[agent-provision] Failed to set avatar for @agent_et26-xss-01:chat.windywave11.local: fetch failed
+[agent-provision] Admin room creation failed: fetch failed
+[agent-provision] Dev mode — stub DM room: !dev_agent_dm_3516cfab:chat.windywave11.local
+[agent-provision] Agent provisioned: alert(1)XssFly (ET26-XSS-01) → @agent_et26-xss-01:chat.windywave11.local, DM: !dev_agent_dm_3516cfab:chat.windywave11.local
