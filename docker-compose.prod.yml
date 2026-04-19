@@ -10,8 +10,8 @@
 # ${VAR:-default} at shell time, NOT from the container's env_file.
 # Without --env-file you get dev defaults silently (Phase-2 bug #3).
 #
-# `!reset` + new list = full replacement; bare lists APPEND (Phase-2
-# bug #2). Use !reset on every list that must not merge: ports, env
+# `!override` + new list = full replacement; bare lists APPEND (Phase-2
+# bug #2). Use !override on every list that must not merge: ports, env
 # vars we want to blank out, networks.
 
 services:
@@ -26,7 +26,7 @@ services:
   # ── Synapse Matrix homeserver — production config ──────────────
   synapse:
     # Bind only to loopback — nginx terminates TLS on :443
-    ports: !reset
+    ports: !override
       - "127.0.0.1:8008:8008"
     environment:
       SYNAPSE_SERVER_NAME: ${SYNAPSE_SERVER_NAME:-chat.windychat.ai}
@@ -40,7 +40,7 @@ services:
     # /data/homeserver.yaml which would shadow our rendered prod config.
     # The prod data lives on the host at /opt/windy-chat-data/synapse
     # (rendered homeserver.yaml + signing.key + log config).
-    volumes: !reset
+    volumes: !override
       - /opt/windy-chat-data/synapse:/data
       - ./deploy/synapse/windy_registration.py:/data/modules/windy_registration.py:ro
       - ./deploy/synapse/windy_push_bus.py:/data/modules/windy_push_bus.py:ro
@@ -53,7 +53,7 @@ services:
   # ── Node services ──────────────────────────────────────────────
   # All four bind to loopback only — host nginx terminates and proxies.
   onboarding:
-    ports: !reset
+    ports: !override
       - "127.0.0.1:8101:8101"
     environment:
       NODE_ENV: production
@@ -69,7 +69,7 @@ services:
     restart: unless-stopped
 
   directory:
-    ports: !reset
+    ports: !override
       - "127.0.0.1:8102:8102"
     environment:
       NODE_ENV: production
@@ -78,7 +78,7 @@ services:
     restart: unless-stopped
 
   push-gateway:
-    ports: !reset
+    ports: !override
       - "127.0.0.1:8103:8103"
     environment:
       NODE_ENV: production
@@ -93,7 +93,7 @@ services:
     restart: unless-stopped
 
   backup:
-    ports: !reset
+    ports: !override
       - "127.0.0.1:8104:8104"
     environment:
       NODE_ENV: production
@@ -109,5 +109,5 @@ services:
   # 49152–65535 relay range must be open on the EC2 SG (Gate 2).
   coturn:
     network_mode: host
-    ports: !reset []
+    ports: !override []
     restart: unless-stopped
