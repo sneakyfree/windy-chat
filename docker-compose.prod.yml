@@ -35,6 +35,11 @@ services:
       # in homeserver.yaml (mounted from /opt/windy-chat-data/synapse);
       # this env var is informational only.
       SYNAPSE_DATABASE_URL: ${SYNAPSE_DATABASE_URL:?SYNAPSE_DATABASE_URL is required}
+      # windy_registration + windy_push_bus are bind-mounted at
+      # /data/modules/ from the repo — PYTHONPATH makes them importable
+      # by Synapse's module loader (`module: windy_registration.WindyRegistrationModule`
+      # in homeserver.yaml).
+      PYTHONPATH: /data/modules
     # Full-replace the base compose's volumes list — the base bind-mounts
     # the DEV homeserver.yaml (server_name=chat.windyword.ai) on top of
     # /data/homeserver.yaml which would shadow our rendered prod config.
