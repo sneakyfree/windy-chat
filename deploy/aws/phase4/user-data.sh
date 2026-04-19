@@ -24,13 +24,17 @@ exec > >(tee -a /var/log/windy-chat-bootstrap.log) 2>&1
 echo "=== windy-chat phase 4 bootstrap — $(date -u +%FT%TZ) ==="
 
 # ── 1. OS packages ────────────────────────────────────────────────
+# NB: `awscli` was dropped from Ubuntu 24.04 (Noble) default repos —
+# install via snap instead so EC2 ops tools work. (Wave-13 Phase-4 bug;
+# Phase 2 was on 22.04 / Jammy and didn't hit this.)
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y \
   ca-certificates curl gnupg lsb-release git jq \
   nginx certbot python3-certbot-nginx \
   postgresql-client-16 \
-  awscli
+  snapd
+snap install aws-cli --classic || echo "[bootstrap] aws-cli snap install failed (non-fatal; operator CLI lives on laptop)"
 
 # ── 2. Docker Engine + Compose v2 ─────────────────────────────────
 install -m 0755 -d /etc/apt/keyrings
@@ -52,10 +56,14 @@ mkdir -p /opt/windy-chat
 chown ubuntu:ubuntu /opt/windy-chat
 
 # Clone with PAT in the URL, then immediately scrub.
+# NB: the placeholder is ${GITHUB_CLONE_TOKEN} (no leading backslash) —
+# envsubst '${GITHUB_CLONE_TOKEN}' substitutes it before cloud-init sees
+# the file. A backslash here would be preserved into the URL and break
+# the clone at runtime (caught in Phase-4 first attempt).
 su - ubuntu -c "
   set -euo pipefail
   cd /opt
-  git clone https://x-access-token:\${GITHUB_CLONE_TOKEN}@github.com/sneakyfree/windy-chat.git
+  git clone https://x-access-token:${GITHUB_CLONE_TOKEN}@github.com/sneakyfree/windy-chat.git
   cd windy-chat
   git remote set-url origin https://github.com/sneakyfree/windy-chat.git
   # Verify the scrub actually landed.
