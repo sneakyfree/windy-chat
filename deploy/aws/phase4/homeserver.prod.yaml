@@ -14,6 +14,10 @@
 server_name: "chat.windychat.ai"
 public_baseurl: "https://chat.windychat.ai"
 pid_file: /data/homeserver.pid
+# Synapse requires an explicit opt-in/out for usage stat reporting.
+# We opt out — the Windy Chat homeserver ships limited telemetry
+# through our own Sentry/observability path, not matrix.org's.
+report_stats: false
 
 listeners:
   - port: 8008
@@ -81,7 +85,7 @@ modules:
 registration_shared_secret: "${SYNAPSE_REGISTRATION_SECRET}"
 macaroon_secret_key: "${SYNAPSE_MACAROON_SECRET_KEY}"
 form_secret: "${SYNAPSE_FORM_SECRET}"
-signing_key_path: "/data/signing.key"
+signing_key_path: "/data/chat.windychat.ai.signing.key"
 
 # ── TURN / Coturn ────────────────────────────────────────────────
 turn_uris:
