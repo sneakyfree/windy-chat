@@ -63,6 +63,27 @@ function stripHtml(str) {
   return str.replace(/<[^>]*>/g, '');
 }
 
+/**
+ * Wave 12 H-1: block horizontal privilege escalation on push endpoints.
+ *
+ * Returns true iff the authenticated caller may act on behalf of `bodyUserId`:
+ *   • service-to-service calls (CHAT_API_TOKEN → req.user.role === 'service')
+ *     are allowed to target any user — this is how the account-server
+ *     re-provisions push tokens server-side.
+ *   • human callers must pass a userId matching their JWT identity claim
+ *     (windy_identity_id preferred, sub as fallback).
+ *
+ * Before this gate any valid Pro JWT could register a pushkey under a
+ * victim's account and hijack every notification fanned out for them —
+ * see docs/HARDENING_REPORT.md H-1 for the full repro.
+ */
+function callerOwnsUserId(req, bodyUserId) {
+  if (!req.user) return false;
+  if (req.user.role === 'service') return true;
+  const claim = req.user.windy_identity_id || req.user.sub;
+  return typeof claim === 'string' && claim === bodyUserId;
+}
+
 // ── SQLite-backed persistence (via ./lib/db) ──
 
 // ── FCM / APNs setup ──
@@ -367,6 +388,13 @@ app.post('/api/v1/chat/push/register', pushRegisterLimiter, authMiddleware, (req
       return res.status(400).json({ error: 'userId is required, max 255 characters, alphanumeric + hyphens' });
     }
 
+    if (!callerOwnsUserId(req, userId)) {
+      return res.status(403).json({
+        error: 'forbidden',
+        detail: 'userId must match authenticated user',
+      });
+    }
+
     if (!platform || typeof platform !== 'string' || !['android', 'ios', 'web'].includes(platform)) {
       return res.status(400).json({ error: 'platform is required, must be "android", "ios", or "web"' });
     }
@@ -409,6 +437,13 @@ app.post('/api/v1/chat/push/mute', authMiddleware, (req, res) => {
       return res.status(400).json({ error: 'userId is required, max 255 characters, alphanumeric + hyphens' });
     }
 
+    if (!callerOwnsUserId(req, userId)) {
+      return res.status(403).json({
+        error: 'forbidden',
+        detail: 'userId must match authenticated user',
+      });
+    }
+
     if (!roomId || typeof roomId !== 'string' || roomId.length > 255) {
       return res.status(400).json({ error: 'roomId is required, max 255 characters' });
     }
@@ -449,6 +484,13 @@ app.post('/api/v1/chat/push/unmute', authMiddleware, (req, res) => {
       return res.status(400).json({ error: 'userId is required, max 255 characters' });
     }
 
+    if (!callerOwnsUserId(req, userId)) {
+      return res.status(403).json({
+        error: 'forbidden',
+        detail: 'userId must match authenticated user',
+      });
+    }
+
     if (!roomId || typeof roomId !== 'string' || roomId.length > 255) {
       return res.status(400).json({ error: 'roomId is required, max 255 characters' });
     }
@@ -471,6 +513,28 @@ app.post('/api/v1/chat/push/test', authMiddleware, asyncHandler(async (req, res)
   }
   if (!platform || !['android', 'ios', 'web'].includes(platform)) {
     return res.status(400).json({ error: 'platform must be android, ios, or web' });
+  }
+
+  // Wave 12 M-1: constrain test pushes to pushkeys owned by the caller.
+  // Before this gate any valid JWT could trigger a send to any
+  // registered pushkey — turning the diagnostic into an outbound-spam
+  // channel + token-validity oracle. Service callers are exempt so
+  // ops tools can still exercise arbitrary tokens.
+  if (req.user?.role !== 'service') {
+    const row = pushDb.getToken.get(pushkey);
+    const claim = req.user?.windy_identity_id || req.user?.sub;
+    if (!row || row.user_id !== claim) {
+      return res.status(403).json({
+        error: 'forbidden',
+        detail: 'pushkey must be registered to authenticated user',
+      });
+    }
+    if (row.platform !== platform) {
+      return res.status(400).json({
+        error: 'platform mismatch',
+        detail: `pushkey is registered as ${row.platform}`,
+      });
+    }
   }
 
   const payload = {
