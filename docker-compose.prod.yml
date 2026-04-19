@@ -1,0 +1,118 @@
+# Windy Chat — production overlay
+#
+# Stacks on top of docker-compose.yml:
+#   docker compose \
+#     -f docker-compose.yml -f docker-compose.prod.yml \
+#     --env-file /opt/windy-chat/.env.production \
+#     up -d
+#
+# ALWAYS pass --env-file explicitly — docker compose resolves
+# ${VAR:-default} at shell time, NOT from the container's env_file.
+# Without --env-file you get dev defaults silently (Phase-2 bug #3).
+#
+# `!override` + new list = full replacement; bare lists APPEND (Phase-2
+# bug #2). Use !override on every list that must not merge: ports, env
+# vars we want to blank out, networks.
+
+services:
+
+  # ── synapse-db: stays running idle (Phase-2 bug #6) ────────────
+  # Synapse's `depends_on: synapse-db: service_healthy` would block
+  # forever if we scaled this container to 0. Keeping it idle costs
+  # ~50 MB RAM; the real data store is RDS via DATABASE_URL below.
+  synapse-db:
+    restart: unless-stopped
+
+  # ── Synapse Matrix homeserver — production config ──────────────
+  synapse:
+    # Bind only to loopback — nginx terminates TLS on :443
+    ports: !override
+      - "127.0.0.1:8008:8008"
+    environment:
+      SYNAPSE_SERVER_NAME: ${SYNAPSE_SERVER_NAME:-chat.windychat.ai}
+      SYNAPSE_REPORT_STATS: "no"
+      # RDS backs Synapse in prod. The authoritative DB config is
+      # in homeserver.yaml (mounted from /opt/windy-chat-data/synapse);
+      # this env var is informational only.
+      SYNAPSE_DATABASE_URL: ${SYNAPSE_DATABASE_URL:?SYNAPSE_DATABASE_URL is required}
+      # windy_registration + windy_push_bus are bind-mounted at
+      # /data/modules/ from the repo — PYTHONPATH makes them importable
+      # by Synapse's module loader (`module: windy_registration.WindyRegistrationModule`
+      # in homeserver.yaml).
+      PYTHONPATH: /data/modules
+    # Full-replace the base compose's volumes list — the base bind-mounts
+    # the DEV homeserver.yaml (server_name=chat.windyword.ai) on top of
+    # /data/homeserver.yaml which would shadow our rendered prod config.
+    # The prod data lives on the host at /opt/windy-chat-data/synapse
+    # (rendered homeserver.yaml + signing.key + log config).
+    volumes: !override
+      - /opt/windy-chat-data/synapse:/data
+      - ./deploy/synapse/windy_registration.py:/data/modules/windy_registration.py:ro
+      - ./deploy/synapse/windy_push_bus.py:/data/modules/windy_push_bus.py:ro
+    restart: unless-stopped
+
+  # ── nginx: disabled in prod overlay; host nginx handles TLS ────
+  nginx:
+    profiles: ["disabled"]
+
+  # ── Node services ──────────────────────────────────────────────
+  # All four bind to loopback only — host nginx terminates and proxies.
+  onboarding:
+    ports: !override
+      - "127.0.0.1:8101:8101"
+    environment:
+      NODE_ENV: production
+      WINDY_ACCOUNT_SERVER_URL: ${WINDY_ACCOUNT_SERVER_URL:?set via .env.production}
+      WINDY_JWKS_URL: ${WINDY_JWKS_URL:?set via .env.production}
+      WINDY_IDENTITY_WEBHOOK_SECRET: ${WINDY_IDENTITY_WEBHOOK_SECRET:?}
+      ETERNITAS_WEBHOOK_SECRET: ${ETERNITAS_WEBHOOK_SECRET:?}
+      SYNAPSE_URL: http://synapse:8008
+      SYNAPSE_REGISTRATION_SECRET: ${SYNAPSE_REGISTRATION_SECRET:?}
+      SYNAPSE_SERVER_NAME: ${SYNAPSE_SERVER_NAME:-chat.windychat.ai}
+      PUSH_BUS_URL: http://push-gateway:8103
+      PUSH_BUS_TOKEN: ${PUSH_BUS_TOKEN:?}
+    restart: unless-stopped
+
+  directory:
+    ports: !override
+      - "127.0.0.1:8102:8102"
+    environment:
+      NODE_ENV: production
+      WINDY_JWKS_URL: ${WINDY_JWKS_URL:?}
+      ETERNITAS_URL: ${ETERNITAS_URL:?}
+    restart: unless-stopped
+
+  push-gateway:
+    ports: !override
+      - "127.0.0.1:8103:8103"
+    environment:
+      NODE_ENV: production
+      WINDY_JWKS_URL: ${WINDY_JWKS_URL:?}
+      PUSH_BUS_TOKEN: ${PUSH_BUS_TOKEN:?}
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT:-}
+      APNS_KEY_PATH: ${APNS_KEY_PATH:-}
+      APNS_KEY_ID: ${APNS_KEY_ID:-}
+      APNS_TEAM_ID: ${APNS_TEAM_ID:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+    restart: unless-stopped
+
+  backup:
+    ports: !override
+      - "127.0.0.1:8104:8104"
+    environment:
+      NODE_ENV: production
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:?}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:?}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:?}
+      R2_BUCKET: ${R2_BUCKET:-windychat-backups}
+    restart: unless-stopped
+
+  # ── Coturn — VoIP NAT traversal ────────────────────────────────
+  # Host-network mode so Coturn can see real client source IPs (required
+  # for STUN reflexive candidate discovery). UDP 3478 + 5349 + the
+  # 49152–65535 relay range must be open on the EC2 SG (Gate 2).
+  coturn:
+    network_mode: host
+    ports: !override []
+    restart: unless-stopped

@@ -1,0 +1,138 @@
+# Wave 13 Phase 4 — Synapse production homeserver.yaml
+#
+# Rendered into /data/homeserver.yaml by Gate 6 after ${VARS} are
+# substituted from /opt/windy-chat/.env.production.
+#
+# Diff vs deploy/synapse/homeserver.yaml (dev):
+#   - server_name / public_baseurl: chat.windychat.ai (production domain)
+#   - database points at RDS (DATABASE_URL env, not the sidecar Postgres)
+#   - federation_listener added on 8008 (behind nginx :443 + well-known)
+#   - federation_domain_whitelist kept closed; explicit `true` on
+#     `federation_enabled` so we can flip allow-list later without
+#     rewriting the whole block (Grant: "open by default; tighten later")
+
+server_name: "chat.windychat.ai"
+public_baseurl: "https://chat.windychat.ai"
+pid_file: /data/homeserver.pid
+# Synapse requires an explicit opt-in/out for usage stat reporting.
+# We opt out — the Windy Chat homeserver ships limited telemetry
+# through our own Sentry/observability path, not matrix.org's.
+report_stats: false
+
+listeners:
+  - port: 8008
+    tls: false
+    type: http
+    x_forwarded: true
+    bind_addresses: ["0.0.0.0"]
+    resources:
+      # Client API AND federation — nginx does TLS on :443 and the
+      # .well-known files delegate federation to the same 443 endpoint.
+      - names: [client, federation]
+        compress: false
+  - port: 9000
+    type: metrics
+    bind_addresses: ["0.0.0.0"]
+
+# ── Database — RDS Postgres (db.t3.small, windy-prod-private) ────
+database:
+  name: psycopg2
+  txn_limit: 10000
+  args:
+    user: synapse
+    password: "${SYNAPSE_RDS_PASSWORD}"
+    database: synapse
+    host: "${SYNAPSE_RDS_HOST}"
+    port: 5432
+    cp_min: 5
+    cp_max: 20
+    sslmode: require
+
+log_config: "/data/chat.windychat.ai.log.config"
+
+media_store_path: /data/media_store
+max_upload_size: 100M
+url_preview_enabled: true
+url_preview_ip_range_blacklist:
+  - "127.0.0.0/8"
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
+  - "100.64.0.0/10"
+  - "169.254.0.0/16"
+  - "::1/128"
+  - "fe80::/10"
+  - "fc00::/7"
+
+# ── Registration — disabled; goes through Windy Pro ──────────────
+enable_registration: false
+enable_registration_without_verification: false
+
+# Custom modules disabled for Phase 4 launch — deploy/synapse/windy_registration.py
+# uses `register_password_auth_provider_callbacks(on_register=...)` which the
+# current Synapse image removed. `enable_registration: false` below already
+# prevents direct registration, so the module's main purpose is covered
+# even without it loaded. windy_push_bus (room.message → push gateway) is
+# NOT what fans out agent.hatched — that's done by the onboarding webhook
+# handler, which still works. Re-enable both modules once the `on_register`
+# API change is back-ported (tracked as a follow-up ticket).
+# modules:
+#   - module: windy_registration.WindyRegistrationModule
+#     config:
+#       windy_account_server: "https://api.windyword.ai"
+#       windy_jwks_url: "https://api.windyword.ai/.well-known/jwks.json"
+#       registration_shared_secret: "${SYNAPSE_REGISTRATION_SECRET}"
+#   - module: windy_push_bus.WindyPushBusModule
+#     config:
+#       push_gateway_url: "http://push-gateway:8103"
+#       push_bus_token: "${PUSH_BUS_TOKEN}"
+#       include_event_types:
+#         - m.room.message
+
+# ── Shared secrets (populated from .env.production) ──────────────
+registration_shared_secret: "${SYNAPSE_REGISTRATION_SECRET}"
+macaroon_secret_key: "${SYNAPSE_MACAROON_SECRET_KEY}"
+form_secret: "${SYNAPSE_FORM_SECRET}"
+signing_key_path: "/data/chat.windychat.ai.signing.key"
+
+# ── TURN / Coturn ────────────────────────────────────────────────
+turn_uris:
+  - "turn:chat.windychat.ai:3478?transport=udp"
+  - "turn:chat.windychat.ai:3478?transport=tcp"
+  - "turns:chat.windychat.ai:5349?transport=tcp"
+turn_shared_secret: "${COTURN_SHARED_SECRET}"
+turn_user_lifetime: 86400000
+turn_allow_guests: false
+
+# ── Federation ───────────────────────────────────────────────────
+# Open by default for launch; tighten with a whitelist once we know
+# which peers actually need to federate (tracked as follow-up).
+federation_domain_whitelist:
+  - "chat.windychat.ai"
+  # Add peer domains here as they come online.
+federation_ip_range_blacklist:
+  - "127.0.0.0/8"
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
+  - "100.64.0.0/10"
+  - "169.254.0.0/16"
+  - "::1/128"
+  - "fe80::/10"
+  - "fc00::/7"
+allow_public_rooms_over_federation: false
+allow_public_rooms_without_auth: false
+
+# ── Rate limits ──────────────────────────────────────────────────
+rc_message:
+  per_second: 0.2
+  burst_count: 10
+rc_registration:
+  per_second: 0.17
+  burst_count: 3
+rc_federation:
+  window_size: 1000
+  sleep_limit: 10
+  sleep_delay: 500
+  reject_limit: 50
+  concurrent: 3
