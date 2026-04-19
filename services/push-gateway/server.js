@@ -217,6 +217,37 @@ app.post('/_matrix/push/v1/notify', asyncHandler(async (req, res) => {
 }));
 
 // ── K6.2: FCM (Android) ──
+//
+// Wave 12 M-2: explicit event_type → Android notification channel map.
+// Before this fix every non-`agent.hatched` event landed on the
+// `chat_messages` channel — mail, cloud, passport, and fly notifications
+// all rode the chat channel, so per-channel mutes and sounds were wrong
+// for cross-service events fanned through the shared push bus.
+//
+// Clients (windy-pro-mobile, windy-pro desktop Web Push) must create
+// these channels on first launch via NotificationManager.createNotificationChannel.
+// Unknown / unspecified event types fall back to `chat_messages` — it's
+// the safe default for legacy Synapse /_matrix/push/v1/notify events
+// that have no `eventType` in the payload.
+const FCM_CHANNEL_BY_EVENT = {
+  'chat': 'chat_messages',
+  'agent.hatched': 'agent_hatched',
+  'agent': 'agent_updates',
+  'fly': 'agent_updates',
+  'mail': 'mail',
+  'cloud': 'system',
+  'passport': 'security',
+  'eternitas': 'security',
+};
+
+function channelForEvent(eventType) {
+  if (!eventType || typeof eventType !== 'string') return 'chat_messages';
+  // Prefer exact match (e.g. `agent.hatched`), then family prefix
+  // (e.g. `mail.inbound` → `mail`), then fall back to the chat channel.
+  if (FCM_CHANNEL_BY_EVENT[eventType]) return FCM_CHANNEL_BY_EVENT[eventType];
+  const family = eventType.split('.')[0];
+  return FCM_CHANNEL_BY_EVENT[family] || 'chat_messages';
+}
 
 async function sendFCM(pushkey, payload) {
   if (!fcmApp) {
@@ -246,7 +277,7 @@ async function sendFCM(pushkey, payload) {
       android: {
         priority: 'high',
         notification: {
-          channelId: payload.eventType === 'agent.hatched' ? 'agent_hatched' : 'chat_messages',
+          channelId: channelForEvent(payload.eventType),
           sound: 'default',
           defaultVibrateTimings: true,
           notificationCount: payload.badge,
@@ -645,3 +676,5 @@ if (require.main === module) {
 }
 
 module.exports = app;
+module.exports.channelForEvent = channelForEvent;
+module.exports.FCM_CHANNEL_BY_EVENT = FCM_CHANNEL_BY_EVENT;
