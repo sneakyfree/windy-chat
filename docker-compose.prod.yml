@@ -31,9 +31,19 @@ services:
     environment:
       SYNAPSE_SERVER_NAME: ${SYNAPSE_SERVER_NAME:-chat.windychat.ai}
       SYNAPSE_REPORT_STATS: "no"
-      # RDS backs Synapse in prod; DATABASE_URL is read by the override
-      # homeserver.yaml rendered into /data/homeserver.yaml by user-data.
+      # RDS backs Synapse in prod. The authoritative DB config is
+      # in homeserver.yaml (mounted from /opt/windy-chat-data/synapse);
+      # this env var is informational only.
       SYNAPSE_DATABASE_URL: ${SYNAPSE_DATABASE_URL:?SYNAPSE_DATABASE_URL is required}
+    # Full-replace the base compose's volumes list — the base bind-mounts
+    # the DEV homeserver.yaml (server_name=chat.windyword.ai) on top of
+    # /data/homeserver.yaml which would shadow our rendered prod config.
+    # The prod data lives on the host at /opt/windy-chat-data/synapse
+    # (rendered homeserver.yaml + signing.key + log config).
+    volumes: !reset
+      - /opt/windy-chat-data/synapse:/data
+      - ./deploy/synapse/windy_registration.py:/data/modules/windy_registration.py:ro
+      - ./deploy/synapse/windy_push_bus.py:/data/modules/windy_push_bus.py:ro
     restart: unless-stopped
 
   # ── nginx: disabled in prod overlay; host nginx handles TLS ────
