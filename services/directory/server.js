@@ -11,14 +11,13 @@
  */
 
 const express = require('express');
-const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 
 const lookupRoutes = require('./routes/lookup');
 const searchRoutes = require('./routes/search');
 const blockRoutes = require('./routes/block');
 const agentRoutes = require('./routes/agents');
-const { createCorsOptions } = require('../shared/cors');
+const { createCorsMiddleware } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
 const { bodyErrorHandler } = require('../shared/body-errors');
@@ -26,8 +25,9 @@ const { bodyErrorHandler } = require('../shared/body-errors');
 const app = express();
 const PORT = process.env.PORT || 8102;
 
-// ── CORS — shared origin whitelist (windypro.com, windychat.com, etc.) ──
-app.use(cors(createCorsOptions()));
+// ── CORS — shared allowlist with explicit 403 on disallowed origins
+// (Wave 14; replaces throwing cors(createCorsOptions()) which 500'd).
+app.use(createCorsMiddleware());
 
 app.use(express.json({ limit: '2mb' }));
 

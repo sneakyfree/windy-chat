@@ -149,16 +149,27 @@ describe('cors', () => {
     });
   });
 
-  it('origin function rejects unlisted origins in production', (_, done) => {
+  // Miss-path behavior changed in Wave 14: createCorsOptions() used to
+  // resolve callback(new Error('CORS: origin not allowed')) on rejection,
+  // which cascaded to Express's default error handler and surfaced as a
+  // 500 Internal Server Error (Wave 13 Phase 4 P1-1). The fix is to
+  // resolve (null, false) instead — the cors package omits the ACAO
+  // header, and the browser enforces the block. Callers that want an
+  // explicit 403 JSON envelope should prefer createCorsMiddleware().
+  it('origin function rejects unlisted origins in production without throwing', (_, done) => {
     const saved = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
     const opts = createCorsOptions();
-    opts.origin('https://evil.com', (err) => {
-      assert.ok(err instanceof Error);
-      assert.match(err.message, /CORS/);
+    opts.origin('https://evil.com', (err, allowed) => {
+      assert.equal(err, null);
+      assert.equal(allowed, false);
       process.env.NODE_ENV = saved;
       done();
     });
+  });
+
+  it('DEFAULT_ORIGINS includes the Wave 13 Phase 4 prod domain chat.windychat.ai', () => {
+    assert.ok(DEFAULT_ORIGINS.includes('https://chat.windychat.ai'));
   });
 });
 

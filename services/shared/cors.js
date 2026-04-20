@@ -1,20 +1,34 @@
 /**
  * Windy Chat — Shared CORS Configuration
  *
- * Centralized origin whitelist matching the windy-pro account-server pattern.
- * Origins configurable via CORS_ALLOWED_ORIGINS env var (comma-separated).
+ * Centralized origin allowlist shared by every Node service in the repo.
+ * Extra origins can be appended via CORS_ALLOWED_ORIGINS (comma-separated).
+ *
+ * Surface:
+ *   - createCorsMiddleware()  → preferred; returns an express middleware
+ *                              that sets CORS headers on allowed origins,
+ *                              short-circuits OPTIONS preflights, and sends
+ *                              a 403 JSON envelope on disallowed origins.
+ *                              It never throws, so Express's default error
+ *                              handler never sees a "CORS: origin not
+ *                              allowed" stack trace (Wave 13 Phase 4 P1-1).
+ *   - createCorsOptions()     → legacy; returns options for the `cors` npm
+ *                              package. Kept for back-compat. Miss path
+ *                              resolves callback(null, false) instead of
+ *                              throwing — the cors package then silently
+ *                              omits the ACAO header, which browsers treat
+ *                              as a block. No 500s.
  */
+'use strict';
 
 const DEFAULT_ORIGINS = [
-  // Legacy windypro.com hosts (pre-domain-migration)
-  'https://windypro.com',
-  'https://www.windypro.com',
-  'https://app.windypro.com',
-  'https://windychat.com',
-  'https://www.windychat.com',
-  // windyword.ai — root + every sibling Windy product. Each of these
-  // hosts hosts a frontend that legitimately XHRs into chat's REST API
-  // (cross-product integrations). P2-2: was missing mail/clone/fly/code.
+  // Canonical prod hosts — chat.windychat.ai is the Wave 13 Phase 4
+  // deployment target; add www.* defensively in case a future ingress
+  // normalises to it.
+  'https://chat.windychat.ai',
+  'https://www.chat.windychat.ai',
+  // windyword.ai siblings — each product ships a frontend that legitimately
+  // XHRs into chat's REST API (cross-product integrations).
   'https://windyword.ai',
   'https://www.windyword.ai',
   'https://chat.windyword.ai',
@@ -24,6 +38,13 @@ const DEFAULT_ORIGINS = [
   'https://code.windyword.ai',
   'https://cloud.windyword.ai',
   'https://eternitas.windyword.ai',
+  // Legacy windypro.com hosts (pre-domain-migration; retained until the
+  // rebrand is complete across every product surface).
+  'https://windypro.com',
+  'https://www.windypro.com',
+  'https://app.windypro.com',
+  'https://windychat.com',
+  'https://www.windychat.com',
   // Dev servers
   'http://localhost:5173',  // Vite dev server
   'http://localhost:4173',  // Vite preview
@@ -37,22 +58,105 @@ function getAllowedOrigins() {
   return DEFAULT_ORIGINS;
 }
 
+function isOriginAllowed(origin, allowed = getAllowedOrigins()) {
+  if (!origin) return true;  // server-to-server / mobile app / curl
+  if (process.env.NODE_ENV !== 'production'
+      && /^http:\/\/localhost(:\d+)?$/.test(origin)) {
+    return true;
+  }
+  return allowed.includes(origin);
+}
+
 function createCorsOptions() {
   const allowed = getAllowedOrigins();
 
   return {
     origin: function (origin, callback) {
-      // Allow requests with no origin (server-to-server, curl, mobile apps)
-      if (!origin) return callback(null, true);
-      // Allow localhost in non-production
-      if (process.env.NODE_ENV !== 'production' && /^http:\/\/localhost(:\d+)?$/.test(origin)) {
-        return callback(null, true);
-      }
-      if (allowed.includes(origin)) return callback(null, true);
-      callback(new Error('CORS: origin not allowed'));
+      if (isOriginAllowed(origin, allowed)) return callback(null, true);
+      // IMPORTANT: do NOT throw — that used to hit Express's default error
+      // handler and emit an HTTP 500 with a "CORS: origin not allowed"
+      // stack trace in the service logs (Wave 13 Phase 4 P1-1). Returning
+      // (null, false) makes the cors package silently omit the ACAO header
+      // so the browser enforces the block. Callers that want an explicit
+      // 403 JSON envelope should prefer createCorsMiddleware() below.
+      return callback(null, false);
     },
     credentials: true,
   };
 }
 
-module.exports = { createCorsOptions, getAllowedOrigins, DEFAULT_ORIGINS };
+/**
+ * Preferred express middleware. Pure implementation — no dependency on the
+ * `cors` npm package — so failure modes are easy to reason about:
+ *
+ *   - No Origin header                → pass through (server-to-server).
+ *   - Origin in allowlist             → set ACAO + ACAC + Vary; pass.
+ *   - Method = OPTIONS + allowed      → emit preflight headers, end 204.
+ *   - Method = OPTIONS + disallowed   → 403 JSON (browsers reject anyway,
+ *                                       but attackers / curl get a clean
+ *                                       envelope rather than an empty 204).
+ *   - Any other method + disallowed   → 403 JSON with code CORS_ORIGIN_DENIED.
+ */
+function createCorsMiddleware() {
+  const allowed = getAllowedOrigins();
+
+  return function corsMiddleware(req, res, next) {
+    const origin = req.headers.origin;
+
+    if (!origin) {
+      // Server-to-server / mobile app / curl — no CORS headers needed.
+      return next();
+    }
+
+    if (!isOriginAllowed(origin, allowed)) {
+      return res.status(403).json({
+        error: 'Origin not allowed',
+        code: 'CORS_ORIGIN_DENIED',
+      });
+    }
+
+    // Allowed origin — set response headers.
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    // `Vary: Origin` tells caches the response varies by origin; stacking
+    // with any pre-existing Vary header (e.g. Authorization) is harmless.
+    const existingVary = res.getHeader('Vary');
+    if (existingVary) {
+      const parts = String(existingVary).split(',').map(s => s.trim());
+      if (!parts.includes('Origin')) parts.push('Origin');
+      res.setHeader('Vary', parts.join(', '));
+    } else {
+      res.setHeader('Vary', 'Origin');
+    }
+
+    if (req.method === 'OPTIONS') {
+      const reqMethod = req.headers['access-control-request-method'];
+      const reqHeaders = req.headers['access-control-request-headers'];
+      res.setHeader(
+        'Access-Control-Allow-Methods',
+        reqMethod || 'GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS',
+      );
+      if (reqHeaders) {
+        res.setHeader('Access-Control-Allow-Headers', reqHeaders);
+      } else {
+        res.setHeader(
+          'Access-Control-Allow-Headers',
+          'Authorization,Content-Type,X-Requested-With',
+        );
+      }
+      res.setHeader('Access-Control-Max-Age', '600');
+      res.status(204).end();
+      return;
+    }
+
+    return next();
+  };
+}
+
+module.exports = {
+  createCorsMiddleware,
+  createCorsOptions,
+  getAllowedOrigins,
+  isOriginAllowed,
+  DEFAULT_ORIGINS,
+};

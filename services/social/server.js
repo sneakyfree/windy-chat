@@ -17,8 +17,7 @@
 
 const crypto = require('crypto');
 const express = require('express');
-const { createCorsOptions } = require('../shared/cors');
-const cors = require('cors');
+const { createCorsMiddleware } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
 const { asyncHandler } = require('../shared/async-handler');
 const { createAuthMiddleware } = require('../shared/jwt-verify');
@@ -114,7 +113,7 @@ const eternitasWebhookRouter = require('./routes/eternitas-webhook');
 const app = express();
 const PORT = process.env.PORT || 8105;
 
-app.use(cors(createCorsOptions()));
+app.use(createCorsMiddleware());
 app.use(express.json({ limit: '1mb' }));
 
 initSentry(app, 'windy-chat-social');

@@ -14,8 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
 const express = require('express');
-const { createCorsOptions } = require('../shared/cors');
-const cors = require('cors');
+const { createCorsMiddleware } = require('../shared/cors');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const { createHealthHandler } = require('../shared/health');
@@ -99,7 +98,7 @@ const upload = multer({
 
 const linkPreviewRouter = require('./routes/link-preview');
 
-app.use(cors(createCorsOptions()));
+app.use(createCorsMiddleware());
 app.use(express.json({ limit: '1mb' }));
 
 initSentry(app, 'windy-chat-media');
