@@ -14,8 +14,7 @@
 const crypto = require('crypto');
 const http = require('http');
 const express = require('express');
-const { createCorsOptions } = require('../shared/cors');
-const cors = require('cors');
+const { createCorsMiddleware } = require('../shared/cors');
 const rateLimit = require('express-rate-limit');
 const { createHealthHandler } = require('../shared/health');
 const { asyncHandler } = require('../shared/async-handler');
@@ -31,7 +30,7 @@ const PORT = process.env.PORT || 8106;
 const TRANSLATE_URL = process.env.WINDY_TRANSLATE_URL || 'http://localhost:9877';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-app.use(cors(createCorsOptions()));
+app.use(createCorsMiddleware());
 app.use(express.json({ limit: '1mb' }));
 
 initSentry(app, 'windy-chat-translation');

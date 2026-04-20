@@ -12,7 +12,6 @@
  */
 
 const express = require('express');
-const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 
 const verifyRoutes = require('./routes/verify');
@@ -22,7 +21,7 @@ const provisionRoutes = require('./routes/provision');
 const agentProvisionRoutes = require('./routes/agent-provision');
 const roomsRoutes = require('./routes/rooms');
 const webhookRoutes = require('./routes/webhooks');
-const { createCorsOptions } = require('../shared/cors');
+const { createCorsMiddleware } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
 const { bodyErrorHandler } = require('../shared/body-errors');
@@ -30,8 +29,11 @@ const { bodyErrorHandler } = require('../shared/body-errors');
 const app = express();
 const PORT = process.env.PORT || 8101;
 
-// ── CORS — shared origin whitelist (windypro.com, windychat.com, etc.) ──
-app.use(cors(createCorsOptions()));
+// ── CORS — shared allowlist with explicit 403 on disallowed origins.
+// Replaces the legacy `cors(createCorsOptions())` pair; the old miss-path
+// threw, which cascaded to Express's error handler and produced 500s for
+// every browser-Origin'd request (Wave 13 Phase 4 P1-1).
+app.use(createCorsMiddleware());
 
 // Stash raw body on req.rawBody so webhook routes can verify HMAC signatures
 // over the exact bytes received (re-serializing req.body would be lossy).
