@@ -54,17 +54,27 @@ Report existing UDP rules vs. what Coturn wants. Wait for OK.
 
 ### Gate 2 — Security Group deltas
 
-Coturn needs the following UDP ingress on `windy-web-sg`
+Coturn needs the following ingress on `windy-web-sg`
 (`sg-05024168bf3105182`), additive to whatever's already there:
 
 ```bash
 aws ec2 authorize-security-group-ingress --group-id sg-05024168bf3105182 \
   --ip-permissions '[
-    {"IpProtocol":"udp","FromPort":3478,"ToPort":3478,"IpRanges":[{"CidrIp":"0.0.0.0/0","Description":"Coturn STUN/TURN"}]},
-    {"IpProtocol":"udp","FromPort":5349,"ToPort":5349,"IpRanges":[{"CidrIp":"0.0.0.0/0","Description":"Coturn TURN over TLS"}]},
+    {"IpProtocol":"udp","FromPort":3478,"ToPort":3478,"IpRanges":[{"CidrIp":"0.0.0.0/0","Description":"Coturn STUN/TURN (UDP)"}]},
+    {"IpProtocol":"tcp","FromPort":3478,"ToPort":3478,"IpRanges":[{"CidrIp":"0.0.0.0/0","Description":"Coturn TURN (TCP fallback)"}]},
+    {"IpProtocol":"udp","FromPort":5349,"ToPort":5349,"IpRanges":[{"CidrIp":"0.0.0.0/0","Description":"Coturn TURN-DTLS"}]},
+    {"IpProtocol":"tcp","FromPort":5349,"ToPort":5349,"IpRanges":[{"CidrIp":"0.0.0.0/0","Description":"Coturn TURN-TLS (turns: URI)"}]},
     {"IpProtocol":"udp","FromPort":49152,"ToPort":65535,"IpRanges":[{"CidrIp":"0.0.0.0/0","Description":"Coturn RTP relay range"}]}
   ]'
 ```
+
+**Wave 14 additions (both TCP rows):** the original Gate 2 only opened
+the UDP variants, but Synapse's `turnServer` endpoint advertises
+`turn:chat.windychat.ai:3478?transport=tcp` and
+`turns:chat.windychat.ai:5349?transport=tcp`. Without the TCP/3478 and
+TCP/5349 SG rules, clients behind UDP-blocking firewalls (many
+corporate + some hotel networks) cannot reach coturn even though the
+server-side listener is correctly bound.
 
 If Gate 1 shows any of these already present, we diff and only add the
 missing ones. Wait for OK.
