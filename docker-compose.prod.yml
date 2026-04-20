@@ -110,9 +110,38 @@ services:
 
   # ── Coturn — VoIP NAT traversal ────────────────────────────────
   # Host-network mode so Coturn can see real client source IPs (required
-  # for STUN reflexive candidate discovery). UDP 3478 + 5349 + the
-  # 49152–65535 relay range must be open on the EC2 SG (Gate 2).
+  # for STUN reflexive candidate discovery).
+  #
+  # SG ingress required (Wave 14 doc update — TCP 5349 is new):
+  #   - UDP 3478   (STUN + plain TURN)
+  #   - TCP 3478   (plain TURN over TCP — for UDP-blocked networks)
+  #   - TCP 5349   (TURN over TLS — required for the `turns:` URI Synapse
+  #                 advertises in /_matrix/client/r0/voip/turnServer)
+  #   - UDP/TCP 49152–65535  (relay port range, per turnserver.conf)
+  #
+  # Custom entrypoint renders deploy/synapse/turnserver.conf's template
+  # placeholders with values from .env.production, then exec's
+  # turnserver. See deploy/synapse/coturn-entrypoint.sh — introduced in
+  # Wave 14 to replace the compiled-in defaults that shipped in Phase 4.
+  #
+  # Certs are refreshed from Let's Encrypt by
+  # deploy/aws/phase4/setup-coturn-certs.sh (wire into certbot's
+  # --deploy-hook to survive renewals).
   coturn:
     network_mode: host
     ports: !override []
+    # Full-replace the base compose's volumes: the dev stack bind-mounts
+    # turnserver.conf into /etc/turnserver.conf directly, but prod wants
+    # the templated flow + read-only cert dir.
+    volumes: !override
+      - ./deploy/synapse/turnserver.conf:/etc/turnserver.conf.template:ro
+      - ./deploy/synapse/coturn-entrypoint.sh:/usr/local/bin/coturn-entrypoint.sh:ro
+      - /opt/windy-chat-data/coturn/certs:/etc/coturn-certs:ro
+      - /var/log/windy-chat/coturn:/var/log/turnserver
+    entrypoint: ["/bin/sh", "/usr/local/bin/coturn-entrypoint.sh"]
+    command: !override []
+    environment:
+      COTURN_SHARED_SECRET: ${COTURN_SHARED_SECRET:?set via .env.production}
+      COTURN_REALM: ${COTURN_REALM:-chat.windychat.ai}
+      COTURN_EXTERNAL_IP: ${COTURN_EXTERNAL_IP:?set to the EC2 EIP (public/private for 1:1 NAT)}
     restart: unless-stopped
