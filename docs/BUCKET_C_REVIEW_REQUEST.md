@@ -172,7 +172,7 @@ caller of `/unified-login`.
 
 **Smoke post-merge**: provision a new user with display_name "Alice
 Anderson" via `/unified-login`, confirm `matrix_user_id` is
-`@alice.anderson:chat.windyword.ai` (not `@windy_alice_anderson`).
+`@alice.anderson:chat.windychat.ai` (not `@windy_alice_anderson`).
 Then fire `identity/created` for a different new user, confirm same
 pattern.
 
@@ -237,7 +237,7 @@ silently stop working — but observed via Eternitas's
 webhook_deliveries ledger as 410 failures, so not truly silent.
 
 **What needs eyes**: confirm Eternitas's platform registration points
-at `https://chat.windyword.ai/api/v1/webhooks/eternitas` (social's
+at `https://chat.windychat.ai/api/v1/webhooks/eternitas` (social's
 handler), NOT the legacy onboarding path. This is a production-
 config check, not a code review.
 
