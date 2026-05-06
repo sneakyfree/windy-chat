@@ -39,7 +39,7 @@ export default function TermsPage() {
 
         <section>
           <h2 className="text-base font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>4. Account & Data</h2>
-          <p>Your account is part of the Windy ecosystem. Signing up for Windy Chat creates a Windy account that works across Windy Pro, Windy Mail, Windy Cloud, and other Windy products.</p>
+          <p>Your account is part of the Windy ecosystem. Signing up for Windy Chat creates a Windy account that works across Windy Word, Windy Mail, Windy Cloud, and other Windy products.</p>
           <p className="mt-2">You can delete your account at any time. See our Privacy Policy for details on data retention and deletion.</p>
         </section>
 
