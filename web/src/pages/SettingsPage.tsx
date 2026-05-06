@@ -102,7 +102,7 @@ export default function SettingsPage({ userId, onLogout, onNavigate }: SettingsP
       </Section>
 
       <Section title="Connected Services">
-        <Row label="Windy Pro">
+        <Row label="Windy Word">
           <span className="text-xs px-2 py-1 rounded" style={{ background: 'rgba(52,211,153,0.15)', color: 'var(--success)' }}>Connected</span>
         </Row>
         <Row label="Windy Mail">
