@@ -1,4 +1,4 @@
-/** Landing page — shown to unauthenticated users at windychat.com */
+/** Landing page — shown to unauthenticated users at windychat.ai */
 
 interface LandingPageProps {
   onSignIn: () => void;

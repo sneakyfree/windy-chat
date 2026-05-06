@@ -41,7 +41,7 @@ services:
       # in homeserver.yaml).
       PYTHONPATH: /data/modules
     # Full-replace the base compose's volumes list — the base bind-mounts
-    # the DEV homeserver.yaml (server_name=chat.windyword.ai) on top of
+    # the DEV homeserver.yaml (server_name=chat.windychat.ai) on top of
     # /data/homeserver.yaml which would shadow our rendered prod config.
     # The prod data lives on the host at /opt/windy-chat-data/synapse
     # (rendered homeserver.yaml + signing.key + log config).

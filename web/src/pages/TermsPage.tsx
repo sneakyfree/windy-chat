@@ -55,7 +55,7 @@ export default function TermsPage() {
 
         <section>
           <h2 className="text-base font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>7. Contact</h2>
-          <p>Questions about these terms: <a href="mailto:legal@windychat.com" style={{ color: 'var(--accent)' }}>legal@windychat.com</a></p>
+          <p>Questions about these terms: <a href="mailto:legal@windychat.ai" style={{ color: 'var(--accent)' }}>legal@windychat.ai</a></p>
         </section>
       </div>
     </div>

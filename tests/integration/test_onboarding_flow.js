@@ -241,7 +241,7 @@ describe('Step 2: K2 Onboarding — Profile Setup', () => {
   it('sends OTP for phone verification', async () => {
     const res = await request('POST', onboardingUrl, '/api/v1/chat/verify/send', {
       type: 'email',
-      identifier: 'integration@windypro.com',
+      identifier: 'integration@windyword.ai',
     }, authed(tokenA));
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
@@ -257,7 +257,7 @@ describe('Step 3: K3 Directory — Register & Search', () => {
     const res = await request('POST', directoryUrl, '/api/v1/chat/directory/register', {
       userId: USER_SUB,
       displayName: 'IntegrationUser',
-      email: 'integration@windypro.com',
+      email: 'integration@windyword.ai',
       languages: ['en', 'es'],
       searchable: true,
     }, authed(tokenA));
@@ -411,7 +411,7 @@ describe('Step 7: windy_identity_id Consistency', () => {
     const res = await request('POST', directoryUrl, '/api/v1/chat/directory/register', {
       userId: USER_B_SUB,
       displayName: 'IntegrationUserB',
-      email: 'integrationb@windypro.com',
+      email: 'integrationb@windyword.ai',
       languages: ['en'],
       searchable: true,
     }, authed(tokenB));

@@ -115,7 +115,7 @@ cd services/backup && npm install && npm run dev        # Port 8104
 ## Critical Invariants
 
 1. Direct Matrix registration is DISABLED — all accounts go through windy-pro account-server
-2. Federation is DISABLED — this is a Windy-users-only network (chat.windyword.ai)
+2. Federation is DISABLED — this is a Windy-users-only network (chat.windychat.ai)
 3. Push notification bodies NEVER contain message text (privacy)
 4. Backup encryption keys are client-derived (PBKDF2) — server is zero-knowledge
 5. Chat client code stays in windy-pro/windy-pro-mobile — this repo is backend only

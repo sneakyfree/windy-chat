@@ -56,20 +56,20 @@ async function postJson(pathname, body, headers = {}) {
 describe('Wave 8 — agent.hatched payload shape', { concurrency: false }, () => {
   it('defaults deep link to windychat://room/{roomId}', () => {
     const payload = buildAgentHatchedPayload({
-      room_id: '!abc123:chat.windyword.ai',
+      room_id: '!abc123:chat.windychat.ai',
       agent_name: 'Buzz',
       agent_avatar_url: 'https://cdn.windy.ai/buzz.png',
     });
     assert.equal(payload.eventType, 'agent.hatched');
-    assert.equal(payload.deepLink, 'windychat://room/!abc123:chat.windyword.ai');
+    assert.equal(payload.deepLink, 'windychat://room/!abc123:chat.windychat.ai');
     assert.equal(payload.imageUrl, 'https://cdn.windy.ai/buzz.png');
-    assert.equal(payload.roomId, '!abc123:chat.windyword.ai');
+    assert.equal(payload.roomId, '!abc123:chat.windychat.ai');
     assert.equal(payload.agentName, 'Buzz');
   });
 
   it('provides default title and body when caller omits copy', () => {
     const payload = buildAgentHatchedPayload({
-      room_id: '!r:chat.windyword.ai',
+      room_id: '!r:chat.windychat.ai',
       agent_name: 'Nimbus',
     });
     assert.match(payload.title, /Nimbus just hatched/);
@@ -80,12 +80,12 @@ describe('Wave 8 — agent.hatched payload shape', { concurrency: false }, () =>
     const payload = buildAgentHatchedPayload({
       title: 'Custom title',
       body: 'Custom body',
-      deep_link: 'https://windychat.com/room/abc',
+      deep_link: 'https://windychat.ai/room/abc',
       agent_name: 'Ivy',
     });
     assert.equal(payload.title, 'Custom title');
     assert.equal(payload.body, 'Custom body');
-    assert.equal(payload.deepLink, 'https://windychat.com/room/abc');
+    assert.equal(payload.deepLink, 'https://windychat.ai/room/abc');
   });
 });
 
@@ -97,7 +97,7 @@ describe('Wave 8 — /api/v1/push/notify agent.hatched', { concurrency: false },
     const { status, body } = await postJson('/api/v1/push/notify', {
       windy_identity_id: 'id_hatched_no_devices',
       event_type: 'agent.hatched',
-      room_id: '!r1:chat.windyword.ai',
+      room_id: '!r1:chat.windychat.ai',
       agent_name: 'Buzz',
       agent_avatar_url: 'https://cdn.windy.ai/buzz.png',
       passport_number: 'ET-HATCH-001',
@@ -122,7 +122,7 @@ describe('Wave 8 — /api/v1/push/notify agent.hatched', { concurrency: false },
     const { status, body } = await postJson('/api/v1/push/notify', {
       windy_identity_id: user,
       event_type: 'agent.hatched',
-      room_id: '!r2:chat.windyword.ai',
+      room_id: '!r2:chat.windychat.ai',
       agent_name: 'Nimbus',
       agent_avatar_url: 'https://cdn.windy.ai/nimbus.png',
       passport_number: 'ET-HATCH-002',

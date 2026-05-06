@@ -8,7 +8,7 @@
 # Prerequisites:
 #   - AWS CLI configured with appropriate IAM permissions
 #   - SSH key pair created in the target region
-#   - Domain DNS (chat.windyword.ai) pointing to an Elastic IP or ALB
+#   - Domain DNS (chat.windychat.ai) pointing to an Elastic IP or ALB
 #
 # Usage:
 #   ./deploy/aws-setup.sh                    # Interactive setup
@@ -43,8 +43,8 @@ NC='\033[0m'
 REGION="${AWS_REGION:-us-east-1}"
 INSTANCE_TYPE="${INSTANCE_TYPE:-t3.medium}"
 KEY_NAME="${AWS_KEY_NAME:-windy-chat-key}"
-DOMAIN="${DOMAIN:-chat.windyword.ai}"
-CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@windypro.com}"
+DOMAIN="${DOMAIN:-chat.windychat.ai}"
+CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@windyword.ai}"
 SECURITY_GROUP_NAME="windy-chat-sg"
 EBS_SIZE=50  # GB
 
@@ -334,7 +334,7 @@ case "${1:-}" in
     echo "  AWS_REGION           AWS region (default: us-east-1)"
     echo "  INSTANCE_TYPE        EC2 instance type (default: t3.medium)"
     echo "  AWS_KEY_NAME         SSH key pair name (default: windy-chat-key)"
-    echo "  DOMAIN               Domain name (default: chat.windyword.ai)"
+    echo "  DOMAIN               Domain name (default: chat.windychat.ai)"
     echo ""
     echo "Prerequisites:"
     echo "  1. AWS CLI configured: aws configure"

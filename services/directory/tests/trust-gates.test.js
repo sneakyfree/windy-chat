@@ -259,7 +259,7 @@ describe('Trust Gates', { concurrency: false }, () => {
       }));
       const { status, body } = await postJson(
         '/api/v1/chat/directory/agents/gate/mention',
-        { target_matrix_id: '@grant.whitmer:chat.windyword.ai', is_connected: true },
+        { target_matrix_id: '@grant.whitmer:chat.windychat.ai', is_connected: true },
         botToken('ET26-LOW-CLEARANCE'),
       );
       assert.equal(status, 200);

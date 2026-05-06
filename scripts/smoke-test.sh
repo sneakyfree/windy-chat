@@ -4,9 +4,9 @@
 # Usage:
 #   ./scripts/smoke-test.sh [BASE_URL]
 #
-# BASE_URL defaults to https://chat.windychat.com. Pass a different host
+# BASE_URL defaults to https://chat.windychat.ai. Pass a different host
 # to smoke-test a staging deploy:
-#   ./scripts/smoke-test.sh https://chat.staging.windychat.com
+#   ./scripts/smoke-test.sh https://chat.staging.windychat.ai
 #
 # Requires:
 #   - curl, jq, node (for the JWT signing step), openssl
@@ -20,7 +20,7 @@
 
 set -euo pipefail
 
-BASE_URL="${1:-https://chat.windychat.com}"
+BASE_URL="${1:-https://chat.windychat.ai}"
 BASE_URL="${BASE_URL%/}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -89,7 +89,7 @@ token=$(node -e '
     sub: process.env.SMOKE_TEST_WINDY_IDENTITY_ID,
     windy_identity_id: process.env.SMOKE_TEST_WINDY_IDENTITY_ID,
     display_name: "Smoke Test",
-    email: "smoke@windychat.com",
+    email: "smoke@windychat.ai",
     iat: now,
     exp: now + 300,
   };
@@ -133,7 +133,7 @@ push_http=$(curl -sS -m 10 -o /tmp/smoke-push.json -w '%{http_code}' \
 {
   "windy_identity_id": "$SMOKE_TEST_WINDY_IDENTITY_ID",
   "event_type": "agent.hatched",
-  "room_id": "!smoke:chat.windychat.com",
+  "room_id": "!smoke:chat.windychat.ai",
   "agent_name": "Smoke Bot",
   "agent_avatar_url": "https://cdn.windy.ai/smoke.png",
   "passport_number": "ET-SMOKE-0001"

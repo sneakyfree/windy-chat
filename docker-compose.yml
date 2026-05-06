@@ -184,7 +184,7 @@ services:
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
       TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER:-}
       SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
-      SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@windychat.com}
+      SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@windychat.ai}
       OTP_EXPIRY_MINUTES: ${OTP_EXPIRY_MINUTES:-10}
     depends_on:
       synapse:
@@ -272,7 +272,7 @@ services:
       APNS_BUNDLE_ID: ${APNS_BUNDLE_ID:-com.windypro.chat}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
-      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@windychat.com}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@windychat.ai}
     depends_on:
       synapse:
         condition: service_healthy
@@ -489,7 +489,7 @@ services:
           memory: 256M
 
   # ════════════════════════════════════════
-  #  Web Frontend (windychat.com)
+  #  Web Frontend (windychat.ai)
   # ════════════════════════════════════════
 
   web:
@@ -500,9 +500,9 @@ services:
     ports:
       - "3000:80"
     environment:
-      VITE_MATRIX_HOMESERVER: https://chat.windyword.ai
-      VITE_ACCOUNT_SERVER_URL: https://account.windypro.com
-      VITE_SOCIAL_API_URL: https://chat.windyword.ai/api/v1/social
+      VITE_MATRIX_HOMESERVER: https://chat.windychat.ai
+      VITE_ACCOUNT_SERVER_URL: https://account.windyword.ai
+      VITE_SOCIAL_API_URL: https://chat.windychat.ai/api/v1/social
       VITE_ETERNITAS_URL: https://api.eternitas.ai
       VITE_WINDY_WORD_WS: wss://windyword.ai
     restart: unless-stopped

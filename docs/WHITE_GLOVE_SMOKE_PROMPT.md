@@ -1,7 +1,7 @@
 # White-Glove Smoke Prompt — windy-chat
 
 **Created:** 2026-04-19, after Wave 13 Phase 4 deploy to AWS
-**Purpose:** Hand to a fresh Claude session to do industrial-grade smoke testing on the deployed windy-chat at `https://chat.windyword.ai`.
+**Purpose:** Hand to a fresh Claude session to do industrial-grade smoke testing on the deployed windy-chat at `https://chat.windychat.ai`.
 
 ---
 
@@ -13,17 +13,17 @@ Wave 13 Phase 4 shipped windy-chat to AWS. It's a Matrix homeserver (Synapse) wr
 
 ## Paste this to a fresh Claude session
 
-> You are doing **industrial-grade white-glove smoke testing** on the production windy-chat, freshly deployed to AWS as Wave 13 Phase 4 at `https://chat.windyword.ai`. Your job is to find every defect a real chat user OR a federation attacker would hit. Unit tests do NOT count — only behaviour observed against the live URL.
+> You are doing **industrial-grade white-glove smoke testing** on the production windy-chat, freshly deployed to AWS as Wave 13 Phase 4 at `https://chat.windychat.ai`. Your job is to find every defect a real chat user OR a federation attacker would hit. Unit tests do NOT count — only behaviour observed against the live URL.
 >
 > **Read first:**
 >
 > 1. `~/.claude/projects/-Users-thewindstorm/memory/MEMORY.md` (auto-loaded)
-> 2. `/tmp/kit-army-config/ACCESS_LOCKBOX.md` — search "Wave 13" + "windy-chat"; gives you live URL `chat.windyword.ai`, EC2 instance, RDS Postgres for Synapse, Coturn shared secret, registration_shared_secret, macaroon_secret_key, form_secret, push bus token, chat API tokens, CHAT_SERVICE_TOKEN.
+> 2. `/tmp/kit-army-config/ACCESS_LOCKBOX.md` — search "Wave 13" + "windy-chat"; gives you live URL `chat.windychat.ai`, EC2 instance, RDS Postgres for Synapse, Coturn shared secret, registration_shared_secret, macaroon_secret_key, form_secret, push bus token, chat API tokens, CHAT_SERVICE_TOKEN.
 > 3. `windy-chat/docker-compose.prod.yml` — what's deployed, in what topology.
 > 4. `windy-chat/services/{directory,social,push-gateway,onboarding,media}/routes/` — each microservice's surface.
 > 5. `windy-chat/DEPLOY.md` and `windy-chat/CLAUDE.md` — conventions.
 >
-> **Then do all of the following against `https://chat.windyword.ai`:**
+> **Then do all of the following against `https://chat.windychat.ai`:**
 >
 > ### 1. Public + Synapse well-known
 > - `GET /` and `GET /health` — both respond, latency under 200 ms?
@@ -61,8 +61,8 @@ Wave 13 Phase 4 shipped windy-chat to AWS. It's a Matrix homeserver (Synapse) wr
 > - Try to upload a file with a malicious mime type / SVG with embedded JS → does the server scrub or reject?
 >
 > ### 6. Federation — the trickiest part
-> - From an external Matrix client (Element web), try to invite a user from `@user:chat.windyword.ai`. Does federation resolve correctly? Check the `.well-known` and SRV record path.
-> - From `chat.windyword.ai`, try to join a public room on `matrix.org`. Does federation work outbound?
+> - From an external Matrix client (Element web), try to invite a user from `@user:chat.windychat.ai`. Does federation resolve correctly? Check the `.well-known` and SRV record path.
+> - From `chat.windychat.ai`, try to join a public room on `matrix.org`. Does federation work outbound?
 > - Check Synapse logs for federation errors — handshake failures, dropped events, dead-letter queue.
 >
 > ### 7. Push notifications — push-gateway

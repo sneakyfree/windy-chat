@@ -146,7 +146,7 @@ describe('Wave 12 H-1 — /api/v1/chat/push/register binds userId to JWT', { con
     const token = jwtFor({ sub: 'muter-001', windy_identity_id: 'muter-001' });
     const { status, body } = await postJson('/api/v1/chat/push/mute', {
       userId: 'victim-001',
-      roomId: '!room:chat.windychat.com',
+      roomId: '!room:chat.windychat.ai',
       duration: '1h',
     }, { Authorization: `Bearer ${token}` });
     assert.equal(status, 403);
@@ -157,7 +157,7 @@ describe('Wave 12 H-1 — /api/v1/chat/push/register binds userId to JWT', { con
     const token = jwtFor({ sub: 'muter-001', windy_identity_id: 'muter-001' });
     const { status, body } = await postJson('/api/v1/chat/push/unmute', {
       userId: 'victim-001',
-      roomId: '!room:chat.windychat.com',
+      roomId: '!room:chat.windychat.ai',
     }, { Authorization: `Bearer ${token}` });
     assert.equal(status, 403);
     assert.equal(body.error, 'forbidden');

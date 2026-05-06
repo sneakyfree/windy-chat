@@ -155,7 +155,7 @@ describe('POST /api/v1/onboarding/agent — provisioning', () => {
     assert.equal(res.body.welcome_pending, true);
     assert.equal(res.body.agent_name, 'ProvisionBot');
     assert.equal(res.body.passport_number, 'ET-PROV-001');
-    assert.match(res.body.matrix_user_id, /^@agent_et-prov-001:chat\.windyword\.ai$/);
+    assert.match(res.body.matrix_user_id, /^@agent_et-prov-001:chat\.windychat\.ai$/);
   });
 
   it('returns existing provisioning for duplicate passport', async () => {

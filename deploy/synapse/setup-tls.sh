@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup-tls.sh — Generate TLS certificates for chat.windyword.ai (Synapse/nginx)
+# setup-tls.sh — Generate TLS certificates for chat.windychat.ai (Synapse/nginx)
 #
 # Modes:
 #   ./setup-tls.sh letsencrypt   — Use certbot (production)
@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-DOMAIN="chat.windyword.ai"
+DOMAIN="chat.windychat.ai"
 CERT_DIR="/etc/letsencrypt/live/${DOMAIN}"
 SELF_SIGNED_DIR="./certs"
 NGINX_CERT_DIR="./certs"  # where docker volume or nginx expects them
@@ -71,7 +71,7 @@ setup_letsencrypt() {
         --standalone \
         --non-interactive \
         --agree-tos \
-        --email "admin@windypro.com" \
+        --email "admin@windyword.ai" \
         --domain "${DOMAIN}" \
         --keep-until-expiring \
         --rsa-key-size 4096

@@ -334,7 +334,7 @@ async function sendAPNs(pushkey, payload) {
 
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@windychat.com';
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@windychat.ai';
 
 let webPushReady = false;
 

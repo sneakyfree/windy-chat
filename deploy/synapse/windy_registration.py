@@ -53,7 +53,7 @@ class WindyRegistrationModule:
 
     Password auth flow:
         User logs in with Windy credentials → module validates against H1
-        Returns Matrix user ID (@windy_{hash}:chat.windyword.ai)
+        Returns Matrix user ID (@windy_{hash}:chat.windychat.ai)
     """
 
     def __init__(self, config: WindyRegistrationConfig, api: ModuleApi) -> None:
@@ -154,7 +154,7 @@ class WindyRegistrationModule:
         Called after a new Matrix user is registered.
 
         Sets the display name to the Windy profile name so the UI never
-        shows raw @windy_abc123:chat.windyword.ai identifiers.
+        shows raw @windy_abc123:chat.windychat.ai identifiers.
         """
         logger.info("New Matrix user registered: %s", user_id)
 
@@ -261,7 +261,7 @@ class WindyDisplayNameProvider:
     Utility to map Windy display names to Matrix user IDs.
 
     Used by the chat client to resolve human-readable names:
-        "Grant Whitmer" → @windy_grant_whitmer:chat.windyword.ai
+        "Grant Whitmer" → @windy_grant_whitmer:chat.windychat.ai
 
     The UI always shows the display name, never the Matrix user ID.
     """

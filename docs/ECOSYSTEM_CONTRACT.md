@@ -38,7 +38,7 @@ Default: `http://localhost:8098`
 {
   "windy_user_id": "uuid",
   "display_name": "Grant Whitmer",
-  "avatar_url": "https://cdn.windypro.com/avatars/abc.jpg"
+  "avatar_url": "https://cdn.windyword.ai/avatars/abc.jpg"
 }
 ```
 
@@ -76,10 +76,10 @@ Default: `http://localhost:8098`
 
 ```json
 {
-  "matrix_user_id": "@windy_<localpart>:chat.windyword.ai",
+  "matrix_user_id": "@windy_<localpart>:chat.windychat.ai",
   "access_token": "string",
   "device_id": "string",
-  "home_server": "chat.windyword.ai"
+  "home_server": "chat.windychat.ai"
 }
 ```
 
@@ -108,7 +108,7 @@ Default: `http://localhost:8098`
   "avatar_url": "string | null",
   "created_at": "ISO8601",
   "chat_provisioned": true,
-  "matrix_user_id": "@windy_<localpart>:chat.windyword.ai | null"
+  "matrix_user_id": "@windy_<localpart>:chat.windychat.ai | null"
 }
 ```
 

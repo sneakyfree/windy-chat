@@ -24,7 +24,7 @@ queued for Wave 7.
 ### VERIFIED — JWT validation via Windy Pro JWKS
 
 - `services/shared/jwt-verify.js` pulls keys from
-  `https://windypro.thewindstorm.uk/.well-known/jwks.json` and caches
+  `https://windyword.ai/.well-known/jwks.json` and caches
   with ETag/refresh.
 - RS256 verified against published keys; HS256 fallback uses
   `WINDY_JWT_SECRET` (kept in Secrets Manager).
@@ -187,7 +187,7 @@ Tuned for real-time chat in `homeserver.yaml`:
 
 ### VERIFIED — Signing key lives in Secrets Manager
 
-- `chat.windyword.ai.signing.key` is stored as a binary secret, not a
+- `chat.windychat.ai.signing.key` is stored as a binary secret, not a
   plain S3 object.
 - See `CHAT_DEPLOYMENT.md` → "Signing-key generation and rotation" for
   the rotation runbook.

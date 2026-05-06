@@ -60,7 +60,7 @@ running tests.
 
 `.env.example` line 45:
 ```
-ETERNITAS_WEBHOOK_URL=https://chat.windyword.ai/api/v1/webhooks/eternitas
+ETERNITAS_WEBHOOK_URL=https://chat.windychat.ai/api/v1/webhooks/eternitas
 ```
 
 That URL points at `services/social/routes/eternitas-webhook.js`, which
@@ -84,14 +84,14 @@ or subscribe to both endpoints on the Eternitas side.
 Live-reproduced this with a throwaway user JWT:
 
 ```
-$ curl -X POST https://chat.windyword.ai/api/v1/chat/directory/agents/register \
+$ curl -X POST https://chat.windychat.ai/api/v1/chat/directory/agents/register \
     -H "Authorization: Bearer $USER_JWT" \
     -d '{"passport_number":"ET26-FAKE","agent_name":"Anthropic Official",
          "trust_score":999,"clearance_level":"top_secret"}'
 {"registered":true,"passport_number":"ET26-FAKE"}
 
 $ curl -H "Authorization: Bearer $USER_JWT" \
-    https://chat.windyword.ai/api/v1/chat/directory/agents/ET26-FAKE
+    https://chat.windychat.ai/api/v1/chat/directory/agents/ET26-FAKE
 {"agent_name":"Anthropic Official","trust_score":999,
  "clearance_level":"top_secret", ...}
 ```
@@ -126,14 +126,14 @@ bypassable — see P1 #7.)
 ### 5. The Chat handle you get depends on which code path provisioned you
 
 Wave 2 mail-aligned-localpart claim: `grant.whitmer@windymail.ai` should
-match `@grant.whitmer:chat.windyword.ai`. That only holds if the
+match `@grant.whitmer:chat.windychat.ai`. That only holds if the
 identity-created webhook fires BEFORE the user logs into Chat. Live-
 reproduced the opposite:
 
 ```
 # User hits /unified-login first (via Windy Pro login)
 $ curl /api/v1/onboarding/unified-login ...
-  → matrix_user_id = @windy_grant:chat.windyword.ai   (legacy, prefixed)
+  → matrix_user_id = @windy_grant:chat.windychat.ai   (legacy, prefixed)
 
 # Then the identity-created webhook fires
 $ curl /api/v1/webhooks/identity/created ...
@@ -201,7 +201,7 @@ re-verification, add tests).
 ### P0-3 — Eternitas webhook URL points at social, cache flush code is in onboarding
 
 **What's broken**: `.env.example` and (presumably) production config set
-`ETERNITAS_WEBHOOK_URL=https://chat.windyword.ai/api/v1/webhooks/eternitas`
+`ETERNITAS_WEBHOOK_URL=https://chat.windychat.ai/api/v1/webhooks/eternitas`
 which routes to `services/social/routes/eternitas-webhook.js`. Neither
 social's handler nor any path reached from it calls
 `invalidateTrustCache()`. My Wave 4 cache-flush endpoints
@@ -525,9 +525,9 @@ the one Eternitas should dispatch to.
 
 ### P2-2 — CORS allowlist missing sibling-product hosts
 
-`windy-chat`'s CORS allowlist includes `chat.windyword.ai` but not
-`mail.windyword.ai`, `clone.windyword.ai`, `fly.windyword.ai`,
-`code.windyword.ai`. Cross-product XHR from those hosts will get blocked.
+`windy-chat`'s CORS allowlist includes `chat.windychat.ai` but not
+`mail.windymail.ai`, `windyclone.ai`, `windyfly.ai`,
+`windycode.org`. Cross-product XHR from those hosts will get blocked.
 
 **Code**: `services/shared/cors.js:8-18`.
 
@@ -549,7 +549,7 @@ time so the attacker owns both upload and fetch).
 ### P2-4 — `pair.js` defaults to production Synapse URL
 
 `services/onboarding/routes/pair.js:78` reads
-`process.env.SYNAPSE_URL || 'https://chat.windyword.ai'`. Other places
+`process.env.SYNAPSE_URL || 'https://chat.windychat.ai'`. Other places
 default to `http://localhost:8008`. Inconsistent — means paired clients
 in a local dev run receive a `server` field pointing at prod.
 
@@ -569,8 +569,8 @@ non-connected users.
 
 ### P2-6 — `integration-pro.test.js` has 4 stale assertions
 
-Pre-existing: two tests regex-match against `chat.windypro.com` but the
-real server name is `chat.windyword.ai`. Fails 4/22 subtests; untouched
+Pre-existing: two tests regex-match against `chat.windychat.ai` but the
+real server name is `chat.windychat.ai`. Fails 4/22 subtests; untouched
 since my Wave 2 notice.
 
 **Fix**: update the regex.

@@ -15,8 +15,8 @@ const fs = require('fs');
 const path = require('path');
 
 const ETERNITAS_URL = process.env.ETERNITAS_URL || process.env.ETERNITAS_API_URL || 'https://api.eternitas.ai';
-const WEBHOOK_URL = process.env.ETERNITAS_WEBHOOK_URL || 'https://chat.windyword.ai/api/v1/webhooks/eternitas';
-const CONTACT_EMAIL = process.env.ETERNITAS_CONTACT_EMAIL || 'admin@windychat.com';
+const WEBHOOK_URL = process.env.ETERNITAS_WEBHOOK_URL || 'https://chat.windychat.ai/api/v1/webhooks/eternitas';
+const CONTACT_EMAIL = process.env.ETERNITAS_CONTACT_EMAIL || 'admin@windychat.ai';
 const PLATFORM_ID_FILE = path.join(__dirname, '..', '.eternitas-platform-id');
 
 /**

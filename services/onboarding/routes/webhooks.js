@@ -25,7 +25,7 @@ const router = express.Router();
 const SYNAPSE_URL = process.env.SYNAPSE_URL || 'http://localhost:8008';
 const SYNAPSE_ADMIN_URL = process.env.SYNAPSE_ADMIN_URL || `${SYNAPSE_URL}/_synapse/admin`;
 const SYNAPSE_REGISTRATION_SECRET = process.env.SYNAPSE_REGISTRATION_SECRET || '';
-const SYNAPSE_SERVER_NAME = process.env.SYNAPSE_SERVER_NAME || 'chat.windyword.ai';
+const SYNAPSE_SERVER_NAME = process.env.SYNAPSE_SERVER_NAME || 'chat.windychat.ai';
 const CHAT_API_TOKEN = process.env.CHAT_API_TOKEN || '';
 
 const IDENTITY_WEBHOOK_SECRET = process.env.WINDY_IDENTITY_WEBHOOK_SECRET || '';
@@ -90,7 +90,7 @@ function hmacMiddleware({ header, secret, name }) {
 
 /**
  * Generate a Matrix localpart aligned with Mail's email_local algorithm so
- * @grant.whitmer:chat.windyword.ai matches grant.whitmer@windymail.ai.
+ * @grant.whitmer:chat.windychat.ai matches grant.whitmer@windymail.ai.
  *
  * Priority: first+last → username → email local-part → display_name.
  * Matrix allows `[a-z0-9._=/-]` in localparts; Mail allows `[a-z0-9._-]`.

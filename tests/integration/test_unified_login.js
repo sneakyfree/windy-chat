@@ -31,7 +31,7 @@ for (const svc of ['onboarding', 'social']) {
 const jwt = require('../../services/social/node_modules/jsonwebtoken');
 
 const WINDY_ID = 'unified-test-uuid-1234-5678-abcdef';
-const USER_EMAIL = 'grant@windypro.com';
+const USER_EMAIL = 'grant@windyword.ai';
 const USER_NAME = 'Grant Whitmer';
 
 const validToken = jwt.sign({

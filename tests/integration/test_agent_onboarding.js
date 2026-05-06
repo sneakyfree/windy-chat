@@ -135,7 +135,7 @@ describe('Step 1: Agent Provisioning', () => {
     assert.equal(res.body.passport_number, 'ET26-K7BF-42MN');
 
     // Matrix user ID follows convention: @agent_<passport>:server
-    assert.match(res.body.matrix_user_id, /^@agent_.*:chat\.windyword\.ai$/);
+    assert.match(res.body.matrix_user_id, /^@agent_.*:chat\.windychat\.ai$/);
 
     provisionResult = res.body;
   });
@@ -210,7 +210,7 @@ describe('Step 3: Agent Room Lookup (owner first-login flushes deferred DM)', ()
       { algorithm: 'HS256', expiresIn: '1h' }
     );
 
-    const agentMatrixId = `@agent_${agentPassport.replace(/[^a-z0-9_-]/gi, '').toLowerCase()}:chat.windyword.ai`;
+    const agentMatrixId = `@agent_${agentPassport.replace(/[^a-z0-9_-]/gi, '').toLowerCase()}:chat.windychat.ai`;
 
     const res = await request('GET',
       `/api/v1/chat/agent-room?agentId=${encodeURIComponent(agentMatrixId)}&ownerId=${encodeURIComponent(ownerId)}`,

@@ -39,23 +39,23 @@ before(async () => {
         const { user, password } = lastRequest.body;
 
         // Simulate different responses based on credentials
-        if (user === 'valid@windypro.com' && password === 'correct_password') {
+        if (user === 'valid@windyword.ai' && password === 'correct_password') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
             windy_user_id: '550e8400-e29b-41d4-a716-446655440000',
             display_name: 'Grant Whitmer',
-            avatar_url: 'https://cdn.windypro.com/avatars/grant.jpg',
+            avatar_url: 'https://cdn.windyword.ai/avatars/grant.jpg',
           }));
-        } else if (user === 'valid@windypro.com' && password === 'wrong_password') {
+        } else if (user === 'valid@windyword.ai' && password === 'wrong_password') {
           res.writeHead(401, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'invalid_credentials' }));
-        } else if (user === 'timeout@windypro.com') {
+        } else if (user === 'timeout@windyword.ai') {
           // Simulate timeout — don't respond
           setTimeout(() => {
             res.writeHead(504);
             res.end();
           }, 15000);
-        } else if (user === 'server_error@windypro.com') {
+        } else if (user === 'server_error@windyword.ai') {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'internal_error' }));
         } else {
@@ -121,7 +121,7 @@ describe('Synapse Auth Contract: Request format', () => {
   before(() => resetMock());
 
   it('sends POST with {user, password} body', async () => {
-    await callChatValidate('valid@windypro.com', 'correct_password');
+    await callChatValidate('valid@windyword.ai', 'correct_password');
     assert.ok(lastRequest, 'Mock should have received a request');
     assert.equal(lastRequest.method, 'POST');
     assert.equal(lastRequest.url, '/api/v1/auth/chat-validate');
@@ -130,9 +130,9 @@ describe('Synapse Auth Contract: Request format', () => {
 
   it('request body has "user" field (not "username")', async () => {
     resetMock();
-    await callChatValidate('test@windypro.com', 'pass');
+    await callChatValidate('test@windyword.ai', 'pass');
     assert.ok(lastRequest.body.user, 'Body must have "user" field');
-    assert.equal(lastRequest.body.user, 'test@windypro.com');
+    assert.equal(lastRequest.body.user, 'test@windyword.ai');
     assert.equal(lastRequest.body.password, 'pass');
     assert.equal(lastRequest.body.username, undefined, 'Must NOT use "username" field');
     assert.equal(lastRequest.body.shared_secret, undefined, 'Must NOT send shared_secret in body');
@@ -145,15 +145,15 @@ describe('Synapse Auth Contract: Request format', () => {
 
 describe('Synapse Auth Contract: Successful response', () => {
   it('returns {windy_user_id, display_name, avatar_url} on 200', async () => {
-    const res = await callChatValidate('valid@windypro.com', 'correct_password');
+    const res = await callChatValidate('valid@windyword.ai', 'correct_password');
     assert.equal(res.status, 200);
     assert.equal(res.body.windy_user_id, '550e8400-e29b-41d4-a716-446655440000');
     assert.equal(res.body.display_name, 'Grant Whitmer');
-    assert.equal(res.body.avatar_url, 'https://cdn.windypro.com/avatars/grant.jpg');
+    assert.equal(res.body.avatar_url, 'https://cdn.windyword.ai/avatars/grant.jpg');
   });
 
   it('windy_user_id is a UUID string', async () => {
-    const res = await callChatValidate('valid@windypro.com', 'correct_password');
+    const res = await callChatValidate('valid@windyword.ai', 'correct_password');
     assert.match(res.body.windy_user_id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 });
@@ -164,22 +164,22 @@ describe('Synapse Auth Contract: Successful response', () => {
 
 describe('Synapse Auth Contract: Error handling', () => {
   it('returns 401 for bad credentials', async () => {
-    const res = await callChatValidate('valid@windypro.com', 'wrong_password');
+    const res = await callChatValidate('valid@windyword.ai', 'wrong_password');
     assert.equal(res.status, 401);
   });
 
   it('returns 401 for unknown user', async () => {
-    const res = await callChatValidate('nobody@windypro.com', 'any_pass');
+    const res = await callChatValidate('nobody@windyword.ai', 'any_pass');
     assert.equal(res.status, 401);
   });
 
   it('returns 500 for server error', async () => {
-    const res = await callChatValidate('server_error@windypro.com', 'any_pass');
+    const res = await callChatValidate('server_error@windyword.ai', 'any_pass');
     assert.equal(res.status, 500);
   });
 
   it('handles timeout gracefully', async () => {
-    const res = await callChatValidate('timeout@windypro.com', 'any_pass');
+    const res = await callChatValidate('timeout@windyword.ai', 'any_pass');
     // Should timeout or get an error, not hang
     assert.ok(res.status === 0 || res.status >= 500, `Expected timeout/error, got ${res.status}`);
   });

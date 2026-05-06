@@ -96,8 +96,8 @@ const WINDY_ID_A = 'aaaa-mesh-1111-2222-3333-aaaaaa';
 const WINDY_ID_B = 'bbbb-mesh-1111-2222-3333-bbbbbb';
 const USER_A = 'mesh_user_a';
 const USER_B = 'mesh_user_b';
-const tokenA = makeHS256Token(USER_A, WINDY_ID_A, { displayName: 'Alice Mesh', email: 'alice@windypro.com' });
-const tokenB = makeHS256Token(USER_B, WINDY_ID_B, { displayName: 'Bob Mesh', email: 'bob@windypro.com' });
+const tokenA = makeHS256Token(USER_A, WINDY_ID_A, { displayName: 'Alice Mesh', email: 'alice@windyword.ai' });
+const tokenB = makeHS256Token(USER_B, WINDY_ID_B, { displayName: 'Bob Mesh', email: 'bob@windyword.ai' });
 
 // ═══════════════════════════════════════════════════════════
 // Mock Servers: Account-Server, Eternitas, Windy Translate
@@ -148,9 +148,9 @@ function createMockAccountServer() {
         try {
           const data = JSON.parse(body);
           res.end(JSON.stringify({
-            matrix_user_id: `@${data.localpart || 'mesh_user'}:chat.windyword.ai`,
+            matrix_user_id: `@${data.localpart || 'mesh_user'}:chat.windychat.ai`,
             access_token: `syt_mock_${crypto.randomBytes(8).toString('hex')}`,
-            home_server: 'chat.windyword.ai',
+            home_server: 'chat.windychat.ai',
           }));
         } catch {
           res.statusCode = 400;
@@ -583,7 +583,7 @@ describe('Category 2: Cross-Service Identity', () => {
 
   it('2.6 Log a call in call-history → user ID matches', trackTest('callhistory-identity', async () => {
     const r = await jsonRequest('POST', callHistoryUrl, '/api/v1/calls/log', {
-      room_id: '!test-room:chat.windyword.ai',
+      room_id: '!test-room:chat.windychat.ai',
       caller_id: USER_A,
       callee_id: USER_B,
       started_at: new Date().toISOString(),

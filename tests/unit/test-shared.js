@@ -78,10 +78,10 @@ describe('asyncHandler', () => {
 // ── cors.js ──────────────────────────────────────────────────────────
 
 describe('cors', () => {
-  it('DEFAULT_ORIGINS includes windypro.com domains', () => {
-    assert.ok(DEFAULT_ORIGINS.includes('https://windypro.com'));
-    assert.ok(DEFAULT_ORIGINS.includes('https://www.windypro.com'));
-    assert.ok(DEFAULT_ORIGINS.includes('https://app.windypro.com'));
+  it('DEFAULT_ORIGINS includes windyword.ai domains', () => {
+    assert.ok(DEFAULT_ORIGINS.includes('https://windyword.ai'));
+    assert.ok(DEFAULT_ORIGINS.includes('https://windyword.ai'));
+    assert.ok(DEFAULT_ORIGINS.includes('https://windyword.ai'));
   });
 
   it('getAllowedOrigins() returns defaults when no env var set', () => {
@@ -99,7 +99,7 @@ describe('cors', () => {
     assert.ok(origins.includes('https://extra1.com'));
     assert.ok(origins.includes('https://extra2.com'));
     // defaults still present
-    assert.ok(origins.includes('https://windypro.com'));
+    assert.ok(origins.includes('https://windyword.ai'));
     if (saved !== undefined) process.env.CORS_ALLOWED_ORIGINS = saved;
     else delete process.env.CORS_ALLOWED_ORIGINS;
   });
@@ -130,7 +130,7 @@ describe('cors', () => {
 
   it('origin function allows listed origins', (_, done) => {
     const opts = createCorsOptions();
-    opts.origin('https://windypro.com', (err, allowed) => {
+    opts.origin('https://windyword.ai', (err, allowed) => {
       assert.equal(err, null);
       assert.equal(allowed, true);
       done();

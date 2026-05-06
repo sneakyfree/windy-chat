@@ -2,7 +2,7 @@
 
 Standalone web client for Windy Chat — the chat + social platform where humans and AI talk.
 
-Visit **windychat.com** — no app install required.
+Visit **windychat.ai** — no app install required.
 
 ## Quick Start
 
@@ -49,8 +49,8 @@ src/
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `VITE_MATRIX_HOMESERVER` | Synapse homeserver URL | `https://chat.windyword.ai` |
-| `VITE_ACCOUNT_SERVER_URL` | Windy Pro account server | `https://account.windypro.com` |
+| `VITE_MATRIX_HOMESERVER` | Synapse homeserver URL | `https://chat.windychat.ai` |
+| `VITE_ACCOUNT_SERVER_URL` | Windy Pro account server | `https://account.windyword.ai` |
 | `VITE_SOCIAL_API_URL` | Social service API | `/api/v1/social` |
 | `VITE_ETERNITAS_URL` | Eternitas registry API | `https://api.eternitas.ai` |
 | `VITE_WINDY_WORD_WS` | Voice transcription WebSocket | `wss://windyword.ai` |
