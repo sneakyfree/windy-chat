@@ -50,27 +50,27 @@ All records point at the VPS's public IPs. Federation records are
 
 ```
 # Primary client hostname
-chat.windychat.com.              A     <VPS_IPv4>
-chat.windychat.com.              AAAA  <VPS_IPv6>
+chat.windychat.ai.              A     <VPS_IPv4>
+chat.windychat.ai.              AAAA  <VPS_IPv6>
 
 # TURN / STUN
-turn.windychat.com.              A     <VPS_IPv4>
-turn.windychat.com.              AAAA  <VPS_IPv6>
+turn.windychat.ai.              A     <VPS_IPv4>
+turn.windychat.ai.              AAAA  <VPS_IPv6>
 
 # Federation (enable when turning federation on)
-# _matrix._tcp.chat.windychat.com. SRV 10 0 8448 chat.windychat.com.
-# matrix.windychat.com.            A     <VPS_IPv4>
-# matrix.windychat.com.            AAAA  <VPS_IPv6>
+# _matrix._tcp.chat.windychat.ai. SRV 10 0 8448 chat.windychat.ai.
+# matrix.windychat.ai.            A     <VPS_IPv4>
+# matrix.windychat.ai.            AAAA  <VPS_IPv6>
 
 # Well-known delegation served by nginx at
-#   https://windychat.com/.well-known/matrix/server →
-#   {"m.server": "chat.windychat.com:8448"}
+#   https://windychat.ai/.well-known/matrix/server →
+#   {"m.server": "chat.windychat.ai:8448"}
 # No DNS entry needed beyond the apex A/AAAA.
-windychat.com.                   A     <VPS_IPv4>
-windychat.com.                   AAAA  <VPS_IPv6>
+windychat.ai.                   A     <VPS_IPv4>
+windychat.ai.                   AAAA  <VPS_IPv6>
 ```
 
-> The homeserver's `server_name` is `chat.windychat.com` in
+> The homeserver's `server_name` is `chat.windychat.ai` in
 > production. It matches `SYNAPSE_SERVER_NAME` in
 > `.env.production` and `server_name:` in
 > `deploy/synapse/homeserver.yaml`. Changing it later rewrites every
@@ -142,8 +142,8 @@ Obtain certs via certbot:
 
 ```bash
 docker compose exec nginx certbot --nginx \
-  -d chat.windychat.com -d turn.windychat.com -d windychat.com \
-  --non-interactive --agree-tos -m ops@windychat.com
+  -d chat.windychat.ai -d turn.windychat.ai -d windychat.ai \
+  --non-interactive --agree-tos -m ops@windychat.ai
 ```
 
 Renewal is handled by the certbot container's timer; nginx reloads
@@ -162,7 +162,7 @@ credentials are ephemeral.
 ```
 use-auth-secret
 static-auth-secret=${COTURN_SHARED_SECRET}
-realm=windychat.com
+realm=windychat.ai
 
 listening-port=3478
 tls-listening-port=5349
@@ -174,8 +174,8 @@ min-port=49152
 max-port=49200
 
 # TLS — point at the nginx-managed cert
-cert=/etc/letsencrypt/live/turn.windychat.com/fullchain.pem
-pkey=/etc/letsencrypt/live/turn.windychat.com/privkey.pem
+cert=/etc/letsencrypt/live/turn.windychat.ai/fullchain.pem
+pkey=/etc/letsencrypt/live/turn.windychat.ai/privkey.pem
 
 # Hardening
 no-multicast-peers
@@ -190,15 +190,15 @@ Synapse side of the wire — in `homeserver.yaml`:
 
 ```yaml
 turn_uris:
-  - "turn:turn.windychat.com:3478?transport=udp"
-  - "turn:turn.windychat.com:3478?transport=tcp"
-  - "turns:turn.windychat.com:5349?transport=tcp"
+  - "turn:turn.windychat.ai:3478?transport=udp"
+  - "turn:turn.windychat.ai:3478?transport=tcp"
+  - "turns:turn.windychat.ai:5349?transport=tcp"
 turn_shared_secret: "${COTURN_SHARED_SECRET}"
 turn_user_lifetime: 86400000
 turn_allow_guests: false
 ```
 
-Verify with `turnutils_uclient -u user -w pass turn.windychat.com`
+Verify with `turnutils_uclient -u user -w pass turn.windychat.ai`
 after the stack is up.
 
 ---
@@ -254,7 +254,7 @@ federation_domain_whitelist: []
 # Allow-list mode — flip by populating this list
 # federation_domain_whitelist:
 #   - "matrix.org"
-#   - "chat.windyword.ai"   # peer Windy tenant
+#   - "chat.windychat.ai"   # peer Windy tenant
 
 # Deny list — takes effect regardless of the whitelist
 federation_ip_range_blacklist:
@@ -285,7 +285,7 @@ When flipping on:
 Run the smoke test from the host once the stack is healthy:
 
 ```bash
-./scripts/smoke-test.sh https://chat.windychat.com
+./scripts/smoke-test.sh https://chat.windychat.ai
 ```
 
 It verifies:

@@ -112,7 +112,7 @@ describe('Webhook: identity/created', { concurrency: false }, () => {
     assert.equal(body.status, 'provisioned');
     assert.equal(body.display_name, 'Grant Whitmer');
     // Mail-aligned handle — expect grant.whitmer (or collision suffix)
-    assert.match(body.matrix_user_id, /^@grant\.whitmer(-[a-f0-9]+)?:chat\.windyword\.ai$/);
+    assert.match(body.matrix_user_id, /^@grant\.whitmer(-[a-f0-9]+)?:chat\.windychat\.ai$/);
   });
 
   it('is idempotent — replay returns already_existed', async () => {

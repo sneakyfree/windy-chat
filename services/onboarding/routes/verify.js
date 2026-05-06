@@ -139,7 +139,7 @@ async function sendSmsOTP(phone, code) {
  */
 async function sendEmailOTP(email, code) {
   const apiKey = process.env.SENDGRID_API_KEY;
-  const fromEmail = process.env.SENDGRID_FROM_EMAIL || 'noreply@windypro.com';
+  const fromEmail = process.env.SENDGRID_FROM_EMAIL || 'noreply@windyword.ai';
 
   if (!apiKey) {
     if (process.env.NODE_ENV === 'production') {

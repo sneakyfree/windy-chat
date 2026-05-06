@@ -15,7 +15,7 @@
  *       "event_type":        "chat.new_message" | "mail.inbound" | ... ,
  *       "title":             "Grant Whitmer",
  *       "body":              "New message",
- *       "deep_link":         "windy://chat/!room:chat.windyword.ai"   // optional
+ *       "deep_link":         "windy://chat/!room:chat.windychat.ai"   // optional
  *     }
  *   Headers:
  *     X-Push-Bus-Token: <shared secret (PUSH_BUS_TOKEN)>

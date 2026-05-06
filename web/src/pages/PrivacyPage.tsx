@@ -49,7 +49,7 @@ export default function PrivacyPage() {
 
         <section>
           <h2 className="text-base font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>9. Contact</h2>
-          <p>For privacy inquiries: <a href="mailto:privacy@windychat.com" style={{ color: 'var(--accent)' }}>privacy@windychat.com</a></p>
+          <p>For privacy inquiries: <a href="mailto:privacy@windychat.ai" style={{ color: 'var(--accent)' }}>privacy@windychat.ai</a></p>
         </section>
       </div>
     </div>

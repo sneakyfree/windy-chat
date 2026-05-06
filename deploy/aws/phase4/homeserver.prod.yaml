@@ -79,8 +79,8 @@ enable_registration_without_verification: false
 # modules:
 #   - module: windy_registration.WindyRegistrationModule
 #     config:
-#       windy_account_server: "https://api.windyword.ai"
-#       windy_jwks_url: "https://api.windyword.ai/.well-known/jwks.json"
+#       windy_account_server: "https://account.windyword.ai"
+#       windy_jwks_url: "https://account.windyword.ai/.well-known/jwks.json"
 #       registration_shared_secret: "${SYNAPSE_REGISTRATION_SECRET}"
 #   - module: windy_push_bus.WindyPushBusModule
 #     config:

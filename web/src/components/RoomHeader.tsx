@@ -36,7 +36,7 @@ function clearanceStyle(level: string | null | undefined): { bg: string; color: 
 
 /**
  * Extract an Eternitas passport number from an agent Matrix ID like
- * `@agent_et-abc123:chat.windyword.ai`. Uppercased because the agent
+ * `@agent_et-abc123:chat.windychat.ai`. Uppercased because the agent
  * directory stores passports in the canonical uppercase form.
  */
 function passportFromAgentId(matrixId: string | undefined): string | null {

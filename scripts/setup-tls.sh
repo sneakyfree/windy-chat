@@ -10,8 +10,8 @@
 
 set -e
 
-DOMAIN="${1:-chat.windyword.ai}"
-EMAIL="${2:-admin@windypro.com}"
+DOMAIN="${1:-chat.windychat.ai}"
+EMAIL="${2:-admin@windyword.ai}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CERT_DIR="$ROOT_DIR/deploy/certs"

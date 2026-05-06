@@ -305,7 +305,7 @@ router.post('/invite', inviteLimiter, asyncHandler(async (req, res) => {
 
     // Generate referral deep link
     const referralCode = uuidv4().slice(0, 8);
-    const deepLink = `https://windypro.com/chat/join?ref=${referralCode}`;
+    const deepLink = `https://windyword.ai/chat/join?ref=${referralCode}`;
 
     // Track referral
     dirDb.insertReferral.run(referralCode, fromUserId, null, type, identifier, new Date().toISOString(), null);
@@ -342,7 +342,7 @@ router.post('/invite', inviteLimiter, asyncHandler(async (req, res) => {
     } else {
       // Send email invite
       const apiKey = process.env.SENDGRID_API_KEY;
-      const fromEmail = process.env.SENDGRID_FROM_EMAIL || 'noreply@windypro.com';
+      const fromEmail = process.env.SENDGRID_FROM_EMAIL || 'noreply@windyword.ai';
 
       if (!apiKey) {
         if (process.env.NODE_ENV === 'production') {

@@ -220,7 +220,7 @@ class WindyPushBusModule:
 
 
 def _extract_localpart(matrix_user_id: str) -> str:
-    """Given '@grant.whitmer:chat.windyword.ai' return 'grant.whitmer'."""
+    """Given '@grant.whitmer:chat.windychat.ai' return 'grant.whitmer'."""
     if not matrix_user_id.startswith("@"):
         return matrix_user_id
     rest = matrix_user_id[1:]

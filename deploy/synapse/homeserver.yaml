@@ -1,8 +1,8 @@
 # Windy Chat — Synapse Homeserver Configuration
 # K1: Our Own Matrix Homeserver (DNA Strand K)
-# Server: chat.windyword.ai
+# Server: chat.windychat.ai
 
-server_name: "chat.windyword.ai"
+server_name: "chat.windychat.ai"
 pid_file: /data/homeserver.pid
 
 # ── Listeners ──
@@ -33,7 +33,7 @@ database:
     cp_max: 10
 
 # ── Logging ──
-log_config: "/data/chat.windyword.ai.log.config"
+log_config: "/data/chat.windychat.ai.log.config"
 
 # ── Media Store ──
 media_store_path: /data/media_store
@@ -87,7 +87,7 @@ allow_public_rooms_without_auth: false
 restrict_public_rooms_to_local_users: true
 
 # ── Signing Keys ──
-signing_key_path: "/data/chat.windyword.ai.signing.key"
+signing_key_path: "/data/chat.windychat.ai.signing.key"
 
 # ── E2E Key Backup (K7) ──
 # Enables server-side encrypted key backup so users can recover
@@ -150,10 +150,10 @@ retention:
 
 # ── TURN Server (Coturn for VoIP — K5) ──
 turn_uris:
-  - "turn:chat.windyword.ai:3478?transport=udp"
-  - "turn:chat.windyword.ai:3478?transport=tcp"
-  - "turns:chat.windyword.ai:5349?transport=udp"
-  - "turns:chat.windyword.ai:5349?transport=tcp"
+  - "turn:chat.windychat.ai:3478?transport=udp"
+  - "turn:chat.windychat.ai:3478?transport=tcp"
+  - "turns:chat.windychat.ai:5349?transport=udp"
+  - "turns:chat.windychat.ai:5349?transport=tcp"
 turn_shared_secret: "${TURN_SHARED_SECRET}"
 turn_user_lifetime: 86400000
 turn_allow_guests: false

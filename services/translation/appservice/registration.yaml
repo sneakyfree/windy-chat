@@ -16,6 +16,6 @@ rate_limited: false
 namespaces:
   users:
     - exclusive: false
-      regex: "@.*:chat\\.windypro\\.com"
+      regex: "@.*:chat\\.windychat\\.ai"
   rooms: []
   aliases: []

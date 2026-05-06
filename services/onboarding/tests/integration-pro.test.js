@@ -264,7 +264,7 @@ describe('2. Unified Login Provisioning', () => {
     const r = await request('POST', onboardingUrl, '/api/v1/onboarding/unified-login', {}, auth(token));
     assert.equal(r.status, 201);
     assert.ok(r.body.matrix_user_id);
-    assert.match(r.body.matrix_user_id, /@windy_.*:chat\.windyword\.ai/);
+    assert.match(r.body.matrix_user_id, /@windy_.*:chat\.windychat\.ai/);
     assert.equal(r.body.already_existed, false);
     assert.equal(r.body.windy_identity_id, claims.windy_identity_id);
     assert.equal(r.body.display_name, claims.display_name);
@@ -351,7 +351,7 @@ describe('4. DM Room Creation', () => {
     const r = await request('POST', onboardingUrl, '/api/v1/onboarding/unified-login', {}, auth(agentToken));
     assert.equal(r.status, 201);
     assert.ok(r.body.room_id, 'Should return room_id when owner exists');
-    assert.match(r.body.room_id, /^!.*:chat\.windyword\.ai$/);
+    assert.match(r.body.room_id, /^!.*:chat\.windychat\.ai$/);
   });
 
   it('4.2 agent-room lookup returns the created room', async () => {

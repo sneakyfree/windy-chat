@@ -65,7 +65,7 @@ fi
 echo ""
 
 # ── Step 2: Register test admin user ──
-echo -e "${BLUE}Registering test admin user: @${ADMIN_USER}:chat.windyword.ai${NC}"
+echo -e "${BLUE}Registering test admin user: @${ADMIN_USER}:chat.windychat.ai${NC}"
 
 # Get a nonce from Synapse
 NONCE=$(curl -sf "${SYNAPSE_URL}/_synapse/admin/v1/register" | python3 -c "import sys,json; print(json.load(sys.stdin)['nonce'])" 2>/dev/null || true)
@@ -169,8 +169,8 @@ echo -e "${GREEN}  Synapse Dev Environment Ready${NC}"
 echo -e "${GREEN}═══════════════════════════════════════════${NC}"
 echo ""
 echo "  Synapse:       ${SYNAPSE_URL}"
-echo "  Server name:   chat.windyword.ai"
-echo "  Admin user:    @${ADMIN_USER}:chat.windyword.ai"
+echo "  Server name:   chat.windychat.ai"
+echo "  Admin user:    @${ADMIN_USER}:chat.windychat.ai"
 if [ -n "${ACCESS_TOKEN:-}" ]; then
   echo "  Admin pass:    ${ADMIN_PASS}"
   echo "  Access token:  ${ACCESS_TOKEN}"

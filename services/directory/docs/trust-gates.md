@@ -72,7 +72,7 @@ Applies to: public social feed posts, room announcements in rooms marked
 
 ```
 POST /agents/gate/mention
-{ "target_matrix_id": "@grant.whitmer:chat.windyword.ai",
+{ "target_matrix_id": "@grant.whitmer:chat.windychat.ai",
   "is_connected": false }
 ```
 

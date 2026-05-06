@@ -75,14 +75,22 @@ test('isOriginAllowed: prod domain chat.windychat.ai is in DEFAULT_ORIGINS', () 
   assert.equal(isOriginAllowed('https://chat.windychat.ai'), true);
 });
 
-test('isOriginAllowed: legacy chat.windyword.ai still allowed during rebrand', () => {
-  assert.equal(isOriginAllowed('https://chat.windyword.ai'), true);
+test('isOriginAllowed: windychat.ai apex (no subdomain) is allowed', () => {
+  assert.equal(isOriginAllowed('https://windychat.ai'), true);
 });
 
-test('isOriginAllowed: every windyword.ai sibling product is allowed', () => {
-  const siblings = ['mail', 'clone', 'fly', 'code', 'cloud', 'eternitas'];
-  for (const s of siblings) {
-    assert.equal(isOriginAllowed(`https://${s}.windyword.ai`), true, s);
+test('isOriginAllowed: every sibling product apex is allowed', () => {
+  const apexes = [
+    'https://mail.windymail.ai',
+    'https://windyclone.ai',
+    'https://windyfly.ai',
+    'https://windycode.org',
+    'https://cloud.windycloud.com',
+    'https://eternitas.ai',
+    'https://windyword.ai',
+  ];
+  for (const origin of apexes) {
+    assert.equal(isOriginAllowed(origin), true, origin);
   }
 });
 
@@ -137,14 +145,14 @@ test('middleware: allowed prod origin → ACAO echoes origin, next() called', ()
   assert.equal(ctx.res._headers['vary'], 'Origin');
 });
 
-test('middleware: legacy chat.windyword.ai still allowed', () => {
+test('middleware: windychat.ai apex still allowed', () => {
   const mw = createCorsMiddleware();
-  const ctx = mockReqRes({ headers: { origin: 'https://chat.windyword.ai' } });
+  const ctx = mockReqRes({ headers: { origin: 'https://windychat.ai' } });
   mw(ctx.req, ctx.res, ctx.next);
   assert.equal(ctx.nextCalled, true);
   assert.equal(
     ctx.res._headers['access-control-allow-origin'],
-    'https://chat.windyword.ai',
+    'https://windychat.ai',
   );
 });
 

@@ -15,7 +15,7 @@ cd windy-chat
 
 # 2. Client
 # Set these in your client's .env or config:
-CHAT_HOMESERVER_URL=https://chat.windyword.ai   # or http://localhost:8008 for dev
+CHAT_HOMESERVER_URL=https://chat.windychat.ai   # or http://localhost:8008 for dev
 CHAT_API_BASE=http://localhost                   # base for microservice ports
 WINDY_JWT_SECRET=<must match backend>
 ```
@@ -107,7 +107,7 @@ After provisioning, initialize the Matrix client:
 import sdk from 'matrix-js-sdk';
 
 const client = sdk.createClient({
-  baseUrl: 'https://chat.windyword.ai',
+  baseUrl: 'https://chat.windychat.ai',
   accessToken: provisionResult.access_token,
   userId: provisionResult.matrix_user_id,
   deviceId: provisionResult.device_id,
@@ -312,7 +312,7 @@ const matches = await fetch('/api/v1/chat/directory/lookup', {
 
 | Variable | Value | Description |
 |----------|-------|-------------|
-| `CHAT_HOMESERVER_URL` | `https://chat.windyword.ai` | Matrix homeserver |
+| `CHAT_HOMESERVER_URL` | `https://chat.windychat.ai` | Matrix homeserver |
 | `CHAT_ONBOARDING_URL` | `http://localhost:8101` | Onboarding service |
 | `CHAT_DIRECTORY_URL` | `http://localhost:8102` | Directory service |
 | `CHAT_PUSH_URL` | `http://localhost:8103` | Push gateway |
@@ -322,5 +322,5 @@ const matches = await fetch('/api/v1/chat/directory/lookup', {
 | `CHAT_MEDIA_URL` | `http://localhost:8107` | Media service |
 | `CHAT_CALLS_URL` | `http://localhost:8108` | Call history |
 
-In production, all services are behind nginx on `https://chat.windyword.ai`
+In production, all services are behind nginx on `https://chat.windychat.ai`
 with path-based routing.

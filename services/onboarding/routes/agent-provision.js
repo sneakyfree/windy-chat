@@ -20,7 +20,7 @@ const router = express.Router();
 const SYNAPSE_URL = process.env.SYNAPSE_URL || 'http://localhost:8008';
 const SYNAPSE_ADMIN_URL = process.env.SYNAPSE_ADMIN_URL || `${SYNAPSE_URL}/_synapse/admin`;
 const SYNAPSE_REGISTRATION_SECRET = process.env.SYNAPSE_REGISTRATION_SECRET || '';
-const SYNAPSE_SERVER_NAME = process.env.SYNAPSE_SERVER_NAME || 'chat.windyword.ai';
+const SYNAPSE_SERVER_NAME = process.env.SYNAPSE_SERVER_NAME || 'chat.windychat.ai';
 const CHAT_SERVICE_TOKEN = process.env.CHAT_SERVICE_TOKEN || process.env.CHAT_API_TOKEN || '';
 
 const agentLimiter = rateLimit({
@@ -248,7 +248,7 @@ router.post('/', agentLimiter, serviceTokenAuth, asyncHandler(async (req, res) =
   // Sanitize agent name
   const sanitizedName = agent_name.replace(/<[^>]*>/g, '').trim();
 
-  // Matrix localpart: @agent_<passport>:chat.windyword.ai
+  // Matrix localpart: @agent_<passport>:chat.windychat.ai
   const localpart = `agent_${passport_number.replace(/[^a-z0-9_-]/gi, '').toLowerCase()}`;
   const expectedMatrixId = `@${localpart}:${SYNAPSE_SERVER_NAME}`;
 

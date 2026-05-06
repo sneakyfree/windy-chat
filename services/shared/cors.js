@@ -27,24 +27,18 @@ const DEFAULT_ORIGINS = [
   // normalises to it.
   'https://chat.windychat.ai',
   'https://www.chat.windychat.ai',
-  // windyword.ai siblings — each product ships a frontend that legitimately
-  // XHRs into chat's REST API (cross-product integrations).
+  'https://windychat.ai',
+  // windyword.ai (Word) + sibling product apex hosts — each product ships a
+  // frontend that legitimately XHRs into chat's REST API (cross-product
+  // integrations).
   'https://windyword.ai',
   'https://www.windyword.ai',
-  'https://chat.windyword.ai',
-  'https://mail.windyword.ai',
-  'https://clone.windyword.ai',
-  'https://fly.windyword.ai',
-  'https://code.windyword.ai',
-  'https://cloud.windyword.ai',
-  'https://eternitas.windyword.ai',
-  // Legacy windypro.com hosts (pre-domain-migration; retained until the
-  // rebrand is complete across every product surface).
-  'https://windypro.com',
-  'https://www.windypro.com',
-  'https://app.windypro.com',
-  'https://windychat.com',
-  'https://www.windychat.com',
+  'https://mail.windymail.ai',
+  'https://windyclone.ai',
+  'https://windyfly.ai',
+  'https://windycode.org',
+  'https://cloud.windycloud.com',
+  'https://eternitas.ai',
   // Dev servers
   'http://localhost:5173',  // Vite dev server
   'http://localhost:4173',  // Vite preview

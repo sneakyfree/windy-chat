@@ -77,7 +77,7 @@ router.post('/generate', pairGenerateLimiter, (req, res) => {
       ts: timestamp,
       // Default to the dev Synapse port — paired clients in local dev
       // must not be handed a prod URL. Production sets SYNAPSE_URL via
-      // .env / Secrets Manager. Was 'https://chat.windyword.ai' (P2-4).
+      // .env / Secrets Manager. Was 'https://chat.windychat.ai' (P2-4).
       server: process.env.SYNAPSE_URL || 'http://localhost:8008',
       version: 1,
     };

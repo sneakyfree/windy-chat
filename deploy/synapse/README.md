@@ -38,8 +38,8 @@ This directory contains everything needed to deploy the Windy Chat Matrix homese
   - 50GB+ disk for media storage
   - Ports 80, 443, 3478, 5349, 8448 open
 - DNS records configured:
-  - `A` record: `chat.windyword.ai` → server IP
-  - `SRV` record: `_matrix._tcp.windypro.com` (optional, for federation)
+  - `A` record: `chat.windychat.ai` → server IP
+  - `SRV` record: `_matrix._tcp.windychat.ai` (optional, for federation)
 - Let's Encrypt SSL certificate (or Cloudflare Origin cert)
 
 ## Quick Start
@@ -66,7 +66,7 @@ cp .env.example .env   # or let setup.sh create it
 
 ```bash
 # Option A: Let's Encrypt (recommended)
-certbot certonly --standalone -d chat.windyword.ai
+certbot certonly --standalone -d chat.windychat.ai
 # Copy certs to the synapse_certs volume
 
 # Option B: Self-signed (development only)
@@ -74,7 +74,7 @@ openssl req -x509 -nodes -days 365 \
   -newkey rsa:2048 \
   -keyout privkey.pem \
   -out fullchain.pem \
-  -subj "/CN=chat.windyword.ai"
+  -subj "/CN=chat.windychat.ai"
 ```
 
 ### 4. Run setup
@@ -99,8 +99,8 @@ The script will:
 curl http://localhost:8008/health
 
 # Check well-known endpoints
-curl https://chat.windyword.ai/.well-known/matrix/client
-curl https://chat.windyword.ai/.well-known/matrix/server
+curl https://chat.windychat.ai/.well-known/matrix/client
+curl https://chat.windychat.ai/.well-known/matrix/server
 
 # View logs
 docker compose logs -f synapse
@@ -126,7 +126,7 @@ User → Windy App → POST /api/v1/auth/chat-register → Account Server (H1)
 The `windy_registration.py` module:
 - Validates login credentials against H1 (`localhost:8098`)
 - Maps Windy display names to Matrix user IDs
-- Hides raw `@windy_xyz:chat.windyword.ai` identifiers from the UI
+- Hides raw `@windy_xyz:chat.windychat.ai` identifiers from the UI
 - Auto-provisions Matrix accounts on first login
 
 ## Configuration Reference
@@ -135,7 +135,7 @@ The `windy_registration.py` module:
 
 | Setting | Value | Rationale |
 |---------|-------|-----------|
-| `server_name` | `chat.windyword.ai` | Our domain |
+| `server_name` | `chat.windychat.ai` | Our domain |
 | `enable_registration` | `false` | Custom registration only (K2) |
 | `max_upload_size` | `100M` | Media sharing support (K4) |
 | `federation` | Disabled | Windy-users-only network (initially) |

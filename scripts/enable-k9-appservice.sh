@@ -79,7 +79,7 @@ echo -e "${GREEN}═════════════════════
 echo ""
 echo "  AppService ID:     windy-translation"
 echo "  AppService URL:    http://translation:8106"
-echo "  Sender localpart:  @windy_translator:chat.windyword.ai"
+echo "  Sender localpart:  @windy_translator:chat.windychat.ai"
 echo ""
 echo "  AS Token: ${TRANSLATION_AS_TOKEN:0:8}..."
 echo "  HS Token: ${TRANSLATION_HS_TOKEN:0:8}..."

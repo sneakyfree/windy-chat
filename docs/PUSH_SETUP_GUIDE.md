@@ -89,7 +89,7 @@ This outputs a public key and private key (Base64-encoded).
 # In .env
 VAPID_PUBLIC_KEY=BEl62i...    # The public key from above
 VAPID_PRIVATE_KEY=UGko8p...   # The private key from above
-VAPID_SUBJECT=mailto:admin@windychat.com
+VAPID_SUBJECT=mailto:admin@windychat.ai
 ```
 
 ### Client-Side Subscription

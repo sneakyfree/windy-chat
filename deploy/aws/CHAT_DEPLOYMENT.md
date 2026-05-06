@@ -13,7 +13,7 @@ dedicated Coturn box for WebRTC.
 
 ```
                     ┌──────────────────────────────────────┐
-                    │   Route 53 — chat.windyword.ai       │
+                    │   Route 53 — chat.windychat.ai       │
                     └──────────────────────┬───────────────┘
                                            ▼
               ┌────────────────────────────────────────────┐
@@ -60,12 +60,12 @@ with private subnets in three AZs; only the ALB holds public ENIs.
 ### ALB rules
 
 ```
-chat.windyword.ai:443/_matrix/*         → synapse
-chat.windyword.ai:443/_synapse/*        → synapse (admin; WAF rule restricts CIDR)
-chat.windyword.ai:443/api/v1/webhooks/* → onboarding
-chat.windyword.ai:443/api/v1/chat/*     → onboarding + directory + push-gateway (by sub-path)
-chat.windyword.ai:443/api/v1/push/*     → push-gateway
-chat.windyword.ai:443/health            → per-service (path-matched)
+chat.windychat.ai:443/_matrix/*         → synapse
+chat.windychat.ai:443/_synapse/*        → synapse (admin; WAF rule restricts CIDR)
+chat.windychat.ai:443/api/v1/webhooks/* → onboarding
+chat.windychat.ai:443/api/v1/chat/*     → onboarding + directory + push-gateway (by sub-path)
+chat.windychat.ai:443/api/v1/push/*     → push-gateway
+chat.windychat.ai:443/health            → per-service (path-matched)
 ```
 
 Health check path `/health` on every service; target-group deregistration
@@ -79,7 +79,7 @@ Services discover each other via ECS Service Connect (Cloud Map DNS) on
 
 ```
 SYNAPSE_URL=http://synapse.chat.internal:8008
-WINDY_ACCOUNT_SERVER_URL=https://windypro.thewindstorm.uk  (external, via NAT)
+WINDY_ACCOUNT_SERVER_URL=https://windyword.ai  (external, via NAT)
 ETERNITAS_URL=https://api.eternitas.ai                     (external, via NAT)
 PUSH_GATEWAY_URL=http://push-gateway.chat.internal:8103
 ```
@@ -172,7 +172,7 @@ restrict_public_rooms_to_local_users: true
 An empty `federation_domain_whitelist` disables all outbound federation.
 Inbound federation is blocked at the ALB — port `8448` is **not** opened,
 so no foreign server can even reach Synapse. v1 is a Windy-users-only
-network on the `chat.windyword.ai` domain.
+network on the `chat.windychat.ai` domain.
 
 To turn federation on in a future wave, three things change:
 1. Add ALB listener for 8448 (federation port).
@@ -195,12 +195,12 @@ docker run --rm \
     -v /data/synapse:/data \
     matrixdotorg/synapse:latest \
     generate-keys \
-    --server-name chat.windyword.ai
-# Emits: /data/chat.windyword.ai.signing.key
+    --server-name chat.windychat.ai
+# Emits: /data/chat.windychat.ai.signing.key
 ```
 
 Store the key file in **AWS Secrets Manager** (not plain S3 or a file
-share). Synapse tasks mount the secret to `/data/chat.windyword.ai.signing.key`
+share). Synapse tasks mount the secret to `/data/chat.windychat.ai.signing.key`
 via the ECS task definition's `secrets:` field.
 
 ### Rotation procedure
@@ -212,7 +212,7 @@ in response to a suspected compromise.
 1. Generate a new key:
    ```bash
    docker run --rm matrixdotorg/synapse:latest \
-     generate-keys --server-name chat.windyword.ai --output-directory /tmp
+     generate-keys --server-name chat.windychat.ai --output-directory /tmp
    ```
 2. Add an `old_signing_keys:` block to `homeserver.yaml` listing the
    current (soon-to-be-old) key + its `expired_ts` (now + 7 days) and
@@ -285,7 +285,7 @@ secrets. Never baked into container images.
 |---|---|---|
 | `SYNAPSE_DB_PASSWORD` | synapse | quarterly |
 | `SYNAPSE_REGISTRATION_SECRET` | synapse + windy-pro account-server | quarterly |
-| `chat.windyword.ai.signing.key` | synapse | on compromise only |
+| `chat.windychat.ai.signing.key` | synapse | on compromise only |
 | `TURN_SHARED_SECRET` | synapse + coturn | quarterly |
 | `REDIS_AUTH_TOKEN` | synapse + all services | quarterly |
 | `WINDY_JWT_SECRET` | all services (HS256 fallback) | quarterly; JWKS is primary |
@@ -299,7 +299,7 @@ secrets. Never baked into container images.
 
 ## DNS + certificates
 
-- **chat.windyword.ai** — A record → ALB
+- **chat.windychat.ai** — A record → ALB
 - **turn.windyword.ai** — A record → Coturn EIP (used in `turn_uris`)
 - **Certificate**: ACM-issued wildcard `*.windyword.ai`, attached to both
   the ALB and the Coturn EC2 via the sync timer
@@ -336,7 +336,7 @@ aws ecs update-service --cluster windy-chat-prod \
     --service synapse --force-new-deployment
 
 # 5. Smoke-test
-./deploy/aws/smoke-test.sh chat.windyword.ai
+./deploy/aws/smoke-test.sh chat.windychat.ai
 ```
 
 Rollback: `aws ecs update-service --task-definition <prev>` —
