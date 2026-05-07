@@ -86,7 +86,7 @@ test('isOriginAllowed: every sibling product apex is allowed', () => {
     'https://windyfly.ai',
     'https://windycode.org',
     'https://cloud.windycloud.com',
-    'https://eternitas.ai',
+    'https://api.eternitas.ai',
     'https://windyword.ai',
   ];
   for (const origin of apexes) {
