@@ -61,12 +61,18 @@ class WindyRegistrationModule:
         self._config = config
         self._http_agent = Agent(reactor)
 
-        # Register callbacks
+        # Register password auth callbacks. NOTE: the `on_register=` kwarg
+        # was removed from this Synapse API in a recent release (we hit it
+        # 2026-04-19). The original `on_register` here was a noop log
+        # anyway, so it's been deleted entirely (see ADR-001 for the
+        # decision rationale). If a future need for "do something on
+        # registration" arises, register via
+        # `register_third_party_rules_callbacks(on_user_registration=...)`
+        # instead — that API has stable shape.
         api.register_password_auth_provider_callbacks(
             auth_checkers={
                 ("m.login.password", ("password",)): self.check_password,
             },
-            on_register=self.on_register,
         )
 
         logger.info(
@@ -148,15 +154,6 @@ class WindyRegistrationModule:
             )
 
         return matrix_user_id, None
-
-    async def on_register(self, user_id: str) -> None:
-        """
-        Called after a new Matrix user is registered.
-
-        Sets the display name to the Windy profile name so the UI never
-        shows raw @windy_abc123:chat.windychat.ai identifiers.
-        """
-        logger.info("New Matrix user registered: %s", user_id)
 
     async def _validate_with_windy_server(
         self, username: str, password: str

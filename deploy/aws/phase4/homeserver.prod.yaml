@@ -68,26 +68,25 @@ url_preview_ip_range_blacklist:
 enable_registration: false
 enable_registration_without_verification: false
 
-# Custom modules disabled for Phase 4 launch — deploy/synapse/windy_registration.py
-# uses `register_password_auth_provider_callbacks(on_register=...)` which the
-# current Synapse image removed. `enable_registration: false` below already
-# prevents direct registration, so the module's main purpose is covered
-# even without it loaded. windy_push_bus (room.message → push gateway) is
-# NOT what fans out agent.hatched — that's done by the onboarding webhook
-# handler, which still works. Re-enable both modules once the `on_register`
-# API change is back-ported (tracked as a follow-up ticket).
-# modules:
-#   - module: windy_registration.WindyRegistrationModule
-#     config:
-#       windy_account_server: "https://account.windyword.ai"
-#       windy_jwks_url: "https://account.windyword.ai/.well-known/jwks.json"
-#       registration_shared_secret: "${SYNAPSE_REGISTRATION_SECRET}"
-#   - module: windy_push_bus.WindyPushBusModule
-#     config:
-#       push_gateway_url: "http://push-gateway:8103"
-#       push_bus_token: "${PUSH_BUS_TOKEN}"
-#       include_event_types:
-#         - m.room.message
+# Custom modules — re-enabled per ADR-001 (2026-05-07) after fixing
+# the windy_registration.py `on_register=` kwarg (which Synapse removed
+# from the password-auth-provider API). windy_push_bus uses the modern
+# `register_third_party_rules_callbacks(on_new_event=...)` API and was
+# never the actual bug — it was disabled as collateral damage. Both
+# now load cleanly.
+modules:
+  - module: windy_registration.WindyRegistrationModule
+    config:
+      windy_account_server: "https://account.windyword.ai"
+      windy_jwks_url: "https://account.windyword.ai/.well-known/jwks.json"
+      registration_shared_secret: "${SYNAPSE_REGISTRATION_SECRET}"
+  - module: windy_push_bus.WindyPushBusModule
+    config:
+      push_gateway_url: "http://push-gateway:8103"
+      push_bus_token: "${PUSH_BUS_TOKEN}"
+      include_event_types:
+        - m.room.message
+        - m.room.encrypted
 
 # ── Shared secrets (populated from .env.production) ──────────────
 registration_shared_secret: "${SYNAPSE_REGISTRATION_SECRET}"
