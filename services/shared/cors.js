@@ -38,7 +38,7 @@ const DEFAULT_ORIGINS = [
   'https://windyfly.ai',
   'https://windycode.org',
   'https://cloud.windycloud.com',
-  'https://eternitas.ai',
+  'https://api.eternitas.ai',
   // Dev servers
   'http://localhost:5173',  // Vite dev server
   'http://localhost:4173',  // Vite preview

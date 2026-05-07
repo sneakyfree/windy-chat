@@ -14,7 +14,7 @@ before firing. Read-only probes run first.
 
 - Phase 1 live: `https://account.windyword.ai/.well-known/jwks.json` (kid
   `37e8955762d43189`).
-- Phase 2 live: `https://eternitas.ai`. `HMAC_WINDY_CHAT` is in
+- Phase 2 live: `https://api.eternitas.ai`. `HMAC_WINDY_CHAT` is in
   `~/.eternitas-phase2-state` (ephemeral — never committed).
 - AWS account `819439781125`, region `us-east-1`, VPC
   `vpc-011cc35a43403f9ef`, windy-prod-private subnet group.
@@ -188,7 +188,7 @@ body.
 - Register Chat as an Eternitas subscriber (Phase 2 supplied HMAC):
 
 ```bash
-curl -X POST https://eternitas.ai/api/v1/platforms/subscribe \
+curl -X POST https://api.eternitas.ai/api/v1/platforms/subscribe \
   -H "Authorization: Bearer $ETERNITAS_ADMIN_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
