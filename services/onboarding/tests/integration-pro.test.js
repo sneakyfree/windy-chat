@@ -391,96 +391,36 @@ describe('4. DM Room Creation', () => {
 });
 
 // ═══════════════════════════════════════════════
-// 5. Eternitas Webhook
+// 5. Eternitas Webhook (RETIRED — see provision.js:500)
 // ═══════════════════════════════════════════════
+//
+// /api/v1/onboarding/eternitas/webhook was retired in P2-1 (Wave 7
+// gap analysis) — the canonical handler is now
+// /api/v1/webhooks/eternitas on the social service (port 8105).
+// The retired URL is kept live with a 410 Gone response so any
+// producer still configured against it gets a clear migration
+// signal rather than silent dropping.
+//
+// Functional coverage of the live (new) endpoint lives in
+// services/onboarding/tests/webhooks.test.js (Webhook: passport/*).
+// What we keep here is a single regression check that the
+// retirement signaling stays correct.
 
-describe('5. Eternitas Webhook', () => {
-  const passportId = 'eternitas-test-passport';
-
-  before(async () => {
-    // Provision an agent with passport_id
-    const token = makeHS256Token({
-      sub: `bot_${passportId}`,
-      windy_identity_id: `wid-bot-${passportId}`,
-      display_name: 'Eternitas Bot',
-      passport_id: passportId,
-    });
-    await request('POST', onboardingUrl, '/api/v1/onboarding/unified-login', {}, auth(token));
-  });
-
-  it('5.1 passport.revoked with valid HMAC → 200', async () => {
+describe('5. Eternitas Webhook — retired endpoint signaling', () => {
+  it('5.0 returns 410 Gone with migration pointer', async () => {
     const body = {
       event: 'passport.revoked',
-      passport: passportId,
-      bot_name: 'Eternitas Bot',
+      passport: 'any-passport',
       timestamp: new Date().toISOString(),
     };
     const r = await request('POST', onboardingUrl, '/api/v1/onboarding/eternitas/webhook', body, {
       ...auth(API_TOKEN),
       'x-eternitas-signature': computeHmac(body),
     });
-    assert.equal(r.status, 200);
-    assert.equal(r.body.acknowledged, true);
-    assert.equal(r.body.action_taken, 'account_deactivated');
-    assert.ok(r.body.matrix_user_id);
-  });
-
-  it('5.2 passport.suspended with valid HMAC → 200, account_locked', async () => {
-    const body = {
-      event: 'passport.suspended',
-      passport: passportId,
-      bot_name: 'Eternitas Bot',
-      timestamp: new Date().toISOString(),
-    };
-    const r = await request('POST', onboardingUrl, '/api/v1/onboarding/eternitas/webhook', body, {
-      ...auth(API_TOKEN),
-      'x-eternitas-signature': computeHmac(body),
-    });
-    assert.equal(r.status, 200);
-    assert.equal(r.body.action_taken, 'account_locked');
-  });
-
-  it('5.3 passport.reinstated with valid HMAC → 200, account_reactivated', async () => {
-    const body = {
-      event: 'passport.reinstated',
-      passport: passportId,
-      bot_name: 'Eternitas Bot',
-      timestamp: new Date().toISOString(),
-    };
-    const r = await request('POST', onboardingUrl, '/api/v1/onboarding/eternitas/webhook', body, {
-      ...auth(API_TOKEN),
-      'x-eternitas-signature': computeHmac(body),
-    });
-    assert.equal(r.status, 200);
-    assert.equal(r.body.action_taken, 'account_reactivated');
-  });
-
-  it('5.4 invalid HMAC signature → 401', async () => {
-    const body = {
-      event: 'passport.revoked',
-      passport: passportId,
-      bot_name: 'Eternitas Bot',
-      timestamp: new Date().toISOString(),
-    };
-    const r = await request('POST', onboardingUrl, '/api/v1/onboarding/eternitas/webhook', body, {
-      ...auth(API_TOKEN),
-      'x-eternitas-signature': 'deadbeef_wrong_signature',
-    });
-    assert.equal(r.status, 401);
-  });
-
-  it('5.5 unknown passport → 404', async () => {
-    const body = {
-      event: 'passport.revoked',
-      passport: 'nonexistent-passport-xyz',
-      bot_name: 'Ghost Bot',
-      timestamp: new Date().toISOString(),
-    };
-    const r = await request('POST', onboardingUrl, '/api/v1/onboarding/eternitas/webhook', body, {
-      ...auth(API_TOKEN),
-      'x-eternitas-signature': computeHmac(body),
-    });
-    assert.equal(r.status, 404);
+    assert.equal(r.status, 410);
+    assert.equal(r.body.code, 'ENDPOINT_RETIRED');
+    assert.equal(r.body.moved_to, '/api/v1/webhooks/eternitas');
+    assert.match(r.body.error, /retired/i);
   });
 });
 
