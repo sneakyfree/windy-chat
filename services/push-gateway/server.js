@@ -113,9 +113,10 @@ function initAPNs() {
   const keyPath = process.env.APNS_KEY_PATH;
   const keyId = process.env.APNS_KEY_ID;
   const teamId = process.env.APNS_TEAM_ID;
+  const bundleId = process.env.APNS_BUNDLE_ID;
 
-  if (!keyPath || !keyId || !teamId) {
-    console.warn('⚠️  APNs not configured — iOS pushes will be stubbed');
+  if (!keyPath || !keyId || !teamId || !bundleId) {
+    console.warn('⚠️  APNs not configured (need APNS_KEY_PATH, APNS_KEY_ID, APNS_TEAM_ID, APNS_BUNDLE_ID) — iOS pushes will be stubbed');
     return;
   }
   try {
@@ -313,7 +314,7 @@ async function sendAPNs(pushkey, payload) {
     note.alert = { title: payload.title, body: payload.body };
     note.badge = payload.badge;
     note.sound = 'default';
-    note.topic = process.env.APNS_BUNDLE_ID || 'com.windypro.chat';
+    note.topic = process.env.APNS_BUNDLE_ID;
     note.payload = { room_id: payload.roomId, event_id: payload.eventId };
     note.pushType = 'alert';
     note.priority = 10;
