@@ -26,6 +26,17 @@ const pushDb = require('./lib/db');
 const app = express();
 const PORT = process.env.PORT || 8103;
 
+// ── Trust the single reverse proxy in front (Caddy on the chat EC2).
+// Without this, express-rate-limit's keyGenerator throws
+// ERR_ERL_UNEXPECTED_X_FORWARDED_FOR on every rate-limited request
+// because it sees the X-Forwarded-For header but Express's default
+// trust-proxy=false flag tells it not to honor it. Result before this
+// line: every POST /api/v1/chat/push/register returned 401 to the
+// caller — the validator throws, the global error handler renders
+// 401 "Invalid or expired token" with no log trace of the real cause.
+// Caught 2026-05-08 morning during the post-overnight-merge smoke.
+app.set('trust proxy', 1);
+
 // ── CORS — shared allowlist with explicit 403 on disallowed origins
 // (Wave 14; replaces throwing cors(createCorsOptions()) which 500'd).
 app.use(createCorsMiddleware());
