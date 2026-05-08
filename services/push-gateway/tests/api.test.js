@@ -81,7 +81,7 @@ describe('POST /api/v1/chat/push/register (with auth)', () => {
     const res = await request(app)
       .post('/api/v1/chat/push/register')
       .set('Authorization', `Bearer ${token}`)
-      .send({ pushkey: 'fcm-token-123', userId: 'test-user' });
+      .send({ pushkey: 'fcm-token-123', userId: 'test-user-001' });
     expect(res.status).toBe(400);
   });
 
