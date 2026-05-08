@@ -1,3 +1,37 @@
+# Windy Chat — AI Context File
+
+This file is automatically loaded by Claude Code / AntiGravity at conversation start.
+It contains critical project knowledge that prevents regressions.
+
+## ⚠️ ECOSYSTEM CONTEXT (READ FIRST)
+
+This repo (`windy-chat`) is the **comms hub** of the Windy ecosystem — Synapse (Matrix) homeserver + 4 Node.js microservices + push-gateway, deployed on EC2 instance `i-0f603361b88baa4c0` at chat.windychat.ai. Consumer brand is **Windy Chat** (1:1 with the dev-name). It is one of 13 canonical Windy platforms plus Eternitas + the Authenticator + various infrastructure pieces.
+
+**Before working on this repo, load the ecosystem context:**
+
+1. **`~/kit-army-config/docs/adr-010-vision-aligned-engineering-invariants-2026-05-08.md`** — the canonical alignment doc. 13 platforms permanent, dual-shell coexistence, mobile-first, voice-as-API, BYOM via Windy Mind, no-stopwatch ethos. **READ THIS FIRST.**
+2. **`~/kit-army-config/docs/adr-011-eternitas-universal-agent-identity-registry.md`** — Eternitas is an independent Utah LLC; agents get a Matrix handle auto-provisioned at passport issuance.
+3. **`~/kit-army-config/docs/adr-012-windy-mobile-mvno-os-hardware.md`** — long-term Windy Mobile vision (deferred until ecosystem maturity).
+4. **`~/kit-army-config/docs/windy-search-bot-traffic-monetization.md`** — proto-Google-for-agents thesis (strategic context).
+5. **`~/kit-army-config/ACCESS_LOCKBOX.md`** — credentials lockbox (private repo). Source of truth for all secrets, AWS keys, API tokens, deploy commands.
+6. **`~/.claude/projects/-Users-thewindstorm/memory/MEMORY.md`** — auto-loaded persistent memory. Critical entries for this repo: `project_windy_chat_phase4_state` (EC2 i-0f603361b88baa4c0 NOT dormant; broken bits = custom modules + stale eternitas URL) + `feedback_windy_chat_compose_invocation` (compose needs both `-f docker-compose.yml -f docker-compose.prod.yml` and `--env-file .env.production`).
+
+**Dev-name ↔ consumer-brand mapping (don't conflate):**
+- `sneakyfree/windy-chat` = "Windy Chat" (this product, 1:1)
+- `sneakyfree/windy-pro` = "Windy Word" (hub / account-server — also hosts the chat client)
+- `sneakyfree/windy-agent` = "Windy Fly" (agent)
+
+**Sister repos most relevant to this one:**
+- `windy-pro` — account-server is the identity authority; this repo has NO user database. Matrix accounts are provisioned via Synapse admin API from windy-pro.
+- `windy-pro-mobile` — chat *client* lives there (and in windy-pro desktop). This repo is backend-only.
+- `eternitas` — passport-revoked webhooks land at onboarding:8101; bots are auto-provisioned a Matrix handle at hatch.
+- `windy-agent` — every Windy Fly hatch auto-provisions a chat handle via this repo's onboarding service.
+- `windy-mail` — escalate chat → email, shared contacts; mail-aligned localparts (`grant.whitmer` for Matrix matches `grant.whitmer@windymail.ai`).
+
+When making cross-product engineering calls, default to **kit-army-config docs as canonical**. Repo-specific notes (architecture, API contracts, ports, terminology) follow below.
+
+---
+
 # Windy Chat — Developer Quick-Start
 
 ## What is this?
