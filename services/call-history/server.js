@@ -12,6 +12,7 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { createCorsMiddleware } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
+const { createVersionHandler } = require('../shared/version');
 const { asyncHandler } = require('../shared/async-handler');
 const { createAuthMiddleware } = require('../shared/jwt-verify');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
@@ -30,6 +31,12 @@ const auth = createAuthMiddleware();
 
 // ── Health ──
 app.get('/health', createHealthHandler({
+  service: 'windy-chat-call-history',
+  version: '1.0.0',
+}));
+
+// ── MF1: /version (deployment identity, no auth, no DB) ──
+app.get('/version', createVersionHandler({
   service: 'windy-chat-call-history',
   version: '1.0.0',
 }));

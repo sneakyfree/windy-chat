@@ -18,6 +18,7 @@ const { createCorsMiddleware } = require('../shared/cors');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const { createHealthHandler } = require('../shared/health');
+const { createVersionHandler } = require('../shared/version');
 const { asyncHandler } = require('../shared/async-handler');
 const { createAuthMiddleware } = require('../shared/jwt-verify');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
@@ -119,6 +120,12 @@ app.get('/health', createHealthHandler({
     sharpAvailable: !!sharp,
     ffmpegAvailable,
   }),
+}));
+
+// ── MF1: /version (deployment identity, no auth, no DB) ──
+app.get('/version', createVersionHandler({
+  service: 'windy-chat-media',
+  version: '1.0.0',
 }));
 
 /**

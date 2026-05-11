@@ -23,6 +23,7 @@ const roomsRoutes = require('./routes/rooms');
 const webhookRoutes = require('./routes/webhooks');
 const { createCorsMiddleware } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
+const { createVersionHandler } = require('../shared/version');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
 const { bodyErrorHandler } = require('../shared/body-errors');
 
@@ -71,6 +72,12 @@ app.get('/health', createHealthHandler({
     twilio: !!process.env.TWILIO_ACCOUNT_SID,
     sendgrid: !!process.env.SENDGRID_API_KEY,
   }),
+}));
+
+// ── MF1: /version (deployment identity, no auth, no DB) ──
+app.get('/version', createVersionHandler({
+  service: 'windy-chat-onboarding',
+  version: '1.0.0',
 }));
 
 // ── Webhooks (HMAC-verified, service-to-service) — must mount before auth-protected routes ──

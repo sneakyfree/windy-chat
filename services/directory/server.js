@@ -19,6 +19,7 @@ const blockRoutes = require('./routes/block');
 const agentRoutes = require('./routes/agents');
 const { createCorsMiddleware } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
+const { createVersionHandler } = require('../shared/version');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
 const { bodyErrorHandler } = require('../shared/body-errors');
 
@@ -65,6 +66,12 @@ app.get('/health', createHealthHandler({
     sendgrid: !!process.env.SENDGRID_API_KEY,
     trust_client: getTrustClientMetrics(),
   }),
+}));
+
+// ── MF1: /version (deployment identity, no auth, no DB) ──
+app.get('/version', createVersionHandler({
+  service: 'windy-chat-directory',
+  version: '1.0.0',
 }));
 
 // ── Auth-protected routes ──
