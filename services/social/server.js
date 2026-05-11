@@ -19,6 +19,7 @@ const crypto = require('crypto');
 const express = require('express');
 const { createCorsMiddleware } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
+const { createVersionHandler } = require('../shared/version');
 const { asyncHandler } = require('../shared/async-handler');
 const { createAuthMiddleware } = require('../shared/jwt-verify');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
@@ -120,6 +121,12 @@ initSentry(app, 'windy-chat-social');
 
 // ── Health ──
 app.get('/health', createHealthHandler({
+  service: 'windy-chat-social',
+  version: '1.0.0',
+}));
+
+// ── MF1: /version (deployment identity, no auth, no DB) ──
+app.get('/version', createVersionHandler({
   service: 'windy-chat-social',
   version: '1.0.0',
 }));

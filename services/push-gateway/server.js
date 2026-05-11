@@ -18,6 +18,7 @@ const rateLimit = require('express-rate-limit');
 
 const { createCorsMiddleware } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
+const { createVersionHandler } = require('../shared/version');
 const { asyncHandler } = require('../shared/async-handler');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
 const { bodyErrorHandler } = require('../shared/body-errors');
@@ -628,6 +629,12 @@ app.get('/health', createHealthHandler({
     registeredTokens: pushDb.tokenCount.get().cnt,
     activeMutes: pushDb.muteCount.get().cnt,
   }),
+}));
+
+// ── MF1: /version (deployment identity, no auth, no DB) ──
+app.get('/version', createVersionHandler({
+  service: 'windy-chat-push-gateway',
+  version: '1.0.0',
 }));
 
 // ── Digest & engagement notifications ──

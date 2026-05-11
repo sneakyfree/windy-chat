@@ -20,6 +20,7 @@ const { v4: uuidv4 } = require('uuid');
 const pathModule = require('path');
 const { createCorsMiddleware } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
+const { createVersionHandler } = require('../shared/version');
 const { asyncHandler } = require('../shared/async-handler');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
 const { bodyErrorHandler } = require('../shared/body-errors');
@@ -241,6 +242,12 @@ app.get('/health', createHealthHandler({
     storage: storageMode,
     registeredUsers: backupDb.countDistinctUsers.get().cnt,
   }),
+}));
+
+// ── MF1: /version (deployment identity, no auth, no DB) ──
+app.get('/version', createVersionHandler({
+  service: 'windy-chat-backup',
+  version: '1.0.0',
 }));
 
 // ── POST /api/v1/chat/backup/create (auth required) ──
