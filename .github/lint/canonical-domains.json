@@ -1,19 +1,22 @@
 {
-  "version": 4,
-  "updated": "2026-05-07",
+  "version": 7,
+  "updated": "2026-05-10",
   "canonical": {
     "windy_word": { "apex": "windyword.ai", "account": "account.windyword.ai" },
     "windy_chat": { "apex": "windychat.ai", "chat": "chat.windychat.ai" },
     "windy_cloud": { "apex": "windycloud.com", "cloud": "cloud.windycloud.com" },
-    "windy_code":  { "apex": "windycode.org", "updates": "updates.windycode.org" },
+    "windy_code":  { "apex": "windycode.org", "updates": "updates.windycode.org", "notify": "notify.windycode.org" },
     "windy_mail":  { "apex": "windymail.ai", "mail": "mail.windymail.ai" },
     "windy_fly":   { "apex": "windyfly.ai" },
     "windy_clone": { "apex": "windyclone.ai" },
-    "eternitas":   { "apex": "eternitas.ai", "api": "api.eternitas.ai" },
+    "windy_text":  { "apex": "windytext.com", "api": "api.windytext.com" },
+    "windy_call":  { "apex": "windycall.com", "api": "api.windycall.com" },
+    "windy_mobile": { "apex": "windymobile.com" },
+    "windy_mind":  { "apex": "windymind.ai", "api": "api.windymind.ai" },
+    "eternitas":   { "apex": "eternitas.ai", "api": "api.eternitas.ai", "app": "app.eternitas.ai" },
     "windy_translate": { "apex": "windytranslate.com" },
     "windy_traveler":  { "apex": "windytraveler.com" },
-    "windy_search":    { "apex": "windysearch.com" },
-    "windy_call":      { "apex": "windycall.com", "api": "api.windycall.com" },
+    "windy_search":    { "apex": "windysearch.com", "api": "api.windysearch.com" },
     "hifly":            { "apex": "hifly.ai" }
   },
   "banned": [
