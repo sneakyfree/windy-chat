@@ -5,6 +5,9 @@
 # Starts EVERYTHING: Synapse + PostgreSQL + Redis + Coturn + 8 Node.js
 # microservices + web frontend + nginx reverse proxy.
 #
+# Explicit project name per ADR-046 (compose project naming discipline).
+name: windychat-full-dev
+#
 # Usage:
 #   docker compose -f docker-compose.full.yml up -d
 #   docker compose -f docker-compose.full.yml ps

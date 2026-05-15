@@ -1,3 +1,4 @@
+# adr-046-exempt: production overlay applied on top of docker-compose.yml (which declares `name: windychat-dev`). Production deploy on chat.windychat.ai uses both files via `-f docker-compose.yml -f docker-compose.prod.yml`. Replace this exemption with `name: windychat-prod` when the deploy-prod-collision-migration runs (or sooner if production deploy gets coordinated separately).
 # Windy Chat — production overlay
 #
 # Stacks on top of docker-compose.yml:

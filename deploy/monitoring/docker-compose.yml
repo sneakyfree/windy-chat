@@ -1,5 +1,8 @@
 version: '3.8'
 
+# Explicit project name per ADR-046 (compose project naming discipline).
+name: windychat-monitoring
+
 # Monitoring stack for Windy Chat (Synapse homeserver)
 # Run from deploy/monitoring/:
 #   docker-compose up -d
