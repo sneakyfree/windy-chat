@@ -1,6 +1,10 @@
 # ── Windy Chat Backend — Full Stack ──
 # Usage: docker compose up
 # Brings up Synapse + PostgreSQL + Redis + Coturn + all Node.js services + nginx
+#
+# Explicit project name per ADR-046 (compose project naming discipline).
+# Local-dev base; the prod overlay (docker-compose.prod.yml) layers on top.
+name: windychat-dev
 
 services:
 

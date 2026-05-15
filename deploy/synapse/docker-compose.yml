@@ -1,5 +1,6 @@
 version: '3.8'
 
+# adr-046-exempt: Synapse-only standalone variant — primary deploy uses /docker-compose.yml + /docker-compose.prod.yml. Activate to `name: windychat-synapse` if this path is used independently.
 services:
   # ── Synapse Matrix Homeserver ──
   synapse:
