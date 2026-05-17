@@ -28,6 +28,23 @@ describe('GET /health', () => {
     expect(res.body).toHaveProperty('uptime');
     expect(res.body).toHaveProperty('timestamp');
   });
+
+  it('reports the new provider-status vocabulary (unconfigured/ok/failed)', async () => {
+    // No FIREBASE_SERVICE_ACCOUNT / APNS_* / VAPID_* set in this test env, so all
+    // three providers should report "unconfigured". This pins the contract the
+    // Layer-1 audit asked for — clearer than the old binary active/stubbed.
+    // Per the shared health handler, per-check values land under `dependencies`.
+    const res = await request(app).get('/health');
+    expect(res.status).toBe(200);
+    expect(res.body.dependencies).toBeDefined();
+    expect(['unconfigured', 'ok', 'failed']).toContain(res.body.dependencies.fcm);
+    expect(['unconfigured', 'ok', 'failed']).toContain(res.body.dependencies.apns);
+    expect(['unconfigured', 'ok', 'failed']).toContain(res.body.dependencies.webPush);
+    // With no env wired in tests:
+    expect(res.body.dependencies.fcm).toBe('unconfigured');
+    expect(res.body.dependencies.apns).toBe('unconfigured');
+    expect(res.body.dependencies.webPush).toBe('unconfigured');
+  });
 });
 
 // ─── Auth Required ────────────────────────────────────────────
