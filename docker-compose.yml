@@ -269,7 +269,10 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
       CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
-      FIREBASE_SERVICE_ACCOUNT: ${FCM_SERVICE_ACCOUNT_PATH:-}
+      # Variable name must match what fcm.js:47 reads (FIREBASE_SERVICE_ACCOUNT).
+      # Was FCM_SERVICE_ACCOUNT_PATH — a stale name from before the FCM v1 SDK
+      # adoption that silently broke FCM init for any dev with the var set.
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT:-}
       APNS_KEY_PATH: ${APNS_KEY_PATH:-}
       APNS_KEY_ID: ${APNS_KEY_ID:-}
       APNS_TEAM_ID: ${APNS_TEAM_ID:-}
