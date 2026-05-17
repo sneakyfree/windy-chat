@@ -15,6 +15,7 @@
 
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const fs = require('node:fs');
 
 const { createCorsMiddleware } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
@@ -23,6 +24,26 @@ const { asyncHandler } = require('../shared/async-handler');
 const { initSentry, sentryErrorHandler } = require('../shared/sentry');
 const { bodyErrorHandler } = require('../shared/body-errors');
 const pushDb = require('./lib/db');
+
+// ── Substrate boot guard (ADR-048 Layer 3) ────────────────────────────
+// In production, push-gateway needs /secrets/ bind-mounted to read APNs
+// .p8 (APNS_KEY_PATH) and FCM service-account JSON (FIREBASE_SERVICE_
+// ACCOUNT) — see docker-compose.prod.yml push-gateway.volumes. PR #59
+// added the mount; this guard ensures any future compose edit that
+// drops it crashes the container LOUDLY instead of silently degrading
+// to stub-mode delivery (the failure mode that ate 4d 5h of "deliveries"
+// on 2026-05-13 → 2026-05-17 before detection).
+if ((process.env.NODE_ENV === 'production'
+     || process.env.ENVIRONMENT === 'production')
+    && !fs.existsSync('/secrets')) {
+  console.error(
+    '[push-gateway] FATAL: NODE_ENV=production but /secrets is not '
+    + 'mounted. Required volume entry in docker-compose.prod.yml: '
+    + '"/opt/windy-chat/secrets:/secrets:ro". See ADR-048 + PR #59. '
+    + 'Exiting so the substrate drift is visible.'
+  );
+  process.exit(1);
+}
 
 const app = express();
 const PORT = process.env.PORT || 8103;

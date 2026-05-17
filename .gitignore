@@ -32,3 +32,12 @@ services/.eternitas-platform-id
 
 # DB backups
 backups/
+
+# Hand-made operational backups created on EC2 hosts (e.g.
+# docker-compose.prod.yml.bak.2026-05-17, .pre-volume-mount-2026-05-17).
+# Per ADR-048, every meaningful host-side change should be captured in
+# deploy/SUBSTRATE.md "Audit history" instead of leaving .bak files
+# scattered on the host. Gitignore prevents them from being staged
+# back into the repo on a future sync. (Audit surfaced 2026-05-17.)
+*.bak.*
+*.pre-*
