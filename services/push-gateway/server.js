@@ -98,49 +98,45 @@ function callerOwnsUserId(req, bodyUserId) {
 
 // ── SQLite-backed persistence (via ./lib/db) ──
 
-// ── FCM / APNs setup ──
+// ── FCM / APNs / Web Push providers ──
+// As of feat/push-delivery-live-fcm-apns-webpush the actual SDK calls live
+// in dedicated, unit-testable modules under ./lib/providers/. Server.js
+// retains thin wrappers (sendFCM / sendAPNs / sendWebPush) that translate
+// the provider modules' `{ ok, ... }` contract back into the legacy
+// `{ success, ... }` shape that the Matrix push handler + routes/notify.js
+// depend on. Don't break that wrapper contract without auditing both
+// call sites.
 
-let fcmApp = null;
-let apnProvider = null;
+const fcmProvider = require('./lib/providers/fcm');
+const apnsProvider = require('./lib/providers/apns');
+const webPushProvider = require('./lib/providers/web-push');
 
 function initFCM() {
-  const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (!serviceAccountPath) {
-    console.warn('⚠️  FIREBASE_SERVICE_ACCOUNT not set — FCM pushes will be stubbed');
+  const ok = fcmProvider.init();
+  if (!ok) {
+    if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+      console.warn('⚠️  FIREBASE_SERVICE_ACCOUNT not set — FCM pushes will be stubbed');
+    } else {
+      console.error('FCM init failed — check FIREBASE_SERVICE_ACCOUNT path / contents');
+    }
     return;
   }
-  try {
-    const admin = require('firebase-admin');
-    const serviceAccount = require(serviceAccountPath);
-    fcmApp = admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
-    console.log('🔥 FCM initialized');
-  } catch (err) {
-    console.error('FCM init error:', err.message);
-  }
+  console.log('🔥 FCM initialized');
 }
 
 function initAPNs() {
-  const keyPath = process.env.APNS_KEY_PATH;
-  const keyId = process.env.APNS_KEY_ID;
-  const teamId = process.env.APNS_TEAM_ID;
-  const bundleId = process.env.APNS_BUNDLE_ID;
-
-  if (!keyPath || !keyId || !teamId || !bundleId) {
-    console.warn('⚠️  APNs not configured (need APNS_KEY_PATH, APNS_KEY_ID, APNS_TEAM_ID, APNS_BUNDLE_ID) — iOS pushes will be stubbed');
+  const ok = apnsProvider.init();
+  if (!ok) {
+    const missing = !(process.env.APNS_KEY_PATH && process.env.APNS_KEY_ID
+      && process.env.APNS_TEAM_ID && process.env.APNS_BUNDLE_ID);
+    if (missing) {
+      console.warn('⚠️  APNs not configured (need APNS_KEY_PATH, APNS_KEY_ID, APNS_TEAM_ID, APNS_BUNDLE_ID) — iOS pushes will be stubbed');
+    } else {
+      console.error('APNs init failed — check that APNS_KEY_PATH is readable');
+    }
     return;
   }
-  try {
-    const apn = require('apn');
-    apnProvider = new apn.Provider({
-      token: { key: keyPath, keyId, teamId },
-      production: process.env.NODE_ENV === 'production',
-    });
-    console.log('🍎 APNs initialized');
-  } catch (err) {
-    console.error('APNs init error:', err.message);
-  }
+  console.log('🍎 APNs initialized');
 }
 
 // ── K6.1: Matrix Push Gateway endpoint ──
@@ -263,7 +259,7 @@ function channelForEvent(eventType) {
 }
 
 async function sendFCM(pushkey, payload) {
-  if (!fcmApp) {
+  if (!fcmProvider.isConfigured()) {
     if (process.env.NODE_ENV === 'production') {
       console.error('[push] FCM not configured — FIREBASE_SERVICE_ACCOUNT required in production');
       return { success: false, error: 'FCM not configured' };
@@ -272,46 +268,21 @@ async function sendFCM(pushkey, payload) {
     return { success: true, stub: true };
   }
 
-  try {
-    const admin = require('firebase-admin');
-    const message = {
-      token: pushkey,
-      data: {
-        room_id: payload.roomId || '',
-        event_id: payload.eventId || '',
-        deep_link: payload.deepLink || '',
-        type: payload.eventType || 'chat_message',
-      },
-      notification: {
-        title: payload.title,
-        body: payload.body,
-        ...(payload.imageUrl ? { imageUrl: payload.imageUrl } : {}),
-      },
-      android: {
-        priority: 'high',
-        notification: {
-          channelId: channelForEvent(payload.eventType),
-          sound: 'default',
-          defaultVibrateTimings: true,
-          notificationCount: payload.badge,
-          ...(payload.imageUrl ? { imageUrl: payload.imageUrl } : {}),
-        },
-      },
-    };
-
-    await admin.messaging().send(message);
+  const result = await fcmProvider.send(pushkey, payload, {
+    channelId: channelForEvent(payload.eventType),
+  });
+  if (result.ok) {
     console.log(`📱 FCM sent to ${pushkey.slice(0, 12)}...`);
-    return { success: true };
-  } catch (err) {
-    console.error('FCM send error:', err.message);
-    return { success: false, error: 'FCM delivery failed' };
+    return { success: true, messageId: result.messageId };
   }
+  console.error('FCM send error:', result.error);
+  return { success: false, error: result.error || 'FCM delivery failed' };
 }
 
 // ── K6.3: APNs (iOS) ──
 
 async function sendAPNs(pushkey, payload) {
-  if (!apnProvider) {
+  if (!apnsProvider.isConfigured()) {
     if (process.env.NODE_ENV === 'production') {
       console.error('[push] APNs not configured — APNS_KEY_PATH required in production');
       return { success: false, error: 'APNs not configured' };
@@ -320,54 +291,34 @@ async function sendAPNs(pushkey, payload) {
     return { success: true, stub: true };
   }
 
-  try {
-    const apn = require('apn');
-    const note = new apn.Notification();
-    note.alert = { title: payload.title, body: payload.body };
-    note.badge = payload.badge;
-    note.sound = 'default';
-    note.topic = process.env.APNS_BUNDLE_ID;
-    note.payload = { room_id: payload.roomId, event_id: payload.eventId };
-    note.pushType = 'alert';
-    note.priority = 10;
-
-    const result = await apnProvider.send(note, pushkey);
-    if (result.failed.length > 0) {
-      return { success: false, error: 'APNs delivery failed' };
-    }
+  const result = await apnsProvider.send(pushkey, payload);
+  if (result.ok) {
     console.log(`🍎 APNs sent to ${pushkey.slice(0, 12)}...`);
-    return { success: true };
-  } catch (err) {
-    console.error('APNs send error:', err.message);
-    return { success: false, error: 'APNs delivery failed' };
+    return { success: true, messageId: result.messageId };
   }
+  console.error('APNs send error:', result.error);
+  return { success: false, error: result.error || 'APNs delivery failed' };
 }
 
 // ── K6.5: Web Push (VAPID) ──
 
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
-const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@windychat.ai';
-
-let webPushReady = false;
 
 function initWebPush() {
-  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
-    console.warn('⚠️  VAPID keys not configured — Web Push will be stubbed');
+  const ok = webPushProvider.init();
+  if (!ok) {
+    if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+      console.warn('⚠️  VAPID keys not configured — Web Push will be stubbed');
+    } else {
+      console.error('Web Push init failed — check web-push package + VAPID key format');
+    }
     return;
   }
-  try {
-    const webpush = require('web-push');
-    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
-    webPushReady = true;
-    console.log('🌐 Web Push (VAPID) initialized');
-  } catch (err) {
-    console.error('Web Push init error:', err.message);
-  }
+  console.log('🌐 Web Push (VAPID) initialized');
 }
 
 async function sendWebPush(pushkey, payload) {
-  if (!webPushReady) {
+  if (!webPushProvider.isConfigured()) {
     if (process.env.NODE_ENV === 'production') {
       console.error('[push] Web Push not configured — VAPID keys required in production');
       return { success: false, error: 'Web Push not configured' };
@@ -376,29 +327,25 @@ async function sendWebPush(pushkey, payload) {
     return { success: true, stub: true };
   }
 
-  try {
-    const webpush = require('web-push');
-    const subscription = JSON.parse(pushkey);
-    await webpush.sendNotification(subscription, JSON.stringify({
-      title: payload.title,
-      body: payload.body,
-      icon: '/icon-192.png',
-      badge: '/icon-192.png',
-      tag: payload.roomId || 'windy-chat',
-      data: { room_id: payload.roomId, event_id: payload.eventId, url: '/' },
-    }));
+  const result = await webPushProvider.send(pushkey, payload);
+  if (result.ok) {
     console.log(`🌐 Web Push sent to subscription`);
     return { success: true };
-  } catch (err) {
-    if (err.statusCode === 410 || err.statusCode === 404) {
-      // Subscription expired — mark for cleanup
-      console.log(`🌐 Web Push subscription expired, removing`);
-      pushDb.db.prepare('DELETE FROM push_tokens WHERE pushkey = ?').run(pushkey);
-      return { success: false, error: 'subscription_expired' };
-    }
-    console.error('Web Push send error:', err.message);
-    return { success: false, error: 'Web Push delivery failed' };
   }
+  if (result.expired) {
+    // 404 / 410 from the push service → endpoint is dead. The provider module
+    // is intentionally DB-agnostic; we do the cleanup here so all server-side
+    // state-mutation stays in server.js.
+    console.log(`🌐 Web Push subscription expired, removing`);
+    try {
+      pushDb.db.prepare('DELETE FROM push_tokens WHERE pushkey = ?').run(pushkey);
+    } catch (dbErr) {
+      console.error('Failed to delete expired subscription:', dbErr.message);
+    }
+    return { success: false, error: 'subscription_expired' };
+  }
+  console.error('Web Push send error:', result.error);
+  return { success: false, error: result.error || 'Web Push delivery failed' };
 }
 
 // ── GET /api/v1/chat/push/vapid-key — public VAPID key for client subscription ──
@@ -619,13 +566,20 @@ app.post('/api/v1/chat/push/prune', authMiddleware, (req, res) => {
 });
 
 // ── Health check (no auth required) ──
+// Status vocabulary per provider:
+//   'unconfigured' — env vars missing OR init failed (e.g. service-account JSON unreadable)
+//   'ok'           — configured and either no sends yet or the last send succeeded
+//   'failed'       — configured but the most recent send threw / rejected
+// This is the contract the layer-1 audit asked for — clearer than the old
+// binary 'active' / 'stubbed' which couldn't distinguish "we have keys but
+// the SDK is throwing on every send" from "no keys at all".
 app.get('/health', createHealthHandler({
   service: 'windy-chat-push-gateway',
   version: '1.0.0',
   checks: async () => ({
-    fcm: fcmApp ? 'active' : 'stubbed',
-    apns: apnProvider ? 'active' : 'stubbed',
-    webPush: webPushReady ? 'active' : 'stubbed',
+    fcm: fcmProvider.status(),
+    apns: apnsProvider.status(),
+    webPush: webPushProvider.status(),
     registeredTokens: pushDb.tokenCount.get().cnt,
     activeMutes: pushDb.muteCount.get().cnt,
   }),
@@ -699,8 +653,9 @@ if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`🌪️  Windy Chat Push Gateway — listening on port ${PORT}`);
     console.log(`   Push: POST /_matrix/push/v1/notify`);
-    console.log(`   FCM: ${fcmApp ? 'active' : 'stubbed'}`);
-    console.log(`   APNs: ${apnProvider ? 'active' : 'stubbed'}`);
+    console.log(`   FCM:     ${fcmProvider.status()}`);
+    console.log(`   APNs:    ${apnsProvider.status()}`);
+    console.log(`   WebPush: ${webPushProvider.status()}`);
     console.log(`   Token cleanup: every 24h (30-day stale threshold)`);
   });
 }
