@@ -6,9 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "jest --forceExit --detectOpenHandles && node --test tests/notify.test.js tests/agent-hatched.test.js tests/authz.test.js tests/fcm-channels.test.js",
+    "test": "jest --forceExit --detectOpenHandles && node --test --test-concurrency=1 tests/notify.test.js tests/agent-hatched.test.js tests/authz.test.js tests/fcm-channels.test.js",
     "test:jest": "jest --forceExit --detectOpenHandles",
-    "test:integration": "node --test tests/notify.test.js tests/agent-hatched.test.js tests/authz.test.js tests/fcm-channels.test.js"
+    "test:integration": "node --test --test-concurrency=1 tests/notify.test.js tests/agent-hatched.test.js tests/authz.test.js tests/fcm-channels.test.js"
   },
   "dependencies": {
     "apn": "^2.2.0",

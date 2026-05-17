@@ -680,9 +680,20 @@ initFCM();
 initAPNs();
 initWebPush();
 
-// Run cleanup on startup and schedule recurring
+// Run cleanup on startup and schedule recurring.
+//
+// .unref() is load-bearing: without it, the 24h interval pins the libuv
+// event loop open, so any process that requires this module (notably the
+// four node:test files in tests/) never exits. CI runs since 2026-05-08
+// (PR #45 wired three new test files into `node --test`) were cancelling
+// at the 6h job ceiling — every test would pass cleanly, then the runner
+// would sit on the open handle until GitHub killed the job. Most recent
+// repro: run 25935826544 (Unit Tests (push-gateway), 6h0m14s, last test
+// log at 18:57:30, cancel at 00:57:27).
+// `.unref()` tells Node "this handle is fine to drop on its own" without
+// changing prod behaviour (in prod, `app.listen()` keeps the loop alive).
 runScheduledCleanup();
-setInterval(runScheduledCleanup, CLEANUP_INTERVAL_MS);
+setInterval(runScheduledCleanup, CLEANUP_INTERVAL_MS).unref();
 
 if (require.main === module) {
   app.listen(PORT, () => {
