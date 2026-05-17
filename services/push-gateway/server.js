@@ -405,7 +405,12 @@ app.post('/api/v1/chat/push/register', pushRegisterLimiter, authMiddleware, (req
       pushkey,
       user_id: userId,
       platform,
-      app_id: appId || `com.windypro.chat.${platform}`,
+      // Fallback bundle ID is informational only (not used for routing —
+      // APNs topic comes from APNS_BUNDLE_ID env). Default reflects the
+      // canonical Windy Pro bundle (`uk.thewindstorm.windypro`) per the
+      // Apple Developer App ID registration — was `com.windypro.chat`,
+      // a brand-split-era artifact that never matched any real client.
+      app_id: appId || 'uk.thewindstorm.windypro',
       device_name: sanitizedDeviceName,
       registered_at: Date.now(),
     });
