@@ -1,5 +1,22 @@
-# adr-046-exempt: production overlay applied on top of docker-compose.yml (which declares `name: windychat-dev`). Production deploy on chat.windychat.ai uses both files via `-f docker-compose.yml -f docker-compose.prod.yml`. Replace this exemption with `name: windychat-prod` when the deploy-prod-collision-migration runs (or sooner if production deploy gets coordinated separately).
 # Windy Chat — production overlay
+#
+# Compose project name: `windy-chat` (declared below).
+#
+# This OVERRIDES the dev declaration in docker-compose.yml (`name:
+# windychat-dev`) so production deploys land on the project name that
+# the live chat EC2 (i-0f603361b88baa4c0) has actually been running
+# under since 2026-04-19 — without forcing a destructive rename of
+# the live containers. Dev contributors invoking JUST docker-compose.yml
+# keep getting `windychat-dev`; production invocations (always include
+# this overlay per the command below) get `windy-chat`.
+#
+# Closes the ADR-046 violation surfaced by tonight's branch hygiene
+# audit (kit-army-config/docs/ecosystem-branch-hygiene-audit-2026-05-17.md
+# §7) — previously deploys needed an explicit `-p windy-chat` workaround
+# to avoid spinning up a parallel `windychat-dev` stack alongside the
+# live one.
+name: windy-chat
+
 #
 # Stacks on top of docker-compose.yml:
 #   docker compose \
