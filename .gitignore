@@ -41,3 +41,12 @@ backups/
 # back into the repo on a future sync. (Audit surfaced 2026-05-17.)
 *.bak.*
 *.pre-*
+
+# Host-side secrets/ directory containing APNs .p8 + FCM service-account
+# JSON (per /opt/windy-chat/secrets/ on prod EC2 i-0f603361b88baa4c0).
+# Bind-mounted into push-gateway at /secrets/ in docker-compose.prod.yml.
+# This dir MUST be created out-of-band (lockbox restore on cold start);
+# it must NEVER enter source-of-truth (cert+key material). 2026-05-18:
+# was the final entry in `git status` after tonight's reconciliation —
+# gitignored here to keep the chat EC2 substrate fully clean.
+secrets/
