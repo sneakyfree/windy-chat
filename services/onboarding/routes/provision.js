@@ -22,6 +22,7 @@ const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 const { asyncHandler } = require('../../shared/async-handler');
 const { withKeyLock } = require('../../shared/keyed-lock');
+const { deriveLocalpartForWindyId } = require('../../shared/localpart');
 
 const onboardingDb = require('../lib/db');
 
@@ -57,8 +58,17 @@ function isValidUserId(val) {
 // ── Helpers ──
 
 /**
- * Generate a Matrix-safe localpart from a display name.
- * Matrix localpart: [a-z0-9._=/-]
+ * Generate a legacy `windy_*`-style localpart from a display name.
+ *
+ * **Status (2026-05-18):** RETAINED only for `resolveOwnerMatrixId`,
+ * which constructs a Matrix ID forward from a `sub` claim WITHOUT
+ * persisting a profile (fallback for agent-owner lookup when no
+ * windy_identity_id is available). Real provision write-paths (the
+ * /provision + /unified-login routes) now route through
+ * `deriveLocalpartForWindyId` from services/shared/localpart.js,
+ * which unifies on the mail-aligned style + atomically reuses an
+ * existing chat_user_id for the same windy_identity_id (race-safe;
+ * see docs/windy-chat-localpart-fresh-design-2026-05-17.md).
  */
 function displayNameToLocalpart(displayName) {
   const base = displayName
@@ -553,12 +563,20 @@ router.post('/', provisionLimiter, asyncHandler(async (req, res) => {
 
     const sanitizedDisplayName = stripHtml(displayName);
 
-    // Generate Matrix localpart from display name
-    const localpart = displayNameToLocalpart(sanitizedDisplayName);
+    // Race-safe localpart derivation: if this windy_identity_id already
+    // has a chat_user_id (e.g., webhook fired first), reuse it. Otherwise
+    // derive a fresh mail-aligned localpart. Single source of truth shared
+    // with /webhooks/identity/created. See
+    // docs/windy-chat-localpart-fresh-design-2026-05-17.md.
+    const windyIdentityId = req.user && req.user.windy_identity_id ? req.user.windy_identity_id : chatUserId;
+    const { chatUserId: localpart } = deriveLocalpartForWindyId({
+      db: onboardingDb.db,
+      windyIdentityId,
+      displayName: sanitizedDisplayName,
+    });
     const matrixUserId = `@${localpart}:${SYNAPSE_SERVER_NAME}`;
 
     let matrixCredentials;
-    const windyIdentityId = req.user && req.user.windy_identity_id ? req.user.windy_identity_id : chatUserId;
 
     // Try 1: Provision via Windy Pro account-server (preferred — single source of truth)
     if (CHAT_API_TOKEN && WINDY_ACCOUNT_SERVER_URL) {
@@ -740,9 +758,15 @@ router.post('/unified-login', asyncHandler(async (req, res) => {
     });
   }
 
-  // New user — provision
+  // New user — provision via unified localpart derivation (mail-aligned;
+  // race-safe with the /webhooks path). See
+  // docs/windy-chat-localpart-fresh-design-2026-05-17.md.
   const sanitizedName = stripHtml(displayName);
-  const localpart = displayNameToLocalpart(sanitizedName);
+  const { chatUserId: localpart } = deriveLocalpartForWindyId({
+    db: onboardingDb.db,
+    windyIdentityId,
+    displayName: sanitizedName,
+  });
   const chatUserId = localpart;
   const matrixUserId = `@${localpart}:${SYNAPSE_SERVER_NAME}`;
 

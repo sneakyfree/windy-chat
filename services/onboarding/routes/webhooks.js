@@ -16,6 +16,10 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const { asyncHandler } = require('../../shared/async-handler');
 const { invalidateTrustCache } = require('../../shared/trust-client');
+const {
+  deriveLocalpartForWindyId,
+  mailAlignedLocalpart: sharedMailAlignedLocalpart,
+} = require('../../shared/localpart');
 
 const onboardingDb = require('../lib/db');
 
@@ -88,54 +92,13 @@ function hmacMiddleware({ header, secret, name }) {
 
 // ── Mail-aligned localpart generation ──
 
-/**
- * Generate a Matrix localpart aligned with Mail's email_local algorithm so
- * @grant.whitmer:chat.windychat.ai matches grant.whitmer@windymail.ai.
- *
- * Priority: first+last → username → email local-part → display_name.
- * Matrix allows `[a-z0-9._=/-]` in localparts; Mail allows `[a-z0-9._-]`.
- * We use the narrower intersection to guarantee handle parity.
- */
-function mailAlignedLocalpart({ firstName, lastName, username, email, displayName }) {
-  let base;
-  if (firstName && lastName) {
-    base = `${firstName}.${lastName}`;
-  } else if (username) {
-    base = username;
-  } else if (email && email.includes('@')) {
-    base = email.split('@')[0];
-  } else {
-    base = (displayName || '').replace(/\s+/g, '.');
-  }
-  base = base.toLowerCase().trim().replace(/[^a-z0-9._-]/g, '');
-  if (!base || !/^[a-z0-9]/.test(base)) {
-    base = `user-${crypto.randomBytes(2).toString('hex')}`;
-  }
-  return base.slice(0, 32);
-}
-
-/**
- * Find an unused localpart by appending a short hex suffix on collision.
- * Collision check: the onboarding profile table (single source of truth for
- * this service's handles).
- */
-function resolveUniqueLocalpart(base) {
-  const existing = onboardingDb.db
-    .prepare('SELECT 1 FROM user_profiles WHERE chat_user_id = ?')
-    .get(base);
-  if (!existing) return base;
-
-  // Try up to 3 times with random suffixes
-  for (let i = 0; i < 3; i++) {
-    const suffix = crypto.randomBytes(3).toString('hex');
-    const candidate = `${base}-${suffix}`.slice(0, 32);
-    const taken = onboardingDb.db
-      .prepare('SELECT 1 FROM user_profiles WHERE chat_user_id = ?')
-      .get(candidate);
-    if (!taken) return candidate;
-  }
-  throw new Error(`Could not generate unique localpart for base="${base}"`);
-}
+// mailAlignedLocalpart + resolveUniqueLocalpart moved to
+// services/shared/localpart.js (2026-05-18 unification — single source
+// of truth between this webhook path and the /provision path so the
+// same windy_identity_id always gets the same @handle regardless of
+// which route fires first). Local symbol kept as a thin re-export
+// for the test surface that exposes _internals.
+const mailAlignedLocalpart = sharedMailAlignedLocalpart;
 
 // ── Synapse admin helpers ──
 
@@ -255,8 +218,18 @@ router.post(
     }
 
     const resolvedDisplayName = (display_name || [first_name, last_name].filter(Boolean).join(' ') || username || 'Windy user').slice(0, 100);
-    const base = mailAlignedLocalpart({ firstName: first_name, lastName: last_name, username, email, displayName: resolvedDisplayName });
-    const localpart = resolveUniqueLocalpart(base);
+    // Unified entry point — race-safe with the /provision path. If
+    // /provision already created a profile for this windy_identity_id,
+    // we reuse it; otherwise we derive a fresh mail-aligned localpart.
+    const { chatUserId: localpart } = deriveLocalpartForWindyId({
+      db: onboardingDb.db,
+      windyIdentityId: windy_identity_id,
+      firstName: first_name,
+      lastName: last_name,
+      username,
+      email,
+      displayName: resolvedDisplayName,
+    });
 
     let creds;
     try {
