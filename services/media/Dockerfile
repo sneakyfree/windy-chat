@@ -1,10 +1,22 @@
-FROM node:22-alpine
+FROM node:20-alpine
+
+# ffmpeg drives the thumbnail/transcode pipeline in services/media/lib/*.
+RUN apk add --no-cache ffmpeg
+
 WORKDIR /app
-COPY ../shared/ /app/shared/
-RUN cd /app/shared && npm install --production 2>/dev/null || true
-COPY package*.json ./service/
+
+# Install shared library (build context is ./services per docker-compose.yml,
+# so `shared/` resolves to services/shared and `media/` to services/media).
+COPY shared/ /app/shared/
+RUN cd /app/shared && npm install --production
+
+# Install media service dependencies
+COPY media/package.json /app/service/package.json
 WORKDIR /app/service
 RUN npm install --production
-COPY . .
-EXPOSE 8080
+
+# Copy media service source
+COPY media/ /app/service/
+
+EXPOSE 8107
 CMD ["node", "server.js"]
