@@ -121,6 +121,16 @@ try {
   db.exec("ALTER TABLE posts ADD COLUMN repost_of TEXT");
 } catch (_e) { /* column already exists */ }
 
+// PR #69 follow-up: author display snapshot columns. Stored at post-create
+// time so the feed can render "Grant Whitmer @grantwhitmer3" without
+// joining against an external profile service for every page load.
+try {
+  db.exec("ALTER TABLE posts ADD COLUMN display_name TEXT");
+} catch (_e) { /* column already exists */ }
+try {
+  db.exec("ALTER TABLE posts ADD COLUMN chat_user_id TEXT");
+} catch (_e) { /* column already exists */ }
+
 // Feature 6: Hashtags + Trending
 db.exec(`
 CREATE TABLE IF NOT EXISTS hashtags (
@@ -160,8 +170,8 @@ END;
 const getPost = db.prepare('SELECT * FROM posts WHERE id = ?');
 const getAllPosts = db.prepare('SELECT * FROM posts');
 const upsertPost = db.prepare(`
-  INSERT INTO posts (id, user_id, windy_identity_id, content, translated_versions, created_at, updated_at, like_count, visibility, media_ids, repost_of)
-  VALUES (@id, @user_id, @windy_identity_id, @content, @translated_versions, @created_at, @updated_at, @like_count, @visibility, @media_ids, @repost_of)
+  INSERT INTO posts (id, user_id, windy_identity_id, display_name, chat_user_id, content, translated_versions, created_at, updated_at, like_count, visibility, media_ids, repost_of)
+  VALUES (@id, @user_id, @windy_identity_id, @display_name, @chat_user_id, @content, @translated_versions, @created_at, @updated_at, @like_count, @visibility, @media_ids, @repost_of)
   ON CONFLICT(id) DO UPDATE SET
     content = @content,
     translated_versions = @translated_versions,
@@ -169,7 +179,9 @@ const upsertPost = db.prepare(`
     like_count = @like_count,
     visibility = @visibility,
     media_ids = @media_ids,
-    repost_of = @repost_of
+    repost_of = @repost_of,
+    display_name = COALESCE(@display_name, posts.display_name),
+    chat_user_id = COALESCE(@chat_user_id, posts.chat_user_id)
 `);
 const deletePostStmt = db.prepare('DELETE FROM posts WHERE id = ?');
 
@@ -262,6 +274,8 @@ function migrateFromJSON() {
         id: p.id,
         user_id: p.userId,
         windy_identity_id: p.windyIdentityId || null,
+        display_name: p.displayName || null,
+        chat_user_id: p.chatUserId || null,
         content: p.content,
         translated_versions: p.translated_versions ? JSON.stringify(p.translated_versions) : null,
         created_at: p.createdAt,
@@ -340,6 +354,8 @@ function rowToPost(row) {
     id: row.id,
     userId: row.user_id,
     windyIdentityId: row.windy_identity_id || null,
+    displayName: row.display_name || null,
+    chatUserId: row.chat_user_id || null,
     content: row.content,
     translated_versions: row.translated_versions ? JSON.parse(row.translated_versions) : null,
     createdAt: row.created_at,
@@ -388,6 +404,8 @@ const postsMap = {
       id,
       user_id: post.userId,
       windy_identity_id: post.windyIdentityId || null,
+      display_name: post.displayName || null,
+      chat_user_id: post.chatUserId || null,
       content: post.content,
       translated_versions: post.translated_versions ? JSON.stringify(post.translated_versions) : null,
       created_at: post.createdAt,

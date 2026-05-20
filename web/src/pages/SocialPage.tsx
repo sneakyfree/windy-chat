@@ -25,10 +25,20 @@ interface Post {
   content: string;
   createdAt: string;
   likeCount: number;
+  liked?: boolean;
+  commentCount?: number;
   verified?: boolean;
   visibility?: string;
   repostOf?: string;
   mediaIds?: string[];
+}
+
+interface CommentRow {
+  id: string;
+  postId: string;
+  userId: string;
+  content: string;
+  createdAt: string;
 }
 
 interface TrendingTag {
@@ -54,6 +64,16 @@ export default function SocialPage({
   const [loading, setLoading] = useState(true);
   const [posting, setPosting] = useState(false);
   const [tab, setTab] = useState<'feed' | 'trending'>('feed');
+
+  // Comments UI state — keyed by postId. When a post's id is in
+  // openComments, its inline comment thread is expanded; we cache the
+  // fetched comments + the draft input + a posting flag per post.
+  const [openComments, setOpenComments] = useState<Record<string, boolean>>({});
+  const [commentsByPost, setCommentsByPost] = useState<Record<string, CommentRow[]>>({});
+  const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
+  const [commentSubmitting, setCommentSubmitting] = useState<Record<string, boolean>>({});
+  const [commentsLoading, setCommentsLoading] = useState<Record<string, boolean>>({});
+  const [shareToast, setShareToast] = useState<string | null>(null);
 
   const [feedError, setFeedError] = useState<string | null>(null);
 
@@ -177,11 +197,101 @@ export default function SocialPage({
     });
   };
 
+  // Like is a toggle. We optimistically flip `liked` + adjust `likeCount`
+  // by ±1, then send POST or DELETE based on the BEFORE state. If the
+  // server rejects, we revert. The frontend used to call POST on every
+  // click and increment unconditionally, which is why Grant could see
+  // "30" after 30 clicks even though the server (Set-backed) only
+  // recorded 1 like.
   const handleLike = async (postId: string) => {
+    let wasLiked = false;
+    setPosts(ps => ps.map(p => {
+      if (p.id !== postId) return p;
+      wasLiked = !!p.liked;
+      return {
+        ...p,
+        liked: !wasLiked,
+        likeCount: Math.max(0, (p.likeCount || 0) + (wasLiked ? -1 : 1)),
+      };
+    }));
     try {
-      await api.likePost(postId);
-      setPosts(ps => ps.map(p => p.id === postId ? { ...p, likeCount: p.likeCount + 1 } : p));
-    } catch { /* ignore */ }
+      const result = wasLiked
+        ? await api.unlikePost(postId)
+        : await api.likePost(postId);
+      // If the server returned an authoritative count, sync to it.
+      if (typeof result?.likeCount === 'number') {
+        setPosts(ps => ps.map(p => p.id === postId
+          ? { ...p, liked: !!result.liked, likeCount: result.likeCount }
+          : p));
+      }
+    } catch {
+      // Revert the optimistic update on failure.
+      setPosts(ps => ps.map(p => p.id === postId
+        ? { ...p, liked: wasLiked, likeCount: Math.max(0, (p.likeCount || 0) + (wasLiked ? 1 : -1)) }
+        : p));
+    }
+  };
+
+  const toggleComments = async (postId: string) => {
+    const isOpen = !!openComments[postId];
+    setOpenComments(s => ({ ...s, [postId]: !isOpen }));
+    if (isOpen) return;
+    // Only fetch the first time the thread is opened.
+    if (commentsByPost[postId]) return;
+    setCommentsLoading(s => ({ ...s, [postId]: true }));
+    try {
+      const data = await api.getComments(postId);
+      setCommentsByPost(s => ({ ...s, [postId]: data.comments || [] }));
+    } catch (err) {
+      console.warn('[social] load comments failed', err);
+    } finally {
+      setCommentsLoading(s => ({ ...s, [postId]: false }));
+    }
+  };
+
+  const submitComment = async (postId: string) => {
+    const draft = (commentDraft[postId] || '').trim();
+    if (!draft || commentSubmitting[postId]) return;
+    setCommentSubmitting(s => ({ ...s, [postId]: true }));
+    try {
+      const created = await api.createComment(postId, draft);
+      setCommentsByPost(s => ({
+        ...s,
+        [postId]: [...(s[postId] || []), created as CommentRow],
+      }));
+      setCommentDraft(s => ({ ...s, [postId]: '' }));
+      setPosts(ps => ps.map(p => p.id === postId
+        ? { ...p, commentCount: (p.commentCount || 0) + 1 }
+        : p));
+    } catch (err) {
+      console.warn('[social] create comment failed', err);
+    } finally {
+      setCommentSubmitting(s => ({ ...s, [postId]: false }));
+    }
+  };
+
+  const handleShare = async (post: Post) => {
+    // We don't have a true "post detail" URL yet — the feed is the only
+    // surface — so we share the social tab + the post id as a query
+    // parameter. Future post-detail routing can read this back.
+    const url = `${window.location.origin}/?post=${encodeURIComponent(post.id)}`;
+    const shareText = (post.content || '').slice(0, 140);
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'Windy Chat post', text: shareText, url });
+        return;
+      }
+    } catch {
+      // User cancelled the native sheet — fall through to clipboard.
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareToast('Link copied to clipboard');
+      setTimeout(() => setShareToast(null), 2000);
+    } catch {
+      setShareToast('Could not copy link — copy from your browser bar');
+      setTimeout(() => setShareToast(null), 2500);
+    }
   };
 
   const timeAgo = (iso: string) => {
@@ -222,7 +332,18 @@ export default function SocialPage({
   };
 
   return (
-    <div className="flex h-screen" style={{ background: 'var(--bg-primary)' }}>
+    <div className="flex h-screen relative" style={{ background: 'var(--bg-primary)' }}>
+      {/* Share toast */}
+      {shareToast && (
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full text-sm shadow-lg z-50"
+          style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+        >
+          {shareToast}
+        </div>
+      )}
+
       {/* Main Feed */}
       <div className="flex-1 max-w-2xl mx-auto">
         {/* Tab Bar */}
@@ -473,14 +594,32 @@ export default function SocialPage({
                         {/* Actions */}
                         <div className="flex items-center gap-6">
                           <button
+                            type="button"
                             onClick={() => handleLike(post.id)}
+                            aria-pressed={!!post.liked}
+                            aria-label={post.liked ? 'Unlike' : 'Like'}
                             className="flex items-center gap-1.5 text-xs transition-colors"
+                            style={{ color: post.liked ? 'var(--danger)' : 'var(--text-secondary)' }}
+                          >
+                            {post.liked ? '♥' : '♡'} {post.likeCount || 0}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleComments(post.id)}
+                            aria-expanded={!!openComments[post.id]}
+                            className="flex items-center gap-1.5 text-xs"
+                            style={{ color: openComments[post.id] ? 'var(--accent)' : 'var(--text-secondary)' }}
+                          >
+                            💬 {post.commentCount ? post.commentCount : 'Comment'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleShare(post)}
+                            className="text-xs"
                             style={{ color: 'var(--text-secondary)' }}
                           >
-                            ♥ {post.likeCount || 0}
+                            ↗ Share
                           </button>
-                          <button className="text-xs" style={{ color: 'var(--text-secondary)' }}>💬 Comment</button>
-                          <button className="text-xs" style={{ color: 'var(--text-secondary)' }}>↗ Share</button>
                           {/* Agent marketplace: "Chat Now" for agent posts */}
                           {(post.userId.startsWith('bot_') || post.verified) && onNavigateToChat && (
                             <button
@@ -492,6 +631,70 @@ export default function SocialPage({
                             </button>
                           )}
                         </div>
+
+                        {/* Inline comments thread */}
+                        {openComments[post.id] && (
+                          <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--bg-tertiary)' }}>
+                            {commentsLoading[post.id] ? (
+                              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Loading comments…</p>
+                            ) : (
+                              <div className="space-y-3 mb-3">
+                                {(commentsByPost[post.id] || []).length === 0 ? (
+                                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No comments yet — be the first.</p>
+                                ) : (
+                                  (commentsByPost[post.id] || []).map(c => (
+                                    <div key={c.id} className="flex gap-2">
+                                      <div
+                                        className="w-7 h-7 rounded-full flex items-center justify-center text-xs shrink-0"
+                                        style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                                      >
+                                        {c.userId.charAt(0).toUpperCase()}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                                            {c.userId.slice(0, 8)}…
+                                          </span>
+                                          <span
+                                            className="text-[10px]"
+                                            style={{ color: 'var(--text-muted)' }}
+                                            title={fullTimestamp(c.createdAt)}
+                                          >
+                                            {timeAgo(c.createdAt)}
+                                          </span>
+                                        </div>
+                                        <p className="text-xs whitespace-pre-wrap break-words" style={{ color: 'var(--text-primary)' }}>
+                                          {c.content}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            )}
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                placeholder="Write a comment…"
+                                value={commentDraft[post.id] || ''}
+                                onChange={e => setCommentDraft(s => ({ ...s, [post.id]: e.target.value }))}
+                                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitComment(post.id); } }}
+                                maxLength={2000}
+                                className="flex-1 px-3 py-2 rounded-lg text-xs outline-none"
+                                style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => submitComment(post.id)}
+                                disabled={!((commentDraft[post.id] || '').trim()) || commentSubmitting[post.id]}
+                                className="px-3 py-2 rounded-lg text-xs font-medium disabled:opacity-40"
+                                style={{ background: 'var(--accent)', color: 'white' }}
+                              >
+                                {commentSubmitting[post.id] ? '…' : 'Reply'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

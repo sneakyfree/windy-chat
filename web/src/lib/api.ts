@@ -127,6 +127,31 @@ export async function unlikePost(postId: string) {
   return res.json();
 }
 
+// ── Comments ──
+
+export interface Comment {
+  id: string;
+  postId: string;
+  userId: string;
+  content: string;
+  createdAt: string;
+}
+
+export async function getComments(postId: string): Promise<{ comments: Comment[]; count: number }> {
+  const res = await apiFetch(`${env.socialUrl}/posts/${postId}/comments`);
+  if (!res.ok) throw new Error(`Load comments failed: ${res.status}`);
+  return res.json();
+}
+
+export async function createComment(postId: string, content: string): Promise<Comment> {
+  const res = await apiFetch(`${env.socialUrl}/posts/${postId}/comments`, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) throw new Error(`Create comment failed: ${res.status}`);
+  return res.json();
+}
+
 export async function followUser(userId: string) {
   const res = await apiFetch(`${env.socialUrl}/follow/${userId}`, { method: 'POST' });
   if (!res.ok) throw new Error(`Follow failed: ${res.status}`);
