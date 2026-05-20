@@ -131,6 +131,35 @@ try {
   db.exec("ALTER TABLE posts ADD COLUMN chat_user_id TEXT");
 } catch (_e) { /* column already exists */ }
 
+// Comments get the same author-snapshot treatment + threading
+// (parent_comment_id) + a denormalized like_count. The comment_likes
+// table holds the (user_id, comment_id) tuples for idempotent toggle.
+try {
+  db.exec("ALTER TABLE comments ADD COLUMN display_name TEXT");
+} catch (_e) { /* exists */ }
+try {
+  db.exec("ALTER TABLE comments ADD COLUMN chat_user_id TEXT");
+} catch (_e) { /* exists */ }
+try {
+  db.exec("ALTER TABLE comments ADD COLUMN parent_comment_id TEXT");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_comments_parent_comment_id ON comments(parent_comment_id)");
+} catch (_e) { /* exists */ }
+try {
+  db.exec("ALTER TABLE comments ADD COLUMN like_count INTEGER DEFAULT 0");
+} catch (_e) { /* exists */ }
+try {
+  db.exec("ALTER TABLE comments ADD COLUMN windy_identity_id TEXT");
+} catch (_e) { /* exists */ }
+db.exec(`
+CREATE TABLE IF NOT EXISTS comment_likes (
+  user_id TEXT NOT NULL,
+  comment_id TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, comment_id)
+);
+CREATE INDEX IF NOT EXISTS idx_comment_likes_comment ON comment_likes(comment_id);
+`);
+
 // Feature 6: Hashtags + Trending
 db.exec(`
 CREATE TABLE IF NOT EXISTS hashtags (
@@ -239,12 +268,22 @@ const searchPostsLike = db.prepare(`
 // Comments
 const getCommentsByPost = db.prepare('SELECT * FROM comments WHERE post_id = ? ORDER BY created_at ASC');
 const insertComment = db.prepare(`
-  INSERT INTO comments (id, post_id, user_id, content, created_at)
-  VALUES (@id, @post_id, @user_id, @content, @created_at)
+  INSERT INTO comments (id, post_id, user_id, windy_identity_id, display_name, chat_user_id, parent_comment_id, content, created_at)
+  VALUES (@id, @post_id, @user_id, @windy_identity_id, @display_name, @chat_user_id, @parent_comment_id, @content, @created_at)
 `);
 const getComment = db.prepare('SELECT * FROM comments WHERE id = ?');
 const deleteComment = db.prepare('DELETE FROM comments WHERE id = ?');
 const getCommentCount = db.prepare('SELECT COUNT(*) as cnt FROM comments WHERE post_id = ?');
+
+// Comment likes — same pattern as post likes: idempotent INSERT OR IGNORE,
+// dedicated DELETE, and a like_count cached on the comments row.
+const insertCommentLike = db.prepare('INSERT OR IGNORE INTO comment_likes (user_id, comment_id) VALUES (?, ?)');
+const deleteCommentLike = db.prepare('DELETE FROM comment_likes WHERE user_id = ? AND comment_id = ?');
+const hasCommentLikeStmt = db.prepare('SELECT 1 FROM comment_likes WHERE user_id = ? AND comment_id = ?');
+const getCommentLikeCountStmt = db.prepare('SELECT COUNT(*) as cnt FROM comment_likes WHERE comment_id = ?');
+const updateCommentLikeCountStmt = db.prepare(
+  'UPDATE comments SET like_count = (SELECT COUNT(*) FROM comment_likes WHERE comment_id = ?) WHERE id = ?',
+);
 
 // Verified
 const getVerified = db.prepare('SELECT 1 FROM verified_accounts WHERE user_id = ?');
@@ -620,6 +659,11 @@ function rowToComment(row) {
     id: row.id,
     postId: row.post_id,
     userId: row.user_id,
+    windyIdentityId: row.windy_identity_id || null,
+    displayName: row.display_name || null,
+    chatUserId: row.chat_user_id || null,
+    parentCommentId: row.parent_comment_id || null,
+    likeCount: row.like_count || 0,
     content: row.content,
     createdAt: row.created_at,
   };
@@ -630,6 +674,10 @@ function addComment(comment) {
     id: comment.id,
     post_id: comment.postId,
     user_id: comment.userId,
+    windy_identity_id: comment.windyIdentityId || null,
+    display_name: comment.displayName || null,
+    chat_user_id: comment.chatUserId || null,
+    parent_comment_id: comment.parentCommentId || null,
     content: comment.content,
     created_at: comment.createdAt,
   });
@@ -637,6 +685,24 @@ function addComment(comment) {
 
 function getCommentsForPost(postId) {
   return getCommentsByPost.all(postId).map(rowToComment);
+}
+
+// ── Comment Like Helpers ────────────────────────────────────────────────────
+function addCommentLike(userId, commentId) {
+  insertCommentLike.run(userId, commentId);
+}
+function removeCommentLike(userId, commentId) {
+  deleteCommentLike.run(userId, commentId);
+}
+function hasCommentLike(userId, commentId) {
+  return !!hasCommentLikeStmt.get(userId, commentId);
+}
+function getCommentLikeCount(commentId) {
+  return getCommentLikeCountStmt.get(commentId).cnt;
+}
+function updateCommentLikeCount(commentId) {
+  updateCommentLikeCountStmt.run(commentId, commentId);
+  return getCommentLikeCount(commentId);
 }
 
 function getCommentCountForPost(postId) {
@@ -774,6 +840,11 @@ module.exports = {
   getCommentCountForPost,
   deleteCommentById,
   getCommentById,
+  addCommentLike,
+  removeCommentLike,
+  hasCommentLike,
+  getCommentLikeCount,
+  updateCommentLikeCount,
   // Hashtags
   extractHashtags,
   saveHashtags,

@@ -17,6 +17,94 @@ const MAX_ATTACHMENTS = 4;
 // fast feedback before we bother uploading.
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
+/**
+ * Render a single comment row — used for both top-level comments and nested
+ * replies. The `compact` variant shrinks the avatar so reply chains don't
+ * waste horizontal space.
+ */
+function CommentRowView({
+  c, post, onLike, onReply, onAuthorClick, authorName, avatarChar, timeAgo, fullTime, compact,
+}: {
+  c: CommentRow;
+  post: Post;
+  onLike: () => void;
+  onReply: () => void;
+  onAuthorClick: () => void;
+  authorName: string;
+  avatarChar: string;
+  timeAgo: string;
+  fullTime: string;
+  compact?: boolean;
+}) {
+  const isAuthor = c.userId === post.userId;
+  const avatarSize = compact ? 'w-6 h-6' : 'w-7 h-7';
+  return (
+    <div className="flex gap-2">
+      <button
+        type="button"
+        onClick={onAuthorClick}
+        aria-label={`View ${authorName}'s profile`}
+        className={`${avatarSize} rounded-full flex items-center justify-center text-xs shrink-0 hover:opacity-80`}
+        style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+      >
+        {avatarChar}
+      </button>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={onAuthorClick}
+            className="text-xs font-medium hover:underline truncate"
+            style={{ color: 'var(--text-primary)' }}
+          >
+            {authorName}
+          </button>
+          {c.chatUserId && (
+            <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>@{c.chatUserId}</span>
+          )}
+          {isAuthor && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
+              author
+            </span>
+          )}
+          <span
+            className="text-[10px]"
+            style={{ color: 'var(--text-muted)' }}
+            title={fullTime}
+          >
+            · {timeAgo}
+          </span>
+        </div>
+        <p className="text-xs whitespace-pre-wrap break-words" style={{ color: 'var(--text-primary)' }}>
+          {c.content}
+        </p>
+        <div className="flex items-center gap-4 mt-1">
+          <button
+            type="button"
+            onClick={onLike}
+            aria-pressed={!!c.liked}
+            aria-label={c.liked ? 'Unlike comment' : 'Like comment'}
+            className="flex items-center gap-1 text-[11px]"
+            style={{ color: c.liked ? 'var(--danger)' : 'var(--text-secondary)' }}
+          >
+            {c.liked ? '♥' : '♡'} {c.likeCount || 0}
+          </button>
+          {!compact && (
+            <button
+              type="button"
+              onClick={onReply}
+              className="text-[11px]"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              ↩ Reply
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface Post {
   id: string;
   userId: string;
@@ -37,6 +125,11 @@ interface CommentRow {
   id: string;
   postId: string;
   userId: string;
+  displayName?: string | null;
+  chatUserId?: string | null;
+  parentCommentId?: string | null;
+  likeCount?: number;
+  liked?: boolean;
   content: string;
   createdAt: string;
 }
@@ -73,6 +166,7 @@ export default function SocialPage({
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
   const [commentSubmitting, setCommentSubmitting] = useState<Record<string, boolean>>({});
   const [commentsLoading, setCommentsLoading] = useState<Record<string, boolean>>({});
+  const [replyingTo, setReplyingTo] = useState<Record<string, string | null>>({});
   const [shareToast, setShareToast] = useState<string | null>(null);
 
   const [feedError, setFeedError] = useState<string | null>(null);
@@ -254,12 +348,14 @@ export default function SocialPage({
     if (!draft || commentSubmitting[postId]) return;
     setCommentSubmitting(s => ({ ...s, [postId]: true }));
     try {
-      const created = await api.createComment(postId, draft);
+      const parentCommentId = replyingTo[postId] || null;
+      const created = await api.createComment(postId, draft, { parentCommentId });
       setCommentsByPost(s => ({
         ...s,
         [postId]: [...(s[postId] || []), created as CommentRow],
       }));
       setCommentDraft(s => ({ ...s, [postId]: '' }));
+      setReplyingTo(s => ({ ...s, [postId]: null }));
       setPosts(ps => ps.map(p => p.id === postId
         ? { ...p, commentCount: (p.commentCount || 0) + 1 }
         : p));
@@ -269,6 +365,58 @@ export default function SocialPage({
       setCommentSubmitting(s => ({ ...s, [postId]: false }));
     }
   };
+
+  // Toggle like on a single comment. Same pattern as post-like: optimistic
+  // flip + ±1, POST or DELETE based on prior state, revert on error.
+  const handleCommentLike = async (postId: string, commentId: string) => {
+    let wasLiked = false;
+    setCommentsByPost(s => ({
+      ...s,
+      [postId]: (s[postId] || []).map(c => {
+        if (c.id !== commentId) return c;
+        wasLiked = !!c.liked;
+        return { ...c, liked: !wasLiked, likeCount: Math.max(0, (c.likeCount || 0) + (wasLiked ? -1 : 1)) };
+      }),
+    }));
+    try {
+      const result = wasLiked
+        ? await api.unlikeComment(postId, commentId)
+        : await api.likeComment(postId, commentId);
+      setCommentsByPost(s => ({
+        ...s,
+        [postId]: (s[postId] || []).map(c => c.id === commentId
+          ? { ...c, liked: !!result.liked, likeCount: result.likeCount }
+          : c),
+      }));
+    } catch {
+      setCommentsByPost(s => ({
+        ...s,
+        [postId]: (s[postId] || []).map(c => c.id === commentId
+          ? { ...c, liked: wasLiked, likeCount: Math.max(0, (c.likeCount || 0) + (wasLiked ? 1 : -1)) }
+          : c),
+      }));
+    }
+  };
+
+  const startReply = (postId: string, commentId: string) => {
+    setReplyingTo(s => ({ ...s, [postId]: commentId }));
+    // Bring focus + nudge user toward the composer at the bottom of the
+    // thread by pre-filling a mention. Empty draft would also be fine.
+    setCommentDraft(s => ({ ...s, [postId]: s[postId] || '' }));
+  };
+
+  const cancelReply = (postId: string) => {
+    setReplyingTo(s => ({ ...s, [postId]: null }));
+  };
+
+  const commentAuthorName = (c: CommentRow) =>
+    (c.displayName && c.displayName.trim()) ||
+    (c.chatUserId && c.chatUserId.trim()) ||
+    c.userId;
+  const commentAvatarChar = (c: CommentRow) =>
+    (c.userId.startsWith('bot_') || c.userId.startsWith('agent_'))
+      ? '🪰'
+      : commentAuthorName(c).charAt(0).toUpperCase();
 
   const handleShare = async (post: Post) => {
     // We don't have a true "post detail" URL yet — the feed is the only
@@ -639,43 +787,69 @@ export default function SocialPage({
                               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Loading comments…</p>
                             ) : (
                               <div className="space-y-3 mb-3">
-                                {(commentsByPost[post.id] || []).length === 0 ? (
+                                {(commentsByPost[post.id] || []).filter(c => !c.parentCommentId).length === 0 ? (
                                   <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No comments yet — be the first.</p>
                                 ) : (
-                                  (commentsByPost[post.id] || []).map(c => (
-                                    <div key={c.id} className="flex gap-2">
-                                      <div
-                                        className="w-7 h-7 rounded-full flex items-center justify-center text-xs shrink-0"
-                                        style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
-                                      >
-                                        {c.userId.charAt(0).toUpperCase()}
-                                      </div>
-                                      <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
-                                            {c.userId.slice(0, 8)}…
-                                          </span>
-                                          <span
-                                            className="text-[10px]"
-                                            style={{ color: 'var(--text-muted)' }}
-                                            title={fullTimestamp(c.createdAt)}
-                                          >
-                                            {timeAgo(c.createdAt)}
-                                          </span>
+                                  // Render top-level comments + their replies nested below
+                                  (commentsByPost[post.id] || [])
+                                    .filter(c => !c.parentCommentId)
+                                    .map(c => {
+                                      const replies = (commentsByPost[post.id] || []).filter(r => r.parentCommentId === c.id);
+                                      return (
+                                        <div key={c.id}>
+                                          <CommentRowView
+                                            c={c}
+                                            post={post}
+                                            onLike={() => handleCommentLike(post.id, c.id)}
+                                            onReply={() => startReply(post.id, c.id)}
+                                            onAuthorClick={() => onNavigateToProfile?.(c.userId)}
+                                            authorName={commentAuthorName(c)}
+                                            avatarChar={commentAvatarChar(c)}
+                                            timeAgo={timeAgo(c.createdAt)}
+                                            fullTime={fullTimestamp(c.createdAt)}
+                                          />
+                                          {replies.length > 0 && (
+                                            <div className="ml-9 mt-3 space-y-3 border-l pl-3" style={{ borderColor: 'var(--bg-tertiary)' }}>
+                                              {replies.map(r => (
+                                                <CommentRowView
+                                                  key={r.id}
+                                                  c={r}
+                                                  post={post}
+                                                  onLike={() => handleCommentLike(post.id, r.id)}
+                                                  onReply={() => startReply(post.id, c.id) /* reply to top-level */}
+                                                  onAuthorClick={() => onNavigateToProfile?.(r.userId)}
+                                                  authorName={commentAuthorName(r)}
+                                                  avatarChar={commentAvatarChar(r)}
+                                                  timeAgo={timeAgo(r.createdAt)}
+                                                  fullTime={fullTimestamp(r.createdAt)}
+                                                  compact
+                                                />
+                                              ))}
+                                            </div>
+                                          )}
                                         </div>
-                                        <p className="text-xs whitespace-pre-wrap break-words" style={{ color: 'var(--text-primary)' }}>
-                                          {c.content}
-                                        </p>
-                                      </div>
-                                    </div>
-                                  ))
+                                      );
+                                    })
                                 )}
+                              </div>
+                            )}
+                            {replyingTo[post.id] && (
+                              <div className="text-[11px] mb-2 flex items-center justify-between" style={{ color: 'var(--text-muted)' }}>
+                                <span>Replying to a comment</span>
+                                <button
+                                  type="button"
+                                  onClick={() => cancelReply(post.id)}
+                                  className="underline"
+                                  style={{ color: 'var(--text-muted)' }}
+                                >
+                                  cancel
+                                </button>
                               </div>
                             )}
                             <div className="flex gap-2">
                               <input
                                 type="text"
-                                placeholder="Write a comment…"
+                                placeholder={replyingTo[post.id] ? 'Write a reply…' : 'Write a comment…'}
                                 value={commentDraft[post.id] || ''}
                                 onChange={e => setCommentDraft(s => ({ ...s, [post.id]: e.target.value }))}
                                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitComment(post.id); } }}
@@ -690,7 +864,7 @@ export default function SocialPage({
                                 className="px-3 py-2 rounded-lg text-xs font-medium disabled:opacity-40"
                                 style={{ background: 'var(--accent)', color: 'white' }}
                               >
-                                {commentSubmitting[post.id] ? '…' : 'Reply'}
+                                {commentSubmitting[post.id] ? '…' : (replyingTo[post.id] ? 'Reply' : 'Post')}
                               </button>
                             </div>
                           </div>
