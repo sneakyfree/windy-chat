@@ -250,9 +250,28 @@ app.get('/api/v1/social/profile/:userId', auth, asyncHandler(async (req, res) =>
   const verified = verifiedAccounts.has(userId);
 
   // Chat-specific data
-  const userPosts = [...(require('./lib/store').postsMap.values())].filter(p => p.userId === userId);
+  const userPosts = [...(require('./lib/store').postsMap.values())]
+    .filter(p => p.userId === userId)
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
   const followers = require('./lib/store').followersMap.get(userId);
   const following = require('./lib/store').followsMap.get(userId);
+
+  // Derive display name + chat handle from the user's most recent post that
+  // carried a snapshot. Lets the profile page render "Grant Whitmer
+  // (@grantwhitmer3)" instead of the raw UUID until we wire a proper
+  // cross-service profile lookup against chat-onboarding's user_profiles.
+  let displayName = null;
+  let chatUserId = null;
+  for (const p of userPosts) {
+    if (!displayName && p.displayName) displayName = p.displayName;
+    if (!chatUserId && p.chatUserId) chatUserId = p.chatUserId;
+    if (displayName && chatUserId) break;
+  }
+  // If the viewer is asking for their OWN profile and they posted no snapshot
+  // yet, fall back to whatever the JWT carries.
+  if (req.user && req.user.sub === userId) {
+    if (!displayName) displayName = req.user.display_name || req.user.name || null;
+  }
 
   // Cross-product enrichment (from JWT claims or future API lookups)
   const enrichment = {
@@ -272,6 +291,8 @@ app.get('/api/v1/social/profile/:userId', auth, asyncHandler(async (req, res) =>
 
   res.json({
     user_id: userId,
+    display_name: displayName,
+    chat_user_id: chatUserId,
     verified,
     posts_count: userPosts.length,
     followers_count: followers ? [...followers].length : 0,

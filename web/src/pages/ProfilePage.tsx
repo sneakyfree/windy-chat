@@ -3,6 +3,8 @@ import * as api from '../lib/api';
 
 interface Profile {
   user_id: string;
+  display_name?: string | null;
+  chat_user_id?: string | null;
   verified: boolean;
   posts_count: number;
   followers_count: number;
@@ -10,7 +12,13 @@ interface Profile {
   eternitas_passport?: string | null;
 }
 
-export default function ProfilePage({ userId: viewUserId }: { userId: string | null }) {
+export default function ProfilePage({
+  userId: viewUserId,
+  onBack,
+}: {
+  userId: string | null;
+  onBack?: () => void;
+}) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -68,16 +76,37 @@ export default function ProfilePage({ userId: viewUserId }: { userId: string | n
   }
 
   const isAgent = targetUserId.startsWith('bot_') || targetUserId.startsWith('agent_');
+  // Display name precedence: server snapshot > chat handle > raw userId.
+  // The raw-UUID fallback is the grandma-demo failure we're trying to bury.
+  const displayName =
+    (profile?.display_name && profile.display_name.trim()) ||
+    (profile?.chat_user_id && profile.chat_user_id.trim()) ||
+    targetUserId;
+  const handle = profile?.chat_user_id || null;
+  const avatarChar = isAgent ? '🪰' : displayName.charAt(0).toUpperCase();
 
   return (
     <div className="max-w-2xl mx-auto py-8 px-4">
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="mb-4 text-sm hover:underline"
+          style={{ color: 'var(--text-secondary)' }}
+        >
+          ← Back
+        </button>
+      )}
       <div className="text-center mb-8">
         <div className="w-24 h-24 rounded-full mx-auto mb-4 flex items-center justify-center text-3xl"
              style={{ background: isAgent ? 'var(--agent-bg)' : 'var(--bg-tertiary)', border: isAgent ? '2px solid var(--accent)' : 'none' }}>
-          {isAgent ? '🪰' : targetUserId.charAt(0).toUpperCase()}
+          {avatarChar}
         </div>
 
-        <h1 className="text-xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>{targetUserId}</h1>
+        <h1 className="text-xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>{displayName}</h1>
+        {handle && (
+          <p className="text-sm mb-2" style={{ color: 'var(--text-muted)' }}>@{handle}</p>
+        )}
 
         {profile?.verified && (
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs mb-3"

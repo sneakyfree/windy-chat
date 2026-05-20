@@ -9,10 +9,11 @@ import DiscoverPage from './pages/DiscoverPage';
 import SettingsPage from './pages/SettingsPage';
 import PrivacyPage from './pages/PrivacyPage';
 import TermsPage from './pages/TermsPage';
+import ProfilePage from './pages/ProfilePage';
 import WelcomeOverlay from './components/WelcomeOverlay';
 import MailPanel from './components/MailPanel';
 
-type View = 'chat' | 'social' | 'contacts' | 'discover' | 'settings' | 'privacy' | 'terms';
+type View = 'chat' | 'social' | 'contacts' | 'discover' | 'settings' | 'privacy' | 'terms' | 'profile';
 type AuthScreen = 'landing' | 'signin' | 'register';
 
 function NavButton({ icon, label, active, onClick, badge }: {
@@ -46,6 +47,17 @@ export default function App() {
   const [showWelcome, setShowWelcome] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
   const [mailCompose, setMailCompose] = useState<{ body?: string; to?: string } | null>(null);
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
+
+  // Open another user's profile page in the main content area. Captures the
+  // userId in state so the Profile view knows whose profile to render —
+  // ProfilePage is a leaf component without its own router. Falls back to
+  // the caller's own ID if nothing is passed so a "view my profile" CTA
+  // works without an explicit userId arg.
+  const handleNavigateToProfile = useCallback((userId: string | null) => {
+    setProfileUserId(userId || auth.userId);
+    setView('profile');
+  }, [auth.userId]);
 
   const handleLogin = useCallback(async (jwt: string) => {
     const state = await login(jwt);
@@ -138,10 +150,11 @@ export default function App() {
       {/* Main Content */}
       <main className="flex-1 min-w-0 min-h-0">
         {view === 'chat' && <ChatPage userId={auth.matrixUserId} onEmailMessage={(body, to) => { setMailCompose({ body, to }); setMailOpen(true); }} onNavigate={setView} />}
-        {view === 'social' && <SocialPage userId={auth.userId} onNavigateToChat={() => setView('chat')} />}
+        {view === 'social' && <SocialPage userId={auth.userId} onNavigateToChat={() => setView('chat')} onNavigateToProfile={handleNavigateToProfile} />}
         {view === 'discover' && <DiscoverPage onNavigateToChat={() => setView('chat')} />}
         {view === 'contacts' && <ContactsPage userId={auth.userId} />}
         {view === 'settings' && <SettingsPage userId={auth.userId} onLogout={logout} onNavigate={(v: string) => setView(v as View)} />}
+        {view === 'profile' && <ProfilePage userId={profileUserId} onBack={() => setView('social')} />}
         {view === 'privacy' && <PrivacyPage />}
         {view === 'terms' && <TermsPage />}
       </main>
