@@ -39,7 +39,7 @@ const SYNAPSE_SERVER_NAME = process.env.SYNAPSE_SERVER_NAME || 'chat.windychat.a
 // users via POST /_synapse/admin/v1/users/{user_id}/login. Without this, the
 // unified-login already_existed branch can only return access_token: null,
 // which breaks the chat web app's SSO handoff (saveSession requires a token).
-const SYNAPSE_ADMIN_ACCESS_TOKEN = process.env.SYNAPSE_ADMIN_ACCESS_TOKEN || '';
+const SYNAPSE_ADMIN_TOKEN = process.env.SYNAPSE_ADMIN_TOKEN || '';
 
 // ── Per-route rate limiter for provisioning (login-like, sensitive) ──
 const provisionLimiter = rateLimit({
@@ -214,7 +214,7 @@ async function provisionViaAccountServer(windyIdentityId, displayName, avatarUrl
 
 /**
  * Mint a fresh device session for an existing Matrix user via the Synapse
- * admin login endpoint. Requires SYNAPSE_ADMIN_ACCESS_TOKEN to be configured
+ * admin login endpoint. Requires SYNAPSE_ADMIN_TOKEN to be configured
  * with an admin user's access token. Returns the new access_token + device_id
  * or null if no admin token is available.
  *
@@ -222,7 +222,7 @@ async function provisionViaAccountServer(windyIdentityId, displayName, avatarUrl
  * Docs: https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#login-as-a-user
  */
 async function mintFreshSession(matrixUserId) {
-  if (!SYNAPSE_ADMIN_ACCESS_TOKEN) return null;
+  if (!SYNAPSE_ADMIN_TOKEN) return null;
   if (!matrixUserId) return null;
   try {
     const url = `${SYNAPSE_ADMIN_URL}/v1/users/${encodeURIComponent(matrixUserId)}/login`;
@@ -230,7 +230,7 @@ async function mintFreshSession(matrixUserId) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SYNAPSE_ADMIN_ACCESS_TOKEN}`,
+        'Authorization': `Bearer ${SYNAPSE_ADMIN_TOKEN}`,
       },
       body: JSON.stringify({}),
       signal: AbortSignal.timeout(10000),
