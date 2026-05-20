@@ -4,6 +4,8 @@ import * as api from '../lib/api';
 interface Post {
   id: string;
   userId: string;
+  displayName?: string | null;
+  chatUserId?: string | null;
   content: string;
   createdAt: string;
   likeCount: number;
@@ -18,7 +20,15 @@ interface TrendingTag {
   postCount: number;
 }
 
-export default function SocialPage({ userId: _userId, onNavigateToChat }: { userId: string | null; onNavigateToChat?: () => void }) {
+export default function SocialPage({
+  userId: _userId,
+  onNavigateToChat,
+  onNavigateToProfile,
+}: {
+  userId: string | null;
+  onNavigateToChat?: () => void;
+  onNavigateToProfile?: (userId: string) => void;
+}) {
   const [posts, setPosts] = useState<Post[]>([]);
   const [trending, setTrending] = useState<TrendingTag[]>([]);
   const [newPost, setNewPost] = useState('');
@@ -83,6 +93,33 @@ export default function SocialPage({ userId: _userId, onNavigateToChat }: { user
     const hrs = Math.floor(mins / 60);
     if (hrs < 24) return `${hrs}h`;
     return `${Math.floor(hrs / 24)}d`;
+  };
+
+  // Absolute timestamp for hover tooltip — full locale-aware date/time.
+  // Posts that disappear behind "just now" or "2h" still expose their
+  // absolute creation moment without forcing the user to mouse-hover-and-wait.
+  const fullTimestamp = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleString(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+    } catch {
+      return iso;
+    }
+  };
+
+  // Author name to display: prefer the snapshot, fall back to handle, then
+  // last-resort to the raw user_id. The grandma-demo bug was raw-UUID rendering.
+  const authorName = (p: Post) =>
+    (p.displayName && p.displayName.trim()) ||
+    (p.chatUserId && p.chatUserId.trim()) ||
+    p.userId;
+
+  // First-letter avatar — prefer display name initial over UUID char.
+  const avatarChar = (p: Post) => {
+    if (p.userId.startsWith('bot_') || p.userId.startsWith('agent_')) return '🪰';
+    return authorName(p).charAt(0).toUpperCase();
   };
 
   return (
@@ -164,18 +201,33 @@ export default function SocialPage({ userId: _userId, onNavigateToChat }: { user
                        onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background = 'transparent'}>
 
                     <div className="flex items-start gap-3">
-                      {/* Avatar */}
-                      <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm shrink-0"
-                           style={{ background: post.verified ? 'var(--agent-bg)' : 'var(--bg-tertiary)' }}>
-                        {post.userId.startsWith('bot_') ? '🪰' : post.userId.charAt(0).toUpperCase()}
-                      </div>
+                      {/* Avatar — clickable, opens the author's profile */}
+                      <button
+                        type="button"
+                        onClick={() => onNavigateToProfile?.(post.userId)}
+                        aria-label={`View ${authorName(post)}'s profile`}
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-sm shrink-0 hover:opacity-80 transition-opacity"
+                        style={{ background: post.verified ? 'var(--agent-bg)' : 'var(--bg-tertiary)', cursor: onNavigateToProfile ? 'pointer' : 'default' }}
+                      >
+                        {avatarChar(post)}
+                      </button>
 
                       <div className="flex-1 min-w-0">
                         {/* Author */}
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-medium text-sm" style={{ color: 'var(--text-primary)' }}>
-                            {post.userId}
-                          </span>
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => onNavigateToProfile?.(post.userId)}
+                            className="font-medium text-sm hover:underline truncate"
+                            style={{ color: 'var(--text-primary)', cursor: onNavigateToProfile ? 'pointer' : 'default' }}
+                          >
+                            {authorName(post)}
+                          </button>
+                          {post.chatUserId && (
+                            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                              @{post.chatUserId}
+                            </span>
+                          )}
                           {post.verified && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'var(--accent)', color: 'white' }}>
                               ✓ Verified
@@ -184,7 +236,13 @@ export default function SocialPage({ userId: _userId, onNavigateToChat }: { user
                           {post.repostOf && (
                             <span className="text-xs" style={{ color: 'var(--text-muted)' }}>reposted</span>
                           )}
-                          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{timeAgo(post.createdAt)}</span>
+                          <span
+                            className="text-xs"
+                            style={{ color: 'var(--text-muted)' }}
+                            title={fullTimestamp(post.createdAt)}
+                          >
+                            · {timeAgo(post.createdAt)}
+                          </span>
                         </div>
 
                         {/* Content */}

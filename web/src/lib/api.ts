@@ -57,9 +57,18 @@ export async function getFeed(cursor?: string) {
 }
 
 export async function createPost(content: string, opts?: { visibility?: string; media_ids?: string[] }) {
+  // Snapshot the author's display info from localStorage so the feed can
+  // render "Grant Whitmer" + "@grantwhitmer3" instead of the raw user_id
+  // UUID. The social service trusts these for presentation; the
+  // authoritative userId comes from the JWT.
+  const displayName = localStorage.getItem('windy_display_name') || undefined;
+  const matrixUserId = localStorage.getItem('matrix_user_id') || '';
+  const chatUserIdMatch = /^@([^:]+):/.exec(matrixUserId);
+  const chatUserId = chatUserIdMatch ? chatUserIdMatch[1] : undefined;
+
   const res = await apiFetch(`${env.socialUrl}/posts`, {
     method: 'POST',
-    body: JSON.stringify({ content, ...opts }),
+    body: JSON.stringify({ content, displayName, chatUserId, ...opts }),
   });
   if (!res.ok) throw new Error(`Post failed: ${res.status}`);
   return res.json();

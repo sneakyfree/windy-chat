@@ -6,24 +6,44 @@ export interface AuthState {
   isLoggedIn: boolean;
   userId: string | null;
   displayName: string | null;
+  chatUserId: string | null;
   matrixUserId: string | null;
+}
+
+// Derive the Matrix localpart ("@grantwhitmer3:chat.windychat.ai" → "grantwhitmer3")
+// from a full Matrix user ID. Used as the @handle in the Social feed + profile.
+function localpartFrom(matrixUserId: string | null): string | null {
+  if (!matrixUserId) return null;
+  const m = /^@([^:]+):/.exec(matrixUserId);
+  return m ? m[1] : null;
 }
 
 export function getAuthState(): AuthState {
   const jwt = localStorage.getItem('windy_jwt');
   const matrixUserId = localStorage.getItem('matrix_user_id');
-  if (!jwt) return { isLoggedIn: false, userId: null, displayName: null, matrixUserId: null };
+  const storedDisplayName = localStorage.getItem('windy_display_name');
+  if (!jwt) return { isLoggedIn: false, userId: null, displayName: null, chatUserId: null, matrixUserId: null };
 
   try {
     const payload = JSON.parse(atob(jwt.split('.')[1]));
+    const chatUserId = localpartFrom(matrixUserId);
+    // Display-name precedence: explicit localStorage (from unifiedLogin
+    // response) > JWT claim > chat handle > userId. UUID-as-name was the
+    // grandma-demo symptom we just closed.
+    const displayName =
+      storedDisplayName ||
+      payload.display_name ||
+      chatUserId ||
+      payload.sub;
     return {
       isLoggedIn: true,
       userId: payload.sub,
-      displayName: payload.display_name || payload.sub,
+      displayName,
+      chatUserId,
       matrixUserId,
     };
   } catch {
-    return { isLoggedIn: false, userId: null, displayName: null, matrixUserId: null };
+    return { isLoggedIn: false, userId: null, displayName: null, chatUserId: null, matrixUserId: null };
   }
 }
 
@@ -39,6 +59,15 @@ export async function login(jwt: string): Promise<AuthState> {
       startSync().catch(console.warn);
     }
 
+    // Persist display name from the unified-login response so the feed
+    // can render "Grant Whitmer" instead of a UUID. unifiedLogin returns
+    // both the snake_case `display_name` (legacy) and the chat-onboarding
+    // schema's `display_name` for the existing-user branch.
+    const displayName = result.display_name || result.matrix?.displayName;
+    if (typeof displayName === 'string' && displayName.trim()) {
+      localStorage.setItem('windy_display_name', displayName.trim());
+    }
+
     return getAuthState();
   } catch (err) {
     console.warn('[auth] Unified login failed, using JWT only:', err);
@@ -49,4 +78,5 @@ export async function login(jwt: string): Promise<AuthState> {
 export function logout() {
   clearToken();
   clearSession();
+  localStorage.removeItem('windy_display_name');
 }

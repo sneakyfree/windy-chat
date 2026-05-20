@@ -133,10 +133,33 @@ router.get('/hashtag/:tag', asyncHandler(async (req, res) => {
   res.json({ tag: tag.toLowerCase(), posts: enriched, count: enriched.length });
 }));
 
+// ── Display-name snapshot helpers ──
+//
+// Posts denormalize the author's display_name + chat_user_id at write time
+// so the feed can render a human-readable identity without a per-post
+// cross-service lookup. Inspired by Twitter/X's denormalization: post
+// identity is immutable, snapshot is the price of fast reads.
+//
+// `chat_user_id` is the Matrix localpart (e.g. `grantwhitmer3`) — used as
+// the @handle. Display name is the user's full name (e.g. "Grant Whitmer").
+//
+// Source of truth: chat-onboarding's user_profiles. We trust the caller
+// (the user's authenticated JWT bearer) to pass them in the post body
+// rather than do a service-to-service lookup on every write — the JWT
+// already binds the userId, and display_name is presentation-only (UI
+// trust, not security).
+function sanitizeDisplayField(value, maxLen) {
+  if (value == null) return null;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, maxLen);
+}
+
 // ── Create Post ──
 router.post('/', auth, asyncHandler(async (req, res) => {
   const userId = req.user.sub;
-  const { content, translated_versions, visibility, media_ids } = req.body;
+  const { content, translated_versions, visibility, media_ids, displayName, chatUserId } = req.body;
 
   if (!content || typeof content !== 'string' || !content.trim()) {
     return res.status(400).json({ error: 'content is required and must be a non-empty string' });
@@ -199,6 +222,10 @@ router.post('/', auth, asyncHandler(async (req, res) => {
     id: uuidv4(),
     userId,
     windyIdentityId: req.user.windy_identity_id || null,
+    // Author display snapshot — trusted from the authenticated client.
+    // See sanitizeDisplayField comment above for the trust model.
+    displayName: sanitizeDisplayField(displayName, 100),
+    chatUserId: sanitizeDisplayField(chatUserId, 64),
     content: content.trim(),
     translated_versions: translated_versions || null,
     createdAt: now,
@@ -365,7 +392,7 @@ router.get('/', auth, asyncHandler(async (req, res) => {
 router.post('/:postId/repost', auth, asyncHandler(async (req, res) => {
   const userId = req.user.sub;
   const { postId } = req.params;
-  const { content, visibility } = req.body;
+  const { content, visibility, displayName, chatUserId } = req.body;
 
   const originalPost = postsMap.get(postId);
   if (!originalPost) return res.status(404).json({ error: 'Post not found' });
@@ -403,6 +430,8 @@ router.post('/:postId/repost', auth, asyncHandler(async (req, res) => {
     id: uuidv4(),
     userId,
     windyIdentityId: req.user.windy_identity_id || null,
+    displayName: sanitizeDisplayField(displayName, 100),
+    chatUserId: sanitizeDisplayField(chatUserId, 64),
     content: (content && content.trim()) || '',
     translated_versions: null,
     createdAt: now,
