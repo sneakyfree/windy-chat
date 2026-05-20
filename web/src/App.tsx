@@ -66,6 +66,35 @@ export default function App() {
     }
   }, [auth.isLoggedIn]);
 
+  // SSO handoff from the ecosystem dashboard. When a logged-in user
+  // clicks "Open Windy Chat" on the Windy Word dashboard, the
+  // dashboard appends `#token=<pro_jwt>` to the URL so this app can
+  // skip the login screen and exchange the Pro JWT for a Matrix
+  // access_token directly. The fragment is stripped from the URL
+  // immediately so it doesn't linger in history.
+  //
+  // This is a tactical bridge while account.windyword.ai/oauth/authorize
+  // (the proper OAuth endpoint, currently 404) is in-flight. URL
+  // fragments aren't sent to servers, so the JWT stays browser-local.
+  // Pro JWTs are short-lived (15min TTL per the account-server config),
+  // so brief exposure in browser history is an acceptable trade.
+  useEffect(() => {
+    if (auth.isLoggedIn) return;
+    const hash = window.location.hash;
+    if (!hash || !hash.startsWith('#')) return;
+    const params = new URLSearchParams(hash.slice(1));
+    const token = params.get('token');
+    if (!token) return;
+    // Clear the fragment immediately so the JWT doesn't sit in history
+    // longer than necessary.
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    // Hand off to the normal login flow — calls unifiedLogin internally
+    // and stores the Matrix access_token.
+    handleLogin(token).catch((err) => {
+      console.warn('SSO handoff failed; falling back to login screen', err);
+    });
+  }, [auth.isLoggedIn, handleLogin]);
+
   // ── Unauthenticated: Landing → SignIn/Register ──
   if (!auth.isLoggedIn) {
     if (authScreen === 'landing') {
