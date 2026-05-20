@@ -15,6 +15,10 @@ interface Agent {
   operatorInfo?: string;
   registeredAt?: string;
   verified: boolean;
+  // True only for hardcoded preview rows; never set by the directory
+  // backend. Used to label cards as "Demo" and disable the Chat
+  // button so the user doesn't land in a dead room.
+  isDemo?: boolean;
 }
 
 const CATEGORIES = [
@@ -33,14 +37,21 @@ const TRUST_FILTERS = [
   { id: '600', label: 'Medium+ (600+)' },
 ];
 
-// Demo agents for when backend isn't connected
+// Demo agents — only shown as a UI preview when the directory call
+// fails AND we want to demonstrate the page chrome (filters, cards,
+// trust badges). These are NOT real Matrix users; their userIds /
+// passportIds are placeholders. Each card carries `isDemo: true` so
+// the render layer can show a "Demo" badge and disable the Chat
+// button rather than leading the user to a dead room. Replace with a
+// real registry-populated list once Eternitas-verified agents are
+// actually being provisioned through onboarding.
 const DEMO_AGENTS: Agent[] = [
-  { userId: 'bot_translator-001', displayName: 'Windy Translator', description: 'I speak 199 languages. Send me text and I\'ll translate it instantly.', category: 'translator', trustScore: 920, passportId: 'ET-TRANS-001', clearanceLevel: 'Verified', verified: true },
-  { userId: 'bot_travel-planner', displayName: 'TravelBot', description: 'I can help with travel planning! Ask me anything about flights, hotels, and itineraries.', category: 'assistant', trustScore: 847, passportId: 'ET-TRAV-001', clearanceLevel: 'Verified', verified: true },
-  { userId: 'bot_code-helper', displayName: 'CodeFly', description: 'Your pair programming buddy. I help with code reviews, debugging, and explaining complex concepts.', category: 'productivity', trustScore: 780, passportId: 'ET-CODE-001', clearanceLevel: 'Standard', verified: true },
-  { userId: 'bot_writing-coach', displayName: 'WriteWise', description: 'Creative writing assistant. I help with essays, stories, emails, and more.', category: 'creative', trustScore: 715, passportId: 'ET-WRITE-001', clearanceLevel: 'Standard', verified: true },
-  { userId: 'bot_study-buddy', displayName: 'StudyBuddy', description: 'Your personal tutor. I explain math, science, history, and help with homework.', category: 'education', trustScore: 890, passportId: 'ET-STUDY-001', clearanceLevel: 'Verified', verified: true },
-  { userId: 'bot_support-ai', displayName: 'SupportAgent', description: 'Customer service AI. I help resolve issues, track orders, and answer FAQs.', category: 'customer-service', trustScore: 650, passportId: 'ET-SUPP-001', clearanceLevel: 'Standard', verified: true },
+  { userId: 'bot_translator-001', displayName: 'Windy Translator', description: 'I speak 199 languages. Send me text and I\'ll translate it instantly.', category: 'translator', trustScore: 920, passportId: 'ET-TRANS-001', clearanceLevel: 'Verified', verified: true, isDemo: true },
+  { userId: 'bot_travel-planner', displayName: 'TravelBot', description: 'I can help with travel planning! Ask me anything about flights, hotels, and itineraries.', category: 'assistant', trustScore: 847, passportId: 'ET-TRAV-001', clearanceLevel: 'Verified', verified: true, isDemo: true },
+  { userId: 'bot_code-helper', displayName: 'CodeFly', description: 'Your pair programming buddy. I help with code reviews, debugging, and explaining complex concepts.', category: 'productivity', trustScore: 780, passportId: 'ET-CODE-001', clearanceLevel: 'Standard', verified: true, isDemo: true },
+  { userId: 'bot_writing-coach', displayName: 'WriteWise', description: 'Creative writing assistant. I help with essays, stories, emails, and more.', category: 'creative', trustScore: 715, passportId: 'ET-WRITE-001', clearanceLevel: 'Standard', verified: true, isDemo: true },
+  { userId: 'bot_study-buddy', displayName: 'StudyBuddy', description: 'Your personal tutor. I explain math, science, history, and help with homework.', category: 'education', trustScore: 890, passportId: 'ET-STUDY-001', clearanceLevel: 'Verified', verified: true, isDemo: true },
+  { userId: 'bot_support-ai', displayName: 'SupportAgent', description: 'Customer service AI. I help resolve issues, track orders, and answer FAQs.', category: 'customer-service', trustScore: 650, passportId: 'ET-SUPP-001', clearanceLevel: 'Standard', verified: true, isDemo: true },
 ];
 
 export default function DiscoverPage({ onNavigateToChat }: { onNavigateToChat: (roomId?: string) => void }) {
@@ -193,16 +204,44 @@ export default function DiscoverPage({ onNavigateToChat }: { onNavigateToChat: (
 
                 {/* Category + action */}
                 <div className="flex items-center justify-between">
-                  {agent.category && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full"
-                          style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
-                      {agent.category}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {agent.category && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full"
+                            style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
+                        {agent.category}
+                      </span>
+                    )}
+                    {agent.isDemo && (
+                      // Honesty label — these cards are previews, not
+                      // real agents you can actually talk to yet.
+                      <span className="text-[10px] px-2 py-0.5 rounded-full"
+                            style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#eab308', border: '1px solid rgba(234, 179, 8, 0.3)' }}
+                            title="Preview only — this agent is not yet active. Real Eternitas-verified agents will appear here as they register.">
+                        Demo
+                      </span>
+                    )}
+                  </div>
                   <button
-                    onClick={e => { e.stopPropagation(); handleMessage(agent); }}
+                    onClick={e => {
+                      e.stopPropagation();
+                      if (agent.isDemo) {
+                        // Don't lead the user into a dead room. Show the
+                        // profile modal which already includes a "Why
+                        // this agent isn't responding yet" surface.
+                        setSelectedAgent(agent);
+                        return;
+                      }
+                      handleMessage(agent);
+                    }}
+                    disabled={agent.isDemo}
+                    title={agent.isDemo ? 'This is a demo agent and is not yet active' : undefined}
                     className="px-4 py-1.5 rounded-lg text-xs font-medium"
-                    style={{ background: 'var(--accent)', color: 'white' }}
+                    style={{
+                      background: agent.isDemo ? 'var(--bg-tertiary)' : 'var(--accent)',
+                      color: agent.isDemo ? 'var(--text-muted)' : 'white',
+                      cursor: agent.isDemo ? 'not-allowed' : 'pointer',
+                      opacity: agent.isDemo ? 0.6 : 1,
+                    }}
                   >
                     💬 Chat
                   </button>

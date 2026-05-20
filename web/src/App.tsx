@@ -79,21 +79,25 @@ export default function App() {
   // Pro JWTs are short-lived (15min TTL per the account-server config),
   // so brief exposure in browser history is an acceptable trade.
   useEffect(() => {
-    if (auth.isLoggedIn) return;
     const hash = window.location.hash;
     if (!hash || !hash.startsWith('#')) return;
     const params = new URLSearchParams(hash.slice(1));
     const token = params.get('token');
     if (!token) return;
-    // Clear the fragment immediately so the JWT doesn't sit in history
-    // longer than necessary.
+    // Always strip the fragment first, even if already logged in —
+    // otherwise an in-app navigation to a fragment-bearing URL leaves
+    // the JWT visible in the address bar indefinitely.
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
-    // Hand off to the normal login flow — calls unifiedLogin internally
-    // and stores the Matrix access_token.
+    // If already authenticated (e.g. user re-entered the app from the
+    // dashboard with a fresh fragment), pass the token through anyway —
+    // login() is idempotent on the same JWT and refreshing it gives the
+    // chat-app a longer-lived auth window for backend microservice
+    // calls (directory / social / etc) before the Pro JWT's 15-min TTL
+    // forces re-auth.
     handleLogin(token).catch((err) => {
       console.warn('SSO handoff failed; falling back to login screen', err);
     });
-  }, [auth.isLoggedIn, handleLogin]);
+  }, [handleLogin]);
 
   // ── Unauthenticated: Landing → SignIn/Register ──
   if (!auth.isLoggedIn) {
@@ -133,7 +137,7 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 min-w-0 min-h-0">
-        {view === 'chat' && <ChatPage userId={auth.matrixUserId} onEmailMessage={(body, to) => { setMailCompose({ body, to }); setMailOpen(true); }} />}
+        {view === 'chat' && <ChatPage userId={auth.matrixUserId} onEmailMessage={(body, to) => { setMailCompose({ body, to }); setMailOpen(true); }} onNavigate={setView} />}
         {view === 'social' && <SocialPage userId={auth.userId} onNavigateToChat={() => setView('chat')} />}
         {view === 'discover' && <DiscoverPage onNavigateToChat={() => setView('chat')} />}
         {view === 'contacts' && <ContactsPage userId={auth.userId} />}
