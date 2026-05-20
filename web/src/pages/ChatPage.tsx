@@ -9,6 +9,10 @@ import type { Room, MatrixEvent } from 'matrix-js-sdk';
 interface ChatPageProps {
   userId: string | null;
   onEmailMessage?: (body: string, to?: string) => void;
+  // Navigation callback so the empty-state CTAs ("+ New Chat",
+  // "Discover Agents", "Invite Friends") can move the user to the
+  // relevant sibling view instead of being dead clicks.
+  onNavigate?: (view: 'chat' | 'social' | 'contacts' | 'discover' | 'settings') => void;
 }
 
 // ── Room List Item ──
@@ -146,7 +150,7 @@ function MessageBubble({ event, isOwn, onEmail }: { event: MatrixEvent; isOwn: b
 }
 
 // ── Main Chat Page ──
-export default function ChatPage({ userId, onEmailMessage }: ChatPageProps) {
+export default function ChatPage({ userId, onEmailMessage, onNavigate }: ChatPageProps) {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MatrixEvent[]>([]);
@@ -261,6 +265,11 @@ export default function ChatPage({ userId, onEmailMessage }: ChatPageProps) {
         {/* New Chat / New Group Buttons */}
         <div className="px-4 pb-3 flex gap-2">
           <button
+            // Grandma-grade: route to Contacts where she can search for
+            // a person or agent to chat with. Proper "Start a chat with
+            // …" modal is on the design backlog; this avoids the dead-
+            // click that bit the first round of user testing.
+            onClick={() => onNavigate?.('contacts')}
             className="flex-1 py-2 rounded-xl text-sm font-medium transition-all hover:opacity-90"
             style={{ background: 'var(--accent)', color: 'white' }}
           >
@@ -285,12 +294,17 @@ export default function ChatPage({ userId, onEmailMessage }: ChatPageProps) {
               <p className="text-xs mb-6" style={{ color: 'var(--text-muted)' }}>Find friends or discover AI agents to get started</p>
               <div className="space-y-2">
                 <button
+                  onClick={() => onNavigate?.('discover')}
                   className="w-full py-2.5 rounded-xl text-sm font-medium"
                   style={{ background: 'var(--accent)', color: 'white' }}
                 >
                   🪰 Discover Agents
                 </button>
                 <button
+                  // For now, route to Contacts (where the user can
+                  // search for friends to invite). A proper share-link
+                  // / invite-modal flow is a separate design task.
+                  onClick={() => onNavigate?.('contacts')}
                   className="w-full py-2.5 rounded-xl text-sm font-medium"
                   style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                 >

@@ -133,7 +133,7 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 min-w-0 min-h-0">
-        {view === 'chat' && <ChatPage userId={auth.matrixUserId} onEmailMessage={(body, to) => { setMailCompose({ body, to }); setMailOpen(true); }} />}
+        {view === 'chat' && <ChatPage userId={auth.matrixUserId} onEmailMessage={(body, to) => { setMailCompose({ body, to }); setMailOpen(true); }} onNavigate={setView} />}
         {view === 'social' && <SocialPage userId={auth.userId} onNavigateToChat={() => setView('chat')} />}
         {view === 'discover' && <DiscoverPage onNavigateToChat={() => setView('chat')} />}
         {view === 'contacts' && <ContactsPage userId={auth.userId} />}
