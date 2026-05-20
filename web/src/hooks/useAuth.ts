@@ -21,7 +21,7 @@ export function useAuth() {
 
   const logout = useCallback(() => {
     doLogout();
-    setAuth({ isLoggedIn: false, userId: null, displayName: null, matrixUserId: null });
+    setAuth({ isLoggedIn: false, userId: null, displayName: null, chatUserId: null, matrixUserId: null });
   }, []);
 
   return { auth, login, logout };
