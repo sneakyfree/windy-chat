@@ -366,6 +366,10 @@ router.get('/', auth, asyncHandler(async (req, res) => {
       ...p,
       verified: verifiedAccounts.has(p.userId),
       likeCount: getLikeCount(p.id),
+      // liked-by-me lets the client render the heart in its "filled" state
+      // and bind the click to unlike (DELETE) instead of double-incrementing.
+      liked: hasLike(userId, p.id),
+      commentCount: getCommentCountForPost(p.id),
     };
     // Include original post data for reposts
     if (p.repostOf) {
@@ -375,6 +379,8 @@ router.get('/', auth, asyncHandler(async (req, res) => {
           ...original,
           verified: verifiedAccounts.has(original.userId),
           likeCount: getLikeCount(original.id),
+          liked: hasLike(userId, original.id),
+          commentCount: getCommentCountForPost(original.id),
         };
       }
     }
