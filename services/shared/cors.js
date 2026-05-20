@@ -24,15 +24,20 @@
 const DEFAULT_ORIGINS = [
   // Canonical prod hosts — chat.windychat.ai is the Wave 13 Phase 4
   // deployment target; add www.* defensively in case a future ingress
-  // normalises to it.
+  // normalises to it. app.windychat.ai is the SPA shell users actually
+  // browse to (`app.` subdomain hosts the Cloudflare Pages bundle).
   'https://chat.windychat.ai',
   'https://www.chat.windychat.ai',
+  'https://app.windychat.ai',
   'https://windychat.ai',
   // windyword.ai (Word) + sibling product apex hosts — each product ships a
   // frontend that legitimately XHRs into chat's REST API (cross-product
-  // integrations).
+  // integrations). The `app.` subdomain is the Word/dashboard SPA, which
+  // calls Pro account-server but also cross-origin XHRs the chat onboarding
+  // service (Activate-Chat flow → /chat/provision).
   'https://windyword.ai',
   'https://www.windyword.ai',
+  'https://app.windyword.ai',
   'https://mail.windymail.ai',
   'https://windyclone.ai',
   'https://windyfly.ai',
