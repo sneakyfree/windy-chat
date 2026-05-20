@@ -133,6 +133,11 @@ export interface Comment {
   id: string;
   postId: string;
   userId: string;
+  displayName?: string | null;
+  chatUserId?: string | null;
+  parentCommentId?: string | null;
+  likeCount?: number;
+  liked?: boolean;
   content: string;
   createdAt: string;
 }
@@ -143,13 +148,41 @@ export async function getComments(postId: string): Promise<{ comments: Comment[]
   return res.json();
 }
 
-export async function createComment(postId: string, content: string): Promise<Comment> {
+export async function createComment(
+  postId: string,
+  content: string,
+  opts?: { parentCommentId?: string | null },
+): Promise<Comment> {
+  // Snapshot the same author display info we attach to posts. The server
+  // trusts these for presentation; userId remains JWT-bound and authoritative.
+  const displayName = localStorage.getItem('windy_display_name') || undefined;
+  const matrixUserId = localStorage.getItem('matrix_user_id') || '';
+  const chatUserIdMatch = /^@([^:]+):/.exec(matrixUserId);
+  const chatUserId = chatUserIdMatch ? chatUserIdMatch[1] : undefined;
+
   const res = await apiFetch(`${env.socialUrl}/posts/${postId}/comments`, {
     method: 'POST',
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({
+      content,
+      displayName,
+      chatUserId,
+      parentCommentId: opts?.parentCommentId || null,
+    }),
   });
   if (!res.ok) throw new Error(`Create comment failed: ${res.status}`);
   return res.json();
+}
+
+export async function likeComment(postId: string, commentId: string) {
+  const res = await apiFetch(`${env.socialUrl}/posts/${postId}/comments/${commentId}/like`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Like comment failed: ${res.status}`);
+  return res.json() as Promise<{ liked: boolean; likeCount: number }>;
+}
+
+export async function unlikeComment(postId: string, commentId: string) {
+  const res = await apiFetch(`${env.socialUrl}/posts/${postId}/comments/${commentId}/like`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Unlike comment failed: ${res.status}`);
+  return res.json() as Promise<{ liked: boolean; likeCount: number }>;
 }
 
 export async function followUser(userId: string) {

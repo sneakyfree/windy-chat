@@ -15,6 +15,7 @@ const {
   addLike, removeLike, hasLike, getLikeCount, updatePostLikeCount,
   addNotification, searchPostContent, isFollowing,
   addComment, getCommentsForPost, getCommentCountForPost, getCommentById, deleteCommentById,
+  addCommentLike, removeCommentLike, hasCommentLike, getCommentLikeCount, updateCommentLikeCount,
   saveHashtags, getPostsByTag, getTrending,
 } = require('../lib/store');
 
@@ -531,7 +532,7 @@ router.delete('/:postId/like', auth, asyncHandler(async (req, res) => {
 router.post('/:postId/comments', auth, asyncHandler(async (req, res) => {
   const userId = req.user.sub;
   const { postId } = req.params;
-  const { content } = req.body;
+  const { content, displayName, chatUserId, parentCommentId } = req.body;
 
   const post = postsMap.get(postId);
   if (!post) return res.status(404).json({ error: 'Post not found' });
@@ -543,6 +544,19 @@ router.post('/:postId/comments', auth, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'content exceeds max length of 2000' });
   }
 
+  // Threading: validate parent_comment_id is a real comment on THIS post
+  let parentId = null;
+  if (parentCommentId) {
+    if (typeof parentCommentId !== 'string' || parentCommentId.length > 64) {
+      return res.status(400).json({ error: 'parentCommentId must be a string id' });
+    }
+    const parent = getCommentById(parentCommentId);
+    if (!parent || parent.postId !== postId) {
+      return res.status(400).json({ error: 'parent comment not found on this post' });
+    }
+    parentId = parentCommentId;
+  }
+
   const profanityCheck = checkProfanity(content);
   if (profanityCheck.hasProfanity) {
     return res.status(422).json({
@@ -551,10 +565,20 @@ router.post('/:postId/comments', auth, asyncHandler(async (req, res) => {
     });
   }
 
+  const sanitizeDisplayField = (v, len) => {
+    if (v == null || typeof v !== 'string') return null;
+    const t = v.trim();
+    return t ? t.slice(0, len) : null;
+  };
+
   const comment = {
     id: uuidv4(),
     postId,
     userId,
+    windyIdentityId: req.user.windy_identity_id || null,
+    displayName: sanitizeDisplayField(displayName, 100),
+    chatUserId: sanitizeDisplayField(chatUserId, 64),
+    parentCommentId: parentId,
     content: content.trim(),
     createdAt: new Date().toISOString(),
   };
@@ -573,18 +597,84 @@ router.post('/:postId/comments', auth, asyncHandler(async (req, res) => {
     });
     persistNotifications();
   }
+  // Notify the parent commenter if this is a reply to someone else
+  if (parentId) {
+    const parent = getCommentById(parentId);
+    if (parent && parent.userId !== userId) {
+      addNotification(parent.userId, {
+        id: uuidv4(),
+        type: 'comment_reply',
+        fromUserId: userId,
+        postId,
+        read: false,
+        createdAt: new Date().toISOString(),
+      });
+      persistNotifications();
+    }
+  }
 
-  res.status(201).json(comment);
+  // Enrich response with the same shape GET /comments returns
+  res.status(201).json({
+    ...comment,
+    likeCount: 0,
+    liked: false,
+  });
 }));
 
 // ── Get Comments ──
-router.get('/:postId/comments', asyncHandler(async (req, res) => {
+router.get('/:postId/comments', optionalAuth, asyncHandler(async (req, res) => {
   const { postId } = req.params;
   const post = postsMap.get(postId);
   if (!post) return res.status(404).json({ error: 'Post not found' });
 
-  const comments = getCommentsForPost(postId);
+  const viewerUserId = req.user ? req.user.sub : null;
+  const comments = getCommentsForPost(postId).map(c => ({
+    ...c,
+    likeCount: getCommentLikeCount(c.id),
+    liked: viewerUserId ? hasCommentLike(viewerUserId, c.id) : false,
+  }));
   res.json({ comments, count: comments.length });
+}));
+
+// ── Like Comment ──
+router.post('/:postId/comments/:commentId/like', auth, asyncHandler(async (req, res) => {
+  const userId = req.user.sub;
+  const { postId, commentId } = req.params;
+  const comment = getCommentById(commentId);
+  if (!comment || comment.postId !== postId) {
+    return res.status(404).json({ error: 'Comment not found' });
+  }
+  const alreadyLiked = hasCommentLike(userId, commentId);
+  addCommentLike(userId, commentId);
+  const likeCount = updateCommentLikeCount(commentId);
+
+  // Notify the commenter (idempotent: only on the first like)
+  if (!alreadyLiked && comment.userId !== userId) {
+    addNotification(comment.userId, {
+      id: uuidv4(),
+      type: 'comment_like',
+      fromUserId: userId,
+      postId,
+      read: false,
+      createdAt: new Date().toISOString(),
+    });
+    persistNotifications();
+  }
+
+  res.json({ liked: true, likeCount });
+}));
+
+// ── Unlike Comment ──
+router.delete('/:postId/comments/:commentId/like', auth, asyncHandler(async (req, res) => {
+  const userId = req.user.sub;
+  const { postId, commentId } = req.params;
+  const comment = getCommentById(commentId);
+  if (!comment || comment.postId !== postId) {
+    return res.status(404).json({ error: 'Comment not found' });
+  }
+  removeCommentLike(userId, commentId);
+  const likeCount = updateCommentLikeCount(commentId);
+  res.json({ liked: false, likeCount });
 }));
 
 // ── Agent Auto-Post (service-to-service) ──
