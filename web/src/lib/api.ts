@@ -127,6 +127,58 @@ export async function unlikePost(postId: string) {
   return res.json();
 }
 
+// ── Personal Profile (chat-onboarding side) ──
+//
+// /api/v1/chat/profile/me returns / updates the authenticated user's
+// own user_profiles row. PATCH is partial — fields omitted from the body
+// keep their existing value (server-side COALESCE).
+
+export interface MyProfile {
+  chatUserId: string;
+  windyIdentityId: string;
+  displayName: string;
+  languages: string[];
+  primaryLanguage: string;
+  avatarUrl: string | null;
+  bio: string | null;
+  createdAt: string;
+  onboardingComplete: boolean;
+}
+
+const onboardingBase = `${env.matrixUrl.replace(/\/$/, '')}/api/v1/chat/profile`;
+
+export async function getMyProfile(): Promise<MyProfile | null> {
+  const res = await apiFetch(`${onboardingBase}/me`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`getMyProfile failed: ${res.status}`);
+  const data = await res.json();
+  return data.profile;
+}
+
+export async function updateMyProfile(updates: Partial<{
+  displayName: string;
+  bio: string | null;
+  avatarUrl: string | null;
+  languages: string[];
+  primaryLanguage: string;
+}>): Promise<MyProfile> {
+  const res = await apiFetch(`${onboardingBase}/me`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`updateMyProfile failed (${res.status}): ${detail.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  // Keep localStorage in sync so post composer's denormalized display info
+  // matches the new value immediately.
+  if (data.profile?.displayName) {
+    localStorage.setItem('windy_display_name', data.profile.displayName);
+  }
+  return data.profile;
+}
+
 // ── Comments ──
 
 export interface Comment {

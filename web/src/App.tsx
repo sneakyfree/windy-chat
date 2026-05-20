@@ -144,6 +144,7 @@ export default function App() {
         <NavButton icon="👥" label="Contacts" active={view === 'contacts'} onClick={() => setView('contacts')} />
         <NavButton icon="✉️" label="Mail" active={mailOpen} onClick={() => { setMailCompose(null); setMailOpen(true); }} />
         <div className="flex-1" />
+        <NavButton icon="👤" label="Profile" active={view === 'profile' && profileUserId === auth.userId} onClick={() => handleNavigateToProfile(auth.userId)} />
         <NavButton icon="⚙️" label="Settings" active={view === 'settings'} onClick={() => setView('settings')} />
       </nav>
 
@@ -154,7 +155,7 @@ export default function App() {
         {view === 'discover' && <DiscoverPage onNavigateToChat={() => setView('chat')} />}
         {view === 'contacts' && <ContactsPage userId={auth.userId} />}
         {view === 'settings' && <SettingsPage userId={auth.userId} onLogout={logout} onNavigate={(v: string) => setView(v as View)} />}
-        {view === 'profile' && <ProfilePage userId={profileUserId} onBack={() => setView('social')} />}
+        {view === 'profile' && <ProfilePage userId={profileUserId} selfUserId={auth.userId} onBack={() => setView('social')} />}
         {view === 'privacy' && <PrivacyPage />}
         {view === 'terms' && <TermsPage />}
       </main>
@@ -167,6 +168,7 @@ export default function App() {
         <NavButton icon="🪰" label="Discover" active={view === 'discover'} onClick={() => setView('discover')} />
         <NavButton icon="👥" label="Contacts" active={view === 'contacts'} onClick={() => setView('contacts')} />
         <NavButton icon="✉️" label="Mail" active={mailOpen} onClick={() => { setMailCompose(null); setMailOpen(true); }} />
+        <NavButton icon="👤" label="Profile" active={view === 'profile' && profileUserId === auth.userId} onClick={() => handleNavigateToProfile(auth.userId)} />
         <NavButton icon="⚙️" label="Settings" active={view === 'settings'} onClick={() => setView('settings')} />
       </nav>
 
