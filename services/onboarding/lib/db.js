@@ -84,6 +84,11 @@ CREATE INDEX IF NOT EXISTS idx_agent_credentials_owner ON agent_credentials(owne
 CREATE INDEX IF NOT EXISTS idx_agent_credentials_pending ON agent_credentials(owner_windy_id, welcomed_at);
 `);
 
+// Personal-profile fields added 2026-05-20 so users can edit their bio and
+// (eventually) avatar from the Profile tab. `bio` is plain text, capped at
+// 280 chars at the API layer.
+try { db.exec("ALTER TABLE user_profiles ADD COLUMN bio TEXT"); } catch (_e) { /* exists */ }
+
 // Display names
 const getDisplayName = db.prepare('SELECT * FROM display_names WHERE name_lower = ?');
 const upsertDisplayName = db.prepare(`
@@ -100,6 +105,19 @@ const upsertProfile = db.prepare(`
 `);
 
 const updateProfileAvatar = db.prepare('UPDATE user_profiles SET avatar_url = ? WHERE chat_user_id = ?');
+
+// Self-edit by windy_identity_id — used by PATCH /api/v1/chat/profile/me to
+// let the authenticated user update their own display info. COALESCE keeps
+// untouched fields intact so a partial PATCH never wipes existing values.
+const updateProfileByWindyId = db.prepare(`
+  UPDATE user_profiles
+     SET display_name = COALESCE(@display_name, display_name),
+         avatar_url   = COALESCE(@avatar_url, avatar_url),
+         bio          = COALESCE(@bio, bio),
+         languages    = COALESCE(@languages, languages),
+         primary_language = COALESCE(@primary_language, primary_language)
+   WHERE windy_identity_id = @windy_identity_id
+`);
 const deleteProfile = db.prepare('DELETE FROM user_profiles WHERE chat_user_id = ?');
 const deleteDisplayNameByUserId = db.prepare('DELETE FROM display_names WHERE user_id = ?');
 const deleteOnboardingState = db.prepare('DELETE FROM onboarding_state WHERE windy_user_id = ?');
@@ -213,6 +231,7 @@ module.exports = {
   getProfileByWindyId,
   upsertProfile,
   updateProfileAvatar,
+  updateProfileByWindyId,
   deleteProfile,
   deleteDisplayNameByUserId,
   deleteOnboardingState,

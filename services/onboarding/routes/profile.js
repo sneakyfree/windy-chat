@@ -250,6 +250,140 @@ router.post('/setup', async (req, res) => {
 
 // ── GET /api/v1/chat/profile/:userId ──
 
+// ── GET /api/v1/chat/profile/me ──
+// Convenience endpoint: returns the authenticated user's own profile,
+// looked up by windy_identity_id (not chat_user_id). Used by the
+// Profile tab in the web client.
+router.get('/me', (req, res) => {
+  try {
+    const windyId = req.user && req.user.windy_identity_id;
+    if (!windyId) {
+      return res.status(401).json({ error: 'windy_identity_id missing from JWT' });
+    }
+    const row = onboardingDb.getProfileByWindyId.get(windyId);
+    if (!row) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+    return res.json({
+      profile: {
+        chatUserId: row.chat_user_id,
+        windyIdentityId: row.windy_identity_id,
+        displayName: row.display_name,
+        languages: JSON.parse(row.languages || '["en"]'),
+        primaryLanguage: row.primary_language,
+        avatarUrl: row.avatar_url,
+        bio: row.bio || null,
+        createdAt: row.created_at,
+        onboardingComplete: !!row.onboarding_complete,
+      },
+    });
+  } catch (err) {
+    console.error('Profile /me error:', err);
+    res.status(500).json({ error: 'Failed to retrieve profile' });
+  }
+});
+
+// ── PATCH /api/v1/chat/profile/me ──
+// Self-edit endpoint. The authenticated user updates their own
+// display_name, bio, avatar_url, and language preferences. Any field
+// omitted from the body is left untouched (COALESCE pattern in SQL).
+//
+// Express defaults to method-aware routing, so PATCH /me and GET /me
+// are distinct handlers on the same path.
+router.patch('/me', async (req, res) => {
+  try {
+    const windyId = req.user && req.user.windy_identity_id;
+    if (!windyId) {
+      return res.status(401).json({ error: 'windy_identity_id missing from JWT' });
+    }
+    const existing = onboardingDb.getProfileByWindyId.get(windyId);
+    if (!existing) {
+      return res.status(404).json({ error: 'Profile not found — complete onboarding first' });
+    }
+    const { displayName, bio, avatarUrl, languages, primaryLanguage } = req.body || {};
+
+    // Validate displayName if present
+    let nextDisplayName = null;
+    if (displayName !== undefined) {
+      if (typeof displayName !== 'string') {
+        return res.status(400).json({ error: 'displayName must be a string' });
+      }
+      const sanitized = stripHtml(displayName).trim();
+      if (sanitized.length === 0 || sanitized.length > 100) {
+        return res.status(400).json({ error: 'displayName must be 1–100 characters' });
+      }
+      const check = validateDisplayName(sanitized);
+      if (!check.valid) {
+        return res.status(400).json({ error: check.error, suggestions: check.suggestions || [], field: 'displayName' });
+      }
+      nextDisplayName = check.displayName;
+    }
+
+    let nextBio = null;
+    if (bio !== undefined) {
+      if (bio !== null && typeof bio !== 'string') {
+        return res.status(400).json({ error: 'bio must be a string or null' });
+      }
+      const sanitizedBio = bio === null ? '' : stripHtml(bio).trim();
+      if (sanitizedBio.length > 280) {
+        return res.status(400).json({ error: 'bio must be 280 characters or fewer' });
+      }
+      nextBio = sanitizedBio;
+    }
+
+    let nextAvatar = null;
+    if (avatarUrl !== undefined) {
+      if (avatarUrl !== null && (typeof avatarUrl !== 'string' || avatarUrl.length > 2048)) {
+        return res.status(400).json({ error: 'avatarUrl must be a string of 0–2048 chars (or null)' });
+      }
+      nextAvatar = avatarUrl;
+    }
+
+    let nextLanguages = null;
+    let nextPrimary = null;
+    if (languages !== undefined) {
+      if (!Array.isArray(languages)) {
+        return res.status(400).json({ error: 'languages must be an array' });
+      }
+      const valid = languages.filter(l => typeof l === 'string' && SUPPORTED_LANGUAGES.has(l));
+      if (valid.length === 0) {
+        return res.status(400).json({ error: 'At least one valid language required', field: 'languages' });
+      }
+      nextLanguages = JSON.stringify(valid);
+      nextPrimary = primaryLanguage && SUPPORTED_LANGUAGES.has(primaryLanguage) ? primaryLanguage : valid[0];
+    }
+
+    onboardingDb.updateProfileByWindyId.run({
+      windy_identity_id: windyId,
+      display_name: nextDisplayName,
+      avatar_url: nextAvatar,
+      bio: nextBio,
+      languages: nextLanguages,
+      primary_language: nextPrimary,
+    });
+
+    // Read back the freshly-merged row so the client can update local state
+    // without making a second GET round-trip.
+    const updated = onboardingDb.getProfileByWindyId.get(windyId);
+    res.json({
+      profile: {
+        chatUserId: updated.chat_user_id,
+        windyIdentityId: updated.windy_identity_id,
+        displayName: updated.display_name,
+        languages: JSON.parse(updated.languages || '["en"]'),
+        primaryLanguage: updated.primary_language,
+        avatarUrl: updated.avatar_url,
+        bio: updated.bio || null,
+        createdAt: updated.created_at,
+        onboardingComplete: !!updated.onboarding_complete,
+      },
+    });
+  } catch (err) {
+    console.error('Profile /me PATCH error:', err);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
 router.get('/:userId', (req, res) => {
   try {
     const { userId } = req.params;
@@ -271,6 +405,7 @@ router.get('/:userId', (req, res) => {
       languages: JSON.parse(row.languages || '["en"]'),
       primaryLanguage: row.primary_language,
       avatarUrl: row.avatar_url,
+      bio: row.bio || null,
       createdAt: row.created_at,
       onboardingComplete: !!row.onboarding_complete,
     };
