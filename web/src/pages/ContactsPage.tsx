@@ -29,11 +29,18 @@ export default function ContactsPage({ userId: _userId }: { userId: string | nul
       if (res.ok) {
         const data = await res.json();
         setResults(data.results || []);
+      } else if (res.status === 401) {
+        // Pro JWT expired — most common failure mode since the JWT
+        // is short-lived (15min TTL). Tell the user how to recover
+        // rather than mis-labeling this as a backend outage.
+        setSearchError('Your session expired. Re-open Windy Chat from your Windy Word dashboard to refresh.');
+      } else if (res.status === 403) {
+        setSearchError('Access denied (HTTP 403). If this persists, contact support.');
       } else {
-        setSearchError('Search unavailable — directory service not reachable');
+        setSearchError(`Search unavailable (HTTP ${res.status}) — try again in a moment.`);
       }
     } catch {
-      setSearchError('Search unavailable — check your connection');
+      setSearchError('Search unavailable — check your connection.');
     } finally {
       setSearching(false);
     }
