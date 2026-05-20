@@ -268,6 +268,12 @@ services:
       PUSH_GATEWAY_PORT: 8103
       NODE_ENV: ${NODE_ENV:-development}
       WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      # JWKS endpoint for verifying user RS256 tokens. jwt-verify.js reads
+      # WINDY_ACCOUNT_SERVER_URL and appends /.well-known/jwks.json; without
+      # this every user-side push endpoint (register, test, mute, unmute,
+      # prune) would 401 with "invalid algorithm" because JWKS fetch falls
+      # back to localhost. Surfaced 2026-05-20 by the platform audit.
+      WINDY_ACCOUNT_SERVER_URL: ${WINDY_ACCOUNT_SERVER_URL:-https://account.windyword.ai}
       CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
       # Variable name must match what fcm.js:47 reads (FIREBASE_SERVICE_ACCOUNT).
       # Was FCM_SERVICE_ACCOUNT_PATH — a stale name from before the FCM v1 SDK
@@ -315,6 +321,9 @@ services:
       BACKUP_PORT: 8104
       NODE_ENV: ${NODE_ENV:-development}
       WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      # Required for RS256 JWKS verification — see push-gateway comment.
+      # Backup endpoints were 100% 401 in prod before this var was wired.
+      WINDY_ACCOUNT_SERVER_URL: ${WINDY_ACCOUNT_SERVER_URL:-https://account.windyword.ai}
       CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
       WINDY_CLOUD_URL: ${WINDY_CLOUD_URL:-}
       R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
