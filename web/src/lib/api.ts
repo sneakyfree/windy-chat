@@ -56,6 +56,47 @@ export async function getFeed(cursor?: string) {
   return res.json();
 }
 
+// ── Media ──
+
+export interface UploadedMedia {
+  media_id: string;
+  url: string;
+  thumbnail_url: string | null;
+  mime_type: string;
+  size: number;
+  original_name: string;
+}
+
+/**
+ * Upload a single file to the media service. Returns the media_id needed
+ * when creating a post. Media is owned by the uploader; the post composer
+ * keeps a list of media_ids to attach to the next createPost call.
+ */
+export async function uploadMedia(file: File): Promise<UploadedMedia> {
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${env.mediaUrl}/upload`, {
+    method: 'POST',
+    headers,
+    body: form,
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`Upload failed (${res.status}): ${detail.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+export function mediaUrlFor(mediaId: string): string {
+  return `${env.mediaUrl}/${mediaId}`;
+}
+export function mediaThumbnailUrlFor(mediaId: string): string {
+  return `${env.mediaUrl}/${mediaId}/thumbnail`;
+}
+
 export async function createPost(content: string, opts?: { visibility?: string; media_ids?: string[] }) {
   // Snapshot the author's display info from localStorage so the feed can
   // render "Grant Whitmer" + "@grantwhitmer3" instead of the raw user_id

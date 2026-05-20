@@ -1,5 +1,21 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import * as api from '../lib/api';
+
+interface PendingMedia {
+  media_id: string;
+  url: string;
+  thumbnail_url: string | null;
+  mime_type: string;
+  original_name: string;
+  // Local-only preview while the upload is still in flight
+  previewUrl?: string;
+  uploading?: boolean;
+}
+
+const MAX_ATTACHMENTS = 4;
+// 25 MB cap matches the server's multer limit; checked client-side for
+// fast feedback before we bother uploading.
+const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
 interface Post {
   id: string;
@@ -32,6 +48,9 @@ export default function SocialPage({
   const [posts, setPosts] = useState<Post[]>([]);
   const [trending, setTrending] = useState<TrendingTag[]>([]);
   const [newPost, setNewPost] = useState('');
+  const [pendingMedia, setPendingMedia] = useState<PendingMedia[]>([]);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(true);
   const [posting, setPosting] = useState(false);
   const [tab, setTab] = useState<'feed' | 'trending'>('feed');
@@ -65,17 +84,97 @@ export default function SocialPage({
   }, [loadFeed, loadTrending]);
 
   const handlePost = async () => {
-    if (!newPost.trim()) return;
+    // Block while uploads are still in flight — posting before they finish
+    // would create a post with dangling/missing media_ids.
+    const uploading = pendingMedia.some(m => m.uploading);
+    if (uploading) return;
+    if (!newPost.trim() && pendingMedia.length === 0) return;
     setPosting(true);
     try {
-      await api.createPost(newPost.trim());
+      const mediaIds = pendingMedia
+        .filter(m => !m.uploading && m.media_id)
+        .map(m => m.media_id);
+      await api.createPost(newPost.trim(), mediaIds.length > 0 ? { media_ids: mediaIds } : undefined);
+      // Release any blob: URLs we created for previews so they don't leak
+      pendingMedia.forEach(m => { if (m.previewUrl) URL.revokeObjectURL(m.previewUrl); });
       setNewPost('');
+      setPendingMedia([]);
+      setMediaError(null);
       loadFeed();
     } catch (err) {
       console.error('Post failed:', err);
     } finally {
       setPosting(false);
     }
+  };
+
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setMediaError(null);
+
+    const room = MAX_ATTACHMENTS - pendingMedia.length;
+    if (room <= 0) {
+      setMediaError(`You can attach at most ${MAX_ATTACHMENTS} files per post.`);
+      return;
+    }
+
+    const toAdd = Array.from(files).slice(0, room);
+
+    // Insert placeholder entries with optimistic previews so the user sees
+    // the attachments immediately, even before the upload completes.
+    const optimistic: PendingMedia[] = toAdd.map((f, i) => ({
+      media_id: `pending_${Date.now()}_${i}`,
+      url: '',
+      thumbnail_url: null,
+      mime_type: f.type,
+      original_name: f.name,
+      previewUrl: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined,
+      uploading: true,
+    }));
+    setPendingMedia(prev => [...prev, ...optimistic]);
+
+    // Upload sequentially — keeps the bandwidth predictable and avoids a
+    // burst that could trip rate limits on slow connections.
+    for (let i = 0; i < toAdd.length; i++) {
+      const file = toAdd[i];
+      const placeholderId = optimistic[i].media_id;
+      if (file.size > MAX_FILE_BYTES) {
+        setMediaError(`"${file.name}" is larger than 25 MB.`);
+        setPendingMedia(prev => prev.filter(m => m.media_id !== placeholderId));
+        continue;
+      }
+      try {
+        const result = await api.uploadMedia(file);
+        setPendingMedia(prev => prev.map(m =>
+          m.media_id === placeholderId
+            ? {
+                media_id: result.media_id,
+                url: result.url,
+                thumbnail_url: result.thumbnail_url,
+                mime_type: result.mime_type,
+                original_name: result.original_name,
+                previewUrl: optimistic[i].previewUrl,
+                uploading: false,
+              }
+            : m,
+        ));
+      } catch (err) {
+        console.warn('[media] upload failed', err);
+        setMediaError(`Upload failed for "${file.name}".`);
+        setPendingMedia(prev => prev.filter(m => m.media_id !== placeholderId));
+      }
+    }
+
+    // Allow re-selecting the same file in the same composer session.
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removePendingMedia = (mediaId: string) => {
+    setPendingMedia(prev => {
+      const target = prev.find(m => m.media_id === mediaId);
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter(m => m.media_id !== mediaId);
+    });
   };
 
   const handleLike = async (postId: string) => {
@@ -163,13 +262,95 @@ export default function SocialPage({
                 className="w-full px-4 py-3 rounded-xl text-sm outline-none resize-none"
                 style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
               />
+
+              {/* Pending attachments preview row */}
+              {pendingMedia.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {pendingMedia.map(m => {
+                    const isImage = m.mime_type.startsWith('image/') || !!m.previewUrl;
+                    return (
+                      <div
+                        key={m.media_id}
+                        className="relative rounded-lg overflow-hidden border"
+                        style={{ borderColor: 'var(--bg-tertiary)', background: 'var(--bg-secondary)' }}
+                      >
+                        {isImage && (m.previewUrl || m.thumbnail_url) ? (
+                          <img
+                            src={m.previewUrl || (m.thumbnail_url ? `${m.thumbnail_url}` : '')}
+                            alt={m.original_name}
+                            className="block w-24 h-24 object-cover"
+                            style={{ opacity: m.uploading ? 0.5 : 1 }}
+                          />
+                        ) : (
+                          <div
+                            className="w-24 h-24 flex flex-col items-center justify-center px-1 text-center"
+                            style={{ opacity: m.uploading ? 0.5 : 1 }}
+                          >
+                            <div className="text-2xl">📎</div>
+                            <div
+                              className="text-[10px] leading-tight mt-1 break-all line-clamp-2"
+                              style={{ color: 'var(--text-secondary)' }}
+                            >
+                              {m.original_name}
+                            </div>
+                          </div>
+                        )}
+                        {m.uploading && (
+                          <div className="absolute inset-0 flex items-center justify-center text-[10px]"
+                               style={{ background: 'rgba(0,0,0,0.35)', color: 'white' }}>
+                            Uploading…
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removePendingMedia(m.media_id)}
+                          aria-label={`Remove ${m.original_name}`}
+                          className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-[11px]"
+                          style={{ background: 'rgba(0,0,0,0.6)', color: 'white' }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {mediaError && (
+                <p role="alert" className="text-xs mt-2" style={{ color: 'var(--danger)' }}>
+                  {mediaError}
+                </p>
+              )}
+
               <div className="flex justify-between items-center mt-3">
-                <span className="text-xs" style={{ color: newPost.length > 4500 ? 'var(--danger)' : 'var(--text-muted)' }}>
-                  {newPost.length}/5000
-                </span>
+                <div className="flex items-center gap-3">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*,video/*,audio/*,.pdf,.txt,.md,.zip"
+                    onChange={e => handleFiles(e.target.files)}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={pendingMedia.length >= MAX_ATTACHMENTS}
+                    aria-label="Attach files"
+                    title={pendingMedia.length >= MAX_ATTACHMENTS
+                      ? `Up to ${MAX_ATTACHMENTS} attachments per post`
+                      : 'Attach images or files'}
+                    className="text-base px-2 py-1 rounded-lg transition-colors disabled:opacity-40"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    📎
+                  </button>
+                  <span className="text-xs" style={{ color: newPost.length > 4500 ? 'var(--danger)' : 'var(--text-muted)' }}>
+                    {newPost.length}/5000
+                  </span>
+                </div>
                 <button
                   onClick={handlePost}
-                  disabled={!newPost.trim() || posting}
+                  disabled={(!newPost.trim() && pendingMedia.length === 0) || posting || pendingMedia.some(m => m.uploading)}
                   className="px-6 py-2 rounded-xl text-sm font-medium transition-all disabled:opacity-40"
                   style={{ background: 'var(--accent)', color: 'white' }}
                 >
@@ -253,6 +434,41 @@ export default function SocialPage({
                             ) : part
                           )}
                         </p>
+
+                        {/* Attached media */}
+                        {post.mediaIds && post.mediaIds.length > 0 && (
+                          <div className={`mb-3 grid gap-2 ${post.mediaIds.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                            {post.mediaIds.map(mid => (
+                              <a
+                                key={mid}
+                                href={api.mediaUrlFor(mid)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block rounded-xl overflow-hidden border"
+                                style={{ borderColor: 'var(--bg-tertiary)', background: 'var(--bg-secondary)' }}
+                              >
+                                <img
+                                  src={api.mediaThumbnailUrlFor(mid)}
+                                  alt="attachment"
+                                  onError={e => {
+                                    // Non-image attachment: swap to a generic "open file" tile.
+                                    const target = e.currentTarget as HTMLImageElement;
+                                    target.style.display = 'none';
+                                    const sib = target.nextElementSibling as HTMLElement | null;
+                                    if (sib) sib.style.display = 'flex';
+                                  }}
+                                  className="block w-full max-h-96 object-cover"
+                                />
+                                <div
+                                  className="hidden p-4 items-center gap-2 text-sm"
+                                  style={{ color: 'var(--text-secondary)' }}
+                                >
+                                  📎 <span className="underline">Open attachment</span>
+                                </div>
+                              </a>
+                            ))}
+                          </div>
+                        )}
 
                         {/* Actions */}
                         <div className="flex items-center gap-6">
