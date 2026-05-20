@@ -35,6 +35,11 @@ const SYNAPSE_URL = process.env.SYNAPSE_URL || 'http://localhost:8008';
 const SYNAPSE_ADMIN_URL = process.env.SYNAPSE_ADMIN_URL || `${SYNAPSE_URL}/_synapse/admin`;
 const SYNAPSE_REGISTRATION_SECRET = process.env.SYNAPSE_REGISTRATION_SECRET || '';
 const SYNAPSE_SERVER_NAME = process.env.SYNAPSE_SERVER_NAME || 'chat.windychat.ai';
+// Admin access token used to mint fresh device sessions for already-provisioned
+// users via POST /_synapse/admin/v1/users/{user_id}/login. Without this, the
+// unified-login already_existed branch can only return access_token: null,
+// which breaks the chat web app's SSO handoff (saveSession requires a token).
+const SYNAPSE_ADMIN_ACCESS_TOKEN = process.env.SYNAPSE_ADMIN_ACCESS_TOKEN || '';
 
 // ── Per-route rate limiter for provisioning (login-like, sensitive) ──
 const provisionLimiter = rateLimit({
@@ -205,6 +210,48 @@ async function provisionViaAccountServer(windyIdentityId, displayName, avatarUrl
     homeServer: matrix.homeServer || matrix.home_server || SYNAPSE_SERVER_NAME,
     alreadyExisted: !!result.alreadyProvisioned,
   };
+}
+
+/**
+ * Mint a fresh device session for an existing Matrix user via the Synapse
+ * admin login endpoint. Requires SYNAPSE_ADMIN_ACCESS_TOKEN to be configured
+ * with an admin user's access token. Returns the new access_token + device_id
+ * or null if no admin token is available.
+ *
+ * Synapse: POST /_synapse/admin/v1/users/<user_id>/login → { access_token }
+ * Docs: https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#login-as-a-user
+ */
+async function mintFreshSession(matrixUserId) {
+  if (!SYNAPSE_ADMIN_ACCESS_TOKEN) return null;
+  if (!matrixUserId) return null;
+  try {
+    const url = `${SYNAPSE_ADMIN_URL}/v1/users/${encodeURIComponent(matrixUserId)}/login`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SYNAPSE_ADMIN_ACCESS_TOKEN}`,
+      },
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.warn(`[mint-session] Synapse admin /login failed for ${matrixUserId}: ${res.status} ${body.slice(0, 200)}`);
+      return null;
+    }
+    const data = await res.json();
+    return {
+      accessToken: data.access_token,
+      // Synapse admin login doesn't return device_id today; the client will
+      // sync without a device, which is fine for matrix-js-sdk's "guest-like"
+      // mode and matches how the new-user branch works.
+      deviceId: data.device_id || '',
+    };
+  } catch (err) {
+    console.warn(`[mint-session] Failed to mint session for ${matrixUserId}: ${err.message}`);
+    return null;
+  }
 }
 
 // ── DM Room Creation ──
@@ -755,13 +802,27 @@ router.post('/unified-login', asyncHandler(async (req, res) => {
   const existing = onboardingDb.getProfileByWindyId.get(windyIdentityId);
 
   if (existing) {
-    // Already provisioned — return existing credentials
+    // Already provisioned — mint a fresh device session via Synapse admin so
+    // the chat web app's SSO handoff actually authenticates. Without this,
+    // the web app's auth.ts saveSession() skip-check leaves the user with no
+    // Matrix session (or a stale one from a prior login).
     const state = onboardingDb.getOnboardingState.get(existing.chat_user_id);
+    const matrixUserId = state ? state.matrix_user_id : `@${existing.chat_user_id}:${SYNAPSE_SERVER_NAME}`;
+    const fresh = await mintFreshSession(matrixUserId);
     return res.json({
-      matrix_user_id: state ? state.matrix_user_id : null,
-      access_token: null, // Cannot re-issue Matrix tokens; client must re-auth via Matrix login
+      matrix_user_id: matrixUserId,
+      access_token: fresh ? fresh.accessToken : null,
+      device_id: fresh ? fresh.deviceId : null,
       home_server: SYNAPSE_SERVER_NAME,
       display_name: existing.display_name,
+      // Nested matrix object matches the web app's auth.ts contract
+      // (result.matrix?.accessToken && result.matrix?.matrixUserId).
+      matrix: fresh ? {
+        matrixUserId,
+        accessToken: fresh.accessToken,
+        deviceId: fresh.deviceId,
+        homeServer: SYNAPSE_SERVER_NAME,
+      } : null,
       already_existed: true,
       windy_identity_id: windyIdentityId,
       chat_user_id: existing.chat_user_id,
@@ -887,6 +948,14 @@ router.post('/unified-login', asyncHandler(async (req, res) => {
     access_token: matrixCredentials.accessToken,
     home_server: matrixCredentials.homeServer || SYNAPSE_SERVER_NAME,
     display_name: sanitizedName,
+    // Nested matrix object matches the web app's auth.ts contract
+    // (result.matrix?.accessToken && result.matrix?.matrixUserId).
+    matrix: {
+      matrixUserId: matrixCredentials.matrixUserId,
+      accessToken: matrixCredentials.accessToken,
+      deviceId: matrixCredentials.deviceId || '',
+      homeServer: matrixCredentials.homeServer || SYNAPSE_SERVER_NAME,
+    },
     already_existed: false,
     windy_identity_id: windyIdentityId,
     chat_user_id: chatUserId,
