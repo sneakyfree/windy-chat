@@ -189,11 +189,21 @@ async function provisionViaAccountServer(windyIdentityId, displayName, avatarUrl
   }
 
   const result = await res.json();
+  // The account-server returns the Matrix credentials under a nested
+  // `matrix` object using camelCase keys (see windy-pro's
+  // account-server/src/routes/identity.ts /chat/provision response shape).
+  // The earlier flat snake_case read pattern silently produced `undefined`
+  // for every field, which made this helper appear to succeed while
+  // returning an empty credentials object — the caller then fell through
+  // to the Synapse-admin path and re-registered a localpart that already
+  // existed on the Pro side, breaking the SSO handoff.
+  const matrix = result.matrix || result;
   return {
-    matrixUserId: result.matrix_user_id,
-    accessToken: result.access_token,
-    deviceId: result.device_id,
-    homeServer: result.home_server || SYNAPSE_SERVER_NAME,
+    matrixUserId: matrix.matrixUserId || matrix.matrix_user_id,
+    accessToken: matrix.accessToken || matrix.access_token,
+    deviceId: matrix.deviceId || matrix.device_id,
+    homeServer: matrix.homeServer || matrix.home_server || SYNAPSE_SERVER_NAME,
+    alreadyExisted: !!result.alreadyProvisioned,
   };
 }
 
