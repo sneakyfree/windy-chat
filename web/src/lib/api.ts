@@ -249,15 +249,49 @@ export async function unfollowUser(userId: string) {
   return res.json();
 }
 
-export async function getNotifications() {
-  const res = await apiFetch(`${env.socialUrl}/notifications`);
+export interface Notification {
+  id: string;
+  type: 'like' | 'comment' | 'comment_like' | 'comment_reply' | 'repost' | 'follow' | string;
+  fromUserId: string;
+  postId?: string;
+  read: boolean;
+  createdAt: string;
+}
+
+export async function getNotifications(opts?: { unreadOnly?: boolean }): Promise<{
+  notifications: Notification[];
+  count: number;
+  unreadCount: number;
+}> {
+  const q = opts?.unreadOnly ? '?unread=true' : '';
+  const res = await apiFetch(`${env.socialUrl}/notifications/${q}`);
   if (!res.ok) throw new Error(`Notifications failed: ${res.status}`);
+  return res.json();
+}
+
+export async function markNotificationsRead(notificationIds: string[]): Promise<{ markedRead: number }> {
+  const res = await apiFetch(`${env.socialUrl}/notifications/read`, {
+    method: 'POST',
+    body: JSON.stringify({ notificationIds }),
+  });
+  if (!res.ok) throw new Error(`Mark read failed: ${res.status}`);
   return res.json();
 }
 
 export async function getTrending() {
   const res = await apiFetch(`${env.socialUrl}/posts/trending`);
   if (!res.ok) throw new Error(`Trending failed: ${res.status}`);
+  return res.json();
+}
+
+export async function getPostsByHashtag(tag: string, opts?: { limit?: number; offset?: number }) {
+  const limit = opts?.limit ?? 20;
+  const offset = opts?.offset ?? 0;
+  const cleanTag = tag.replace(/^#/, '');
+  const res = await apiFetch(
+    `${env.socialUrl}/posts/hashtag/${encodeURIComponent(cleanTag)}?limit=${limit}&offset=${offset}`,
+  );
+  if (!res.ok) throw new Error(`Hashtag feed failed: ${res.status}`);
   return res.json();
 }
 

@@ -18,5 +18,11 @@ RUN npm install --production
 # Copy media service source
 COPY media/ /app/service/
 
+# MF1 deployment-identity.
+ARG COMMIT_SHA
+ARG BUILD_TIMESTAMP
+ENV COMMIT_SHA=${COMMIT_SHA}
+ENV BUILD_TIMESTAMP=${BUILD_TIMESTAMP}
+
 EXPOSE 8107
 CMD ["node", "server.js"]

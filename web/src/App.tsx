@@ -12,6 +12,8 @@ import TermsPage from './pages/TermsPage';
 import ProfilePage from './pages/ProfilePage';
 import WelcomeOverlay from './components/WelcomeOverlay';
 import MailPanel from './components/MailPanel';
+import NotificationsPanel from './components/NotificationsPanel';
+import * as api from './lib/api';
 
 type View = 'chat' | 'social' | 'contacts' | 'discover' | 'settings' | 'privacy' | 'terms' | 'profile';
 type AuthScreen = 'landing' | 'signin' | 'register';
@@ -48,6 +50,30 @@ export default function App() {
   const [mailOpen, setMailOpen] = useState(false);
   const [mailCompose, setMailCompose] = useState<{ body?: string; to?: string } | null>(null);
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
+  // selectedRoomId carries an "auto-select this room" request into ChatPage.
+  // Set by any handler that opens a DM (Profile → Message, Contacts → Message,
+  // Discover → Chat Now, hatch ?agent_room= param). ChatPage clears it once
+  // it has selected the room so future Chat-tab visits go to the default.
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState<number>(0);
+
+  // Poll unread-notification count so the bell badge stays roughly fresh.
+  // 30s cadence — cheap (returns just the unreadCount); user-side workflow
+  // doesn't need realtime push for this surface (push-gateway covers OS push).
+  useEffect(() => {
+    if (!auth.isLoggedIn) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const data = await api.getNotifications();
+        if (!cancelled) setUnreadNotifications(data.unreadCount || 0);
+      } catch { /* non-fatal */ }
+    };
+    tick();
+    const id = setInterval(tick, 30000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [auth.isLoggedIn, notificationsOpen]);
 
   // Open another user's profile page in the main content area. Captures the
   // userId in state so the Profile view knows whose profile to render —
@@ -58,6 +84,14 @@ export default function App() {
     setProfileUserId(userId || auth.userId);
     setView('profile');
   }, [auth.userId]);
+
+  // Open the Chat tab with a specific room pre-selected. Used by Profile's
+  // Message button, Contacts' DM affordance, and the Discover modal's
+  // Chat Now action.
+  const handleOpenChat = useCallback((roomId: string | null) => {
+    if (roomId) setSelectedRoomId(roomId);
+    setView('chat');
+  }, []);
 
   const handleLogin = useCallback(async (jwt: string) => {
     const state = await login(jwt);
@@ -143,6 +177,7 @@ export default function App() {
         <NavButton icon="🪰" label="Discover" active={view === 'discover'} onClick={() => setView('discover')} />
         <NavButton icon="👥" label="Contacts" active={view === 'contacts'} onClick={() => setView('contacts')} />
         <NavButton icon="✉️" label="Mail" active={mailOpen} onClick={() => { setMailCompose(null); setMailOpen(true); }} />
+        <NavButton icon="🔔" label="Alerts" active={notificationsOpen} onClick={() => setNotificationsOpen(true)} badge={unreadNotifications || undefined} />
         <div className="flex-1" />
         <NavButton icon="👤" label="Profile" active={view === 'profile' && profileUserId === auth.userId} onClick={() => handleNavigateToProfile(auth.userId)} />
         <NavButton icon="⚙️" label="Settings" active={view === 'settings'} onClick={() => setView('settings')} />
@@ -150,12 +185,12 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 min-w-0 min-h-0">
-        {view === 'chat' && <ChatPage userId={auth.matrixUserId} onEmailMessage={(body, to) => { setMailCompose({ body, to }); setMailOpen(true); }} onNavigate={setView} />}
+        {view === 'chat' && <ChatPage userId={auth.matrixUserId} selectedRoomId={selectedRoomId} onRoomConsumed={() => setSelectedRoomId(null)} onEmailMessage={(body, to) => { setMailCompose({ body, to }); setMailOpen(true); }} onNavigate={setView} />}
         {view === 'social' && <SocialPage userId={auth.userId} onNavigateToChat={() => setView('chat')} onNavigateToProfile={handleNavigateToProfile} />}
         {view === 'discover' && <DiscoverPage onNavigateToChat={() => setView('chat')} />}
-        {view === 'contacts' && <ContactsPage userId={auth.userId} />}
+        {view === 'contacts' && <ContactsPage userId={auth.userId} onOpenChat={handleOpenChat} onNavigateToProfile={handleNavigateToProfile} />}
         {view === 'settings' && <SettingsPage userId={auth.userId} onLogout={logout} onNavigate={(v: string) => setView(v as View)} />}
-        {view === 'profile' && <ProfilePage userId={profileUserId} selfUserId={auth.userId} onBack={() => setView('social')} />}
+        {view === 'profile' && <ProfilePage userId={profileUserId} selfUserId={auth.userId} onBack={() => setView('social')} onOpenChat={handleOpenChat} />}
         {view === 'privacy' && <PrivacyPage />}
         {view === 'terms' && <TermsPage />}
       </main>
@@ -168,12 +203,21 @@ export default function App() {
         <NavButton icon="🪰" label="Discover" active={view === 'discover'} onClick={() => setView('discover')} />
         <NavButton icon="👥" label="Contacts" active={view === 'contacts'} onClick={() => setView('contacts')} />
         <NavButton icon="✉️" label="Mail" active={mailOpen} onClick={() => { setMailCompose(null); setMailOpen(true); }} />
+        <NavButton icon="🔔" label="Alerts" active={notificationsOpen} onClick={() => setNotificationsOpen(true)} badge={unreadNotifications || undefined} />
         <NavButton icon="👤" label="Profile" active={view === 'profile' && profileUserId === auth.userId} onClick={() => handleNavigateToProfile(auth.userId)} />
         <NavButton icon="⚙️" label="Settings" active={view === 'settings'} onClick={() => setView('settings')} />
       </nav>
 
       {/* Mail slide-over panel */}
       <MailPanel open={mailOpen} onClose={() => setMailOpen(false)} compose={mailCompose} />
+
+      {/* Notifications slide-over */}
+      <NotificationsPanel
+        open={notificationsOpen}
+        onClose={() => setNotificationsOpen(false)}
+        onNavigateToProfile={handleNavigateToProfile}
+        onNavigateToSocial={() => setView('social')}
+      />
 
       {/* Welcome overlay for new users (Task 3) */}
       {showWelcome && (

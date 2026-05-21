@@ -1,20 +1,74 @@
 import { useState, useCallback } from 'react';
 import { env } from '../env';
 import TrustBadge from '../components/TrustBadge';
+import { createDMRoom } from '../lib/matrix';
+import { followUser, unfollowUser } from '../lib/api';
 
 interface SearchResult {
   userId: string;
   displayName: string;
   matchType: string;
   verified?: boolean;
+  matrixUserId?: string | null;
 }
 
-export default function ContactsPage({ userId: _userId }: { userId: string | null }) {
+export default function ContactsPage({
+  userId: _userId,
+  onOpenChat,
+  onNavigateToProfile,
+}: {
+  userId: string | null;
+  onOpenChat?: (roomId: string) => void;
+  onNavigateToProfile?: (userId: string) => void;
+}) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+  // Tracks per-row DM-open + follow state so the row buttons reflect work
+  // in flight. Maps userId → boolean.
+  const [dmOpening, setDmOpening] = useState<Record<string, boolean>>({});
+  const [following, setFollowing] = useState<Record<string, boolean>>({});
+  const [rowError, setRowError] = useState<Record<string, string>>({});
+
+  const handleMessage = useCallback(async (user: SearchResult) => {
+    setRowError(s => ({ ...s, [user.userId]: '' }));
+    // Derive a Matrix ID — prefer the explicit field, fall back to deriving
+    // from userId for bot/agent localparts.
+    let mxid = user.matrixUserId || null;
+    if (!mxid && (user.userId.startsWith('bot_') || user.userId.startsWith('agent_'))) {
+      mxid = `@${user.userId}:chat.windychat.ai`;
+    }
+    if (!mxid) {
+      setRowError(s => ({ ...s, [user.userId]: 'No Windy Chat handle.' }));
+      return;
+    }
+    setDmOpening(s => ({ ...s, [user.userId]: true }));
+    try {
+      const roomId = await createDMRoom(mxid);
+      onOpenChat?.(roomId);
+    } catch (err: any) {
+      setRowError(s => ({ ...s, [user.userId]: err?.message || 'Could not open chat.' }));
+    } finally {
+      setDmOpening(s => ({ ...s, [user.userId]: false }));
+    }
+  }, [onOpenChat]);
+
+  const handleFollow = useCallback(async (user: SearchResult) => {
+    const wasFollowing = !!following[user.userId];
+    setFollowing(s => ({ ...s, [user.userId]: !wasFollowing }));
+    try {
+      if (wasFollowing) {
+        await unfollowUser(user.userId);
+      } else {
+        await followUser(user.userId);
+      }
+    } catch {
+      // Revert on failure.
+      setFollowing(s => ({ ...s, [user.userId]: wasFollowing }));
+    }
+  }, [following]);
 
   const search = useCallback(async () => {
     if (!query || query.length < 2) return;
@@ -93,59 +147,85 @@ export default function ContactsPage({ userId: _userId }: { userId: string | nul
 
         {results.map(user => {
           const isAgent = user.userId.startsWith('bot_') || user.userId.startsWith('agent_');
+          const isFollowing = !!following[user.userId];
+          const isOpening = !!dmOpening[user.userId];
+          const error = rowError[user.userId];
           return (
             <div
               key={user.userId}
-              className="flex items-center gap-4 px-6 py-4 border-b transition-colors cursor-pointer"
+              className="px-6 py-4 border-b"
               style={{ borderColor: 'var(--bg-tertiary)' }}
-              onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
             >
-              {/* Avatar */}
               <div
-                className="w-12 h-12 rounded-full flex items-center justify-center text-lg shrink-0"
-                style={{
-                  background: isAgent ? 'var(--agent-bg)' : 'var(--bg-tertiary)',
-                  border: isAgent ? '1px solid var(--accent)' : 'none',
-                }}
+                className="flex items-center gap-4 transition-colors"
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
               >
-                {isAgent ? '🪰' : user.displayName?.charAt(0)?.toUpperCase() || '?'}
-              </div>
+                {/* Avatar (click → profile) */}
+                <button
+                  type="button"
+                  onClick={() => onNavigateToProfile?.(user.userId)}
+                  className="w-12 h-12 rounded-full flex items-center justify-center text-lg shrink-0 hover:opacity-80"
+                  style={{
+                    background: isAgent ? 'var(--agent-bg)' : 'var(--bg-tertiary)',
+                    border: isAgent ? '1px solid var(--accent)' : 'none',
+                  }}
+                  aria-label={`View ${user.displayName}'s profile`}
+                >
+                  {isAgent ? '🪰' : user.displayName?.charAt(0)?.toUpperCase() || '?'}
+                </button>
 
-              {/* Info */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm" style={{ color: 'var(--text-primary)' }}>
-                    {user.displayName}
-                  </span>
-                  {isAgent && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'var(--accent)', color: 'white' }}>
-                      AI Agent
-                    </span>
-                  )}
-                  {user.verified && <TrustBadge score={null} passportId={user.userId} />}
+                {/* Info (name click → profile) */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onNavigateToProfile?.(user.userId)}
+                      className="font-medium text-sm hover:underline truncate"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      {user.displayName}
+                    </button>
+                    {isAgent && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'var(--accent)', color: 'white' }}>
+                        AI Agent
+                      </span>
+                    )}
+                    {user.verified && <TrustBadge score={null} passportId={user.userId} />}
+                  </div>
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                    @{user.userId}
+                    {user.matchType && <span className="ml-2 opacity-60">matched by {user.matchType}</span>}
+                  </p>
                 </div>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                  @{user.userId}
-                  {user.matchType && <span className="ml-2 opacity-60">matched by {user.matchType}</span>}
-                </p>
-              </div>
 
-              {/* Actions */}
-              <div className="flex gap-2 shrink-0">
-                <button
-                  className="px-4 py-2 rounded-lg text-xs font-medium"
-                  style={{ background: 'var(--accent)', color: 'white' }}
-                >
-                  💬 Message
-                </button>
-                <button
-                  className="px-4 py-2 rounded-lg text-xs font-medium"
-                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
-                >
-                  + Follow
-                </button>
+                {/* Actions */}
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleMessage(user)}
+                    disabled={isOpening}
+                    className="px-4 py-2 rounded-lg text-xs font-medium disabled:opacity-40"
+                    style={{ background: 'var(--accent)', color: 'white' }}
+                  >
+                    {isOpening ? 'Opening…' : '💬 Message'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleFollow(user)}
+                    className="px-4 py-2 rounded-lg text-xs font-medium"
+                    style={{
+                      background: isFollowing ? 'var(--accent)' : 'var(--bg-tertiary)',
+                      color: isFollowing ? 'white' : 'var(--text-primary)',
+                    }}
+                  >
+                    {isFollowing ? '✓ Following' : '+ Follow'}
+                  </button>
+                </div>
               </div>
+              {error && (
+                <p role="alert" className="text-xs mt-2 ml-16" style={{ color: 'var(--danger)' }}>{error}</p>
+              )}
             </div>
           );
         })}

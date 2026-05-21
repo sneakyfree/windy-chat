@@ -13,6 +13,12 @@ interface ChatPageProps {
   // "Discover Agents", "Invite Friends") can move the user to the
   // relevant sibling view instead of being dead clicks.
   onNavigate?: (view: 'chat' | 'social' | 'contacts' | 'discover' | 'settings') => void;
+  // Optional "auto-select this room on mount" — used by Profile's Message
+  // button (createDMRoom returns a roomId; we hand it through App.tsx).
+  // When set, ChatPage selects that room and then calls onRoomConsumed so
+  // a future visit to the Chat tab doesn't keep snapping back.
+  selectedRoomId?: string | null;
+  onRoomConsumed?: () => void;
 }
 
 // ── Room List Item ──
@@ -150,7 +156,7 @@ function MessageBubble({ event, isOwn, onEmail }: { event: MatrixEvent; isOwn: b
 }
 
 // ── Main Chat Page ──
-export default function ChatPage({ userId, onEmailMessage, onNavigate }: ChatPageProps) {
+export default function ChatPage({ userId, onEmailMessage, onNavigate, selectedRoomId: externalSelectedRoomId, onRoomConsumed }: ChatPageProps) {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MatrixEvent[]>([]);
@@ -180,6 +186,39 @@ export default function ChatPage({ userId, onEmailMessage, onNavigate }: ChatPag
       }
     };
   }, []);
+
+  // Honor an external "open this room" request from sibling views (Profile's
+  // Message button, Contacts' DM action, Discover Chat Now). Brief sync
+  // retry in case the room was just created and hasn't synced into the
+  // local room cache yet — we poll for it for 3 seconds before giving up.
+  useEffect(() => {
+    if (!externalSelectedRoomId) return;
+    let attempts = 0;
+    const tryConsume = () => {
+      const client = matrix.getClient();
+      const room = client?.getRoom(externalSelectedRoomId);
+      if (room) {
+        setSelectedRoomId(externalSelectedRoomId);
+        onRoomConsumed?.();
+        return true;
+      }
+      return false;
+    };
+    if (tryConsume()) return;
+    const interval = setInterval(() => {
+      attempts += 1;
+      if (tryConsume() || attempts >= 6) {
+        clearInterval(interval);
+        // Take the request even if the room never showed up — the
+        // selectedRoomId effect will retry on next sync tick.
+        if (attempts >= 6) {
+          setSelectedRoomId(externalSelectedRoomId);
+          onRoomConsumed?.();
+        }
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, [externalSelectedRoomId, onRoomConsumed]);
 
   // Load messages for selected room
   useEffect(() => {

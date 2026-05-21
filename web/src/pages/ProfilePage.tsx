@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import * as api from '../lib/api';
+import { createDMRoom } from '../lib/matrix';
 
 interface Profile {
   user_id: string;
   display_name?: string | null;
   chat_user_id?: string | null;
+  matrix_user_id?: string | null;
   verified: boolean;
   posts_count: number;
   followers_count: number;
@@ -16,10 +18,12 @@ export default function ProfilePage({
   userId: viewUserId,
   onBack,
   selfUserId,
+  onOpenChat,
 }: {
   userId: string | null;
   onBack?: () => void;
   selfUserId?: string | null;
+  onOpenChat?: (roomId: string) => void;
 }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [myProfile, setMyProfile] = useState<api.MyProfile | null>(null);
@@ -38,6 +42,8 @@ export default function ProfilePage({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const avatarFileRef = useRef<HTMLInputElement>(null);
+  const [dmOpening, setDmOpening] = useState(false);
+  const [dmError, setDmError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!viewUserId) { setLoading(false); return; }
@@ -78,6 +84,29 @@ export default function ProfilePage({
         setFollowing(true);
       }
     } catch { /* ignore */ }
+  };
+
+  // Open (or reuse) a DM room with this profile's owner, then ask App.tsx
+  // to switch to the Chat tab and auto-select that room. Requires the
+  // profile to expose matrix_user_id — for users without a Matrix
+  // localpart yet we surface a friendly error instead of silently failing.
+  const handleMessage = async () => {
+    setDmError(null);
+    const target = profile?.matrix_user_id;
+    if (!target) {
+      setDmError('This user has no Windy Chat handle yet.');
+      return;
+    }
+    setDmOpening(true);
+    try {
+      const roomId = await createDMRoom(target);
+      onOpenChat?.(roomId);
+    } catch (err: any) {
+      console.warn('[profile] DM creation failed', err);
+      setDmError(err?.message || 'Could not open chat.');
+    } finally {
+      setDmOpening(false);
+    }
   };
 
   const handleAvatarPick = async (file: File | null) => {
@@ -244,13 +273,14 @@ export default function ProfilePage({
               <>
                 <button
                   type="button"
+                  onClick={handleMessage}
+                  disabled={dmOpening || !profile?.matrix_user_id}
                   aria-label="Send message"
-                  className="px-6 py-2.5 rounded-xl text-sm font-medium opacity-60 cursor-not-allowed"
-                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
-                  title="DM creation from profile is coming soon — open Chat to start a conversation"
-                  disabled
+                  title={!profile?.matrix_user_id ? 'This user has no Windy Chat handle yet' : 'Open a direct message'}
+                  className="px-6 py-2.5 rounded-xl text-sm font-medium transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{ background: 'var(--accent)', color: 'white' }}
                 >
-                  💬 Message
+                  {dmOpening ? 'Opening…' : '💬 Message'}
                 </button>
                 <button
                   onClick={handleFollow}
@@ -263,6 +293,9 @@ export default function ProfilePage({
               </>
             )}
           </div>
+          {dmError && (
+            <p role="alert" className="text-xs mt-3" style={{ color: 'var(--danger)' }}>{dmError}</p>
+          )}
         </div>
       )}
 

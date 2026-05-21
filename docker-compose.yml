@@ -168,6 +168,9 @@ services:
     build:
       context: ./services
       dockerfile: onboarding/Dockerfile
+      args:
+        COMMIT_SHA: ${COMMIT_SHA:-}
+        BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
     container_name: windy-onboarding
     ports:
       - "8101:8101"
@@ -217,6 +220,9 @@ services:
     build:
       context: ./services
       dockerfile: directory/Dockerfile
+      args:
+        COMMIT_SHA: ${COMMIT_SHA:-}
+        BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
     container_name: windy-directory
     ports:
       - "8102:8102"
@@ -258,6 +264,9 @@ services:
     build:
       context: ./services
       dockerfile: push-gateway/Dockerfile
+      args:
+        COMMIT_SHA: ${COMMIT_SHA:-}
+        BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
     container_name: windy-push-gateway
     ports:
       - "8103:8103"
@@ -311,6 +320,9 @@ services:
     build:
       context: ./services
       dockerfile: backup/Dockerfile
+      args:
+        COMMIT_SHA: ${COMMIT_SHA:-}
+        BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
     container_name: windy-backup
     ports:
       - "8104:8104"
@@ -356,6 +368,9 @@ services:
     build:
       context: ./services
       dockerfile: social/Dockerfile
+      args:
+        COMMIT_SHA: ${COMMIT_SHA:-}
+        BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
     container_name: windy-social
     ports:
       - "8105:8105"
@@ -436,6 +451,9 @@ services:
     build:
       context: ./services
       dockerfile: media/Dockerfile
+      args:
+        COMMIT_SHA: ${COMMIT_SHA:-}
+        BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
     container_name: windy-media
     ports:
       - "8107:8107"
