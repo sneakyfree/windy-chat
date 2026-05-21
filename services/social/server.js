@@ -267,6 +267,11 @@ app.get('/api/v1/social/profile/:userId', auth, asyncHandler(async (req, res) =>
     if (!chatUserId && p.chatUserId) chatUserId = p.chatUserId;
     if (displayName && chatUserId) break;
   }
+  // Matrix ID derivation — chat_user_id is the Matrix localpart, the rest is
+  // the SYNAPSE_SERVER_NAME defaulting to chat.windychat.ai. Exposing this
+  // lets the SPA's Message button on a profile call createDMRoom directly.
+  const matrixServer = process.env.SYNAPSE_SERVER_NAME || 'chat.windychat.ai';
+  const matrixUserId = chatUserId ? `@${chatUserId}:${matrixServer}` : null;
   // If the viewer is asking for their OWN profile and they posted no snapshot
   // yet, fall back to whatever the JWT carries.
   if (req.user && req.user.sub === userId) {
@@ -293,6 +298,7 @@ app.get('/api/v1/social/profile/:userId', auth, asyncHandler(async (req, res) =>
     user_id: userId,
     display_name: displayName,
     chat_user_id: chatUserId,
+    matrix_user_id: matrixUserId,
     verified,
     posts_count: userPosts.length,
     followers_count: followers ? [...followers].length : 0,

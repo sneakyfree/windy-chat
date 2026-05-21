@@ -150,6 +150,9 @@ export default function SocialPage({
 }) {
   const [posts, setPosts] = useState<Post[]>([]);
   const [trending, setTrending] = useState<TrendingTag[]>([]);
+  // When non-null, the feed renders /hashtag/:tag results instead of the
+  // follow-feed. A "Back to feed" pill lets the user return.
+  const [activeHashtag, setActiveHashtag] = useState<string | null>(null);
   const [newPost, setNewPost] = useState('');
   const [pendingMedia, setPendingMedia] = useState<PendingMedia[]>([]);
   const [mediaError, setMediaError] = useState<string | null>(null);
@@ -174,14 +177,19 @@ export default function SocialPage({
   const loadFeed = useCallback(async () => {
     try {
       setFeedError(null);
-      const data = await api.getFeed();
+      // If a hashtag filter is active, fetch that view instead of the
+      // chronological follow-feed. Switching back to the regular feed
+      // re-fires loadFeed via the activeHashtag effect below.
+      const data = activeHashtag
+        ? await api.getPostsByHashtag(activeHashtag)
+        : await api.getFeed();
       setPosts(data.posts || []);
     } catch {
       setFeedError('Social feed unavailable — check your connection and try again');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeHashtag]);
 
   const loadTrending = useCallback(async () => {
     try {
@@ -521,6 +529,25 @@ export default function SocialPage({
 
         {tab === 'feed' && (
           <>
+            {/* Active hashtag filter pill */}
+            {activeHashtag && (
+              <div
+                className="flex items-center justify-between px-4 py-3 border-b"
+                style={{ borderColor: 'var(--bg-tertiary)', background: 'var(--bg-secondary)' }}
+              >
+                <span className="text-sm" style={{ color: 'var(--text-primary)' }}>
+                  Filtering by <span style={{ color: 'var(--accent)' }}>#{activeHashtag}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveHashtag(null)}
+                  className="text-xs underline"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  ← Back to feed
+                </button>
+              </div>
+            )}
             {/* Compose Box */}
             <div className="p-4 border-b" style={{ borderColor: 'var(--bg-tertiary)' }}>
               <textarea
@@ -699,8 +726,16 @@ export default function SocialPage({
                         <p className="text-sm whitespace-pre-wrap break-words mb-3" style={{ color: 'var(--text-primary)' }}>
                           {post.content.split(/(#\w+)/g).map((part, i) =>
                             part.startsWith('#') ? (
-                              <span key={i} style={{ color: 'var(--accent)' }}>{part}</span>
-                            ) : part
+                              <button
+                                key={i}
+                                type="button"
+                                onClick={() => { setTab('feed'); setActiveHashtag(part.slice(1)); }}
+                                className="hover:underline"
+                                style={{ color: 'var(--accent)', cursor: 'pointer', background: 'none', border: 'none', padding: 0 }}
+                              >
+                                {part}
+                              </button>
+                            ) : part,
                           )}
                         </p>
 
@@ -885,8 +920,13 @@ export default function SocialPage({
               <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No trending topics yet</p>
             ) : (
               trending.map((tag, i) => (
-                <div key={tag.tag} className="flex items-center gap-4 py-3 border-b"
-                     style={{ borderColor: 'var(--bg-tertiary)' }}>
+                <button
+                  key={tag.tag}
+                  type="button"
+                  onClick={() => { setTab('feed'); setActiveHashtag(tag.tag); }}
+                  className="w-full flex items-center gap-4 py-3 border-b text-left transition-colors hover:opacity-80"
+                  style={{ borderColor: 'var(--bg-tertiary)' }}
+                >
                   <span className="text-lg font-bold w-8 text-right" style={{ color: 'var(--text-muted)' }}>{i + 1}</span>
                   <div className="flex-1">
                     <span className="font-medium" style={{ color: 'var(--accent)' }}>#{tag.tag}</span>
@@ -894,7 +934,7 @@ export default function SocialPage({
                       {tag.postCount} post{tag.postCount !== 1 ? 's' : ''}
                     </p>
                   </div>
-                </div>
+                </button>
               ))
             )}
           </div>

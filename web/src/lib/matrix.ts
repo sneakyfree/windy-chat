@@ -120,11 +120,26 @@ export function isRoomEncrypted(roomId: string): boolean {
   return client.isRoomEncrypted(roomId);
 }
 
-/** Create a new DM room */
-export async function createDMRoom(userId: string): Promise<string> {
+/** Create a new DM room (or reuse an existing one with the same single invitee). */
+export async function createDMRoom(targetMatrixId: string): Promise<string> {
   if (!client) throw new Error('Not connected');
+  // Reuse if the user already has a DM with this person — repeatedly opening
+  // "Message" from a profile would otherwise spawn duplicate rooms in the
+  // sidebar. Matrix's m.direct account-data is the canonical signal but
+  // syncing it across clients is fiddly; a member-set scan over already-
+  // joined rooms is good enough for the common case.
+  const me = client.getUserId();
+  for (const room of client.getRooms()) {
+    if (room.getMyMembership() !== 'join') continue;
+    const members = room.getJoinedMembers();
+    if (members.length !== 2) continue;
+    const otherIds = members.map(m => m.userId).filter(id => id !== me);
+    if (otherIds.length === 1 && otherIds[0] === targetMatrixId) {
+      return room.roomId;
+    }
+  }
   const result = await client.createRoom({
-    invite: [userId],
+    invite: [targetMatrixId],
     is_direct: true,
     preset: 'trusted_private_chat' as any,
     initial_state: [{
