@@ -67,10 +67,14 @@ export default function MailPanel({ open, onClose, compose }: MailPanelProps) {
       .then(data => {
         const mail = data?.products?.windy_mail;
         const provisioned = mail?.status === 'active';
+        // Pro's ecosystem-status returns the mailbox under `address`; the
+        // product_accounts row also has it as `external_id`. Read both
+        // for resilience across Pro versions.
+        const address = mail?.address || mail?.external_id || null;
         setState({
           loading: false,
           provisioned,
-          mailAddress: provisioned ? (mail?.external_id || null) : null,
+          mailAddress: provisioned ? address : null,
           error: null,
         });
       })
