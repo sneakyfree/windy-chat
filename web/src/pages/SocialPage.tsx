@@ -24,6 +24,7 @@ const MAX_FILE_BYTES = 25 * 1024 * 1024;
  */
 function CommentRowView({
   c, post, onLike, onReply, onAuthorClick, authorName, avatarChar, timeAgo, fullTime, compact,
+  replyingToAuthor,
 }: {
   c: CommentRow;
   post: Post;
@@ -35,6 +36,7 @@ function CommentRowView({
   timeAgo: string;
   fullTime: string;
   compact?: boolean;
+  replyingToAuthor?: string | null;
 }) {
   const isAuthor = c.userId === post.userId;
   const avatarSize = compact ? 'w-6 h-6' : 'w-7 h-7';
@@ -75,6 +77,11 @@ function CommentRowView({
             · {timeAgo}
           </span>
         </div>
+        {replyingToAuthor && (
+          <p className="text-[10px] mb-0.5" style={{ color: 'var(--text-muted)' }}>
+            ↩ to <span style={{ color: 'var(--text-secondary)' }}>{replyingToAuthor}</span>
+          </p>
+        )}
         <p className="text-xs whitespace-pre-wrap break-words" style={{ color: 'var(--text-primary)' }}>
           {c.content}
         </p>
@@ -89,16 +96,19 @@ function CommentRowView({
           >
             {c.liked ? '♥' : '♡'} {c.likeCount || 0}
           </button>
-          {!compact && (
-            <button
-              type="button"
-              onClick={onReply}
-              className="text-[11px]"
-              style={{ color: 'var(--text-secondary)' }}
-            >
-              ↩ Reply
-            </button>
-          )}
+          {/* Reply is allowed at every depth. The new reply attaches to THIS
+              comment (parent_comment_id = c.id); the renderer keeps the
+              visual indent at 1 level beyond the top — the "↩ to <author>"
+              line above shows who's actually being replied to so deep
+              threads stay legible without runaway indentation. */}
+          <button
+            type="button"
+            onClick={onReply}
+            className="text-[11px]"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            ↩ Reply
+          </button>
         </div>
       </div>
     </div>
@@ -825,11 +835,31 @@ export default function SocialPage({
                                 {(commentsByPost[post.id] || []).filter(c => !c.parentCommentId).length === 0 ? (
                                   <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No comments yet — be the first.</p>
                                 ) : (
-                                  // Render top-level comments + their replies nested below
-                                  (commentsByPost[post.id] || [])
-                                    .filter(c => !c.parentCommentId)
-                                    .map(c => {
-                                      const replies = (commentsByPost[post.id] || []).filter(r => r.parentCommentId === c.id);
+                                  // Render top-level comments + every descendant reply
+                                  // beneath, flattened (visual indent capped at 1 level so
+                                  // deep threads stay readable; the "↩ to <author>" line
+                                  // on the row makes the true reply target legible).
+                                  (() => {
+                                    const all = commentsByPost[post.id] || [];
+                                    const byId = new Map(all.map(c => [c.id, c]));
+                                    const topLevel = all.filter(c => !c.parentCommentId);
+                                    // Collect descendants in pre-order so reply chains read
+                                    // in conversation order (parent → child → grandchild).
+                                    const collectDescendants = (parentId: string): CommentRow[] => {
+                                      const acc: CommentRow[] = [];
+                                      const walk = (id: string) => {
+                                        for (const c of all) {
+                                          if (c.parentCommentId === id) {
+                                            acc.push(c);
+                                            walk(c.id);
+                                          }
+                                        }
+                                      };
+                                      walk(parentId);
+                                      return acc;
+                                    };
+                                    return topLevel.map(c => {
+                                      const descendants = collectDescendants(c.id);
                                       return (
                                         <div key={c.id}>
                                           <CommentRowView
@@ -843,28 +873,36 @@ export default function SocialPage({
                                             timeAgo={timeAgo(c.createdAt)}
                                             fullTime={fullTimestamp(c.createdAt)}
                                           />
-                                          {replies.length > 0 && (
+                                          {descendants.length > 0 && (
                                             <div className="ml-9 mt-3 space-y-3 border-l pl-3" style={{ borderColor: 'var(--bg-tertiary)' }}>
-                                              {replies.map(r => (
-                                                <CommentRowView
-                                                  key={r.id}
-                                                  c={r}
-                                                  post={post}
-                                                  onLike={() => handleCommentLike(post.id, r.id)}
-                                                  onReply={() => startReply(post.id, c.id) /* reply to top-level */}
-                                                  onAuthorClick={() => onNavigateToProfile?.(r.userId)}
-                                                  authorName={commentAuthorName(r)}
-                                                  avatarChar={commentAvatarChar(r)}
-                                                  timeAgo={timeAgo(r.createdAt)}
-                                                  fullTime={fullTimestamp(r.createdAt)}
-                                                  compact
-                                                />
-                                              ))}
+                                              {descendants.map(r => {
+                                                const parent = r.parentCommentId ? byId.get(r.parentCommentId) : null;
+                                                const replyingToAuthor = parent && parent.id !== c.id
+                                                  ? commentAuthorName(parent)
+                                                  : null;
+                                                return (
+                                                  <CommentRowView
+                                                    key={r.id}
+                                                    c={r}
+                                                    post={post}
+                                                    onLike={() => handleCommentLike(post.id, r.id)}
+                                                    onReply={() => startReply(post.id, r.id) /* reply to THIS reply */}
+                                                    onAuthorClick={() => onNavigateToProfile?.(r.userId)}
+                                                    authorName={commentAuthorName(r)}
+                                                    avatarChar={commentAvatarChar(r)}
+                                                    timeAgo={timeAgo(r.createdAt)}
+                                                    fullTime={fullTimestamp(r.createdAt)}
+                                                    compact
+                                                    replyingToAuthor={replyingToAuthor}
+                                                  />
+                                                );
+                                              })}
                                             </div>
                                           )}
                                         </div>
                                       );
-                                    })
+                                    });
+                                  })()
                                 )}
                               </div>
                             )}
