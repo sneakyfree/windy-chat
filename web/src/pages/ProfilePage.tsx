@@ -150,7 +150,18 @@ export default function ProfilePage({
         api.getUserProfile(viewUserId).then(setProfile).catch(() => {});
       }
     } catch (err: any) {
-      setSaveError(err?.message || 'Save failed');
+      // "Failed to fetch" is the literal TypeError that bubbles up from
+      // fetch() when the request never lands — usually a stale CORS
+      // preflight cache from an earlier failure, an expired token, or a
+      // brief network blip. Give the user a recovery hint instead of
+      // leaving them staring at a low-level error.
+      const raw = err?.message || 'Save failed';
+      const isFetchTypeError = /Failed to fetch|NetworkError|TypeError/i.test(raw);
+      setSaveError(
+        isFetchTypeError
+          ? 'Could not reach the server. Try a hard refresh (⌘⇧R / Ctrl+Shift+R) and save again. If you opened this tab from the dashboard, re-open it to refresh the session.'
+          : raw,
+      );
     } finally {
       setSaving(false);
     }

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { env } from '../env';
 
 interface SettingsPageProps {
   userId: string | null;
@@ -6,10 +7,91 @@ interface SettingsPageProps {
   onNavigate?: (view: string) => void;
 }
 
+type ServiceStatus = 'connected' | 'not_connected' | 'connecting' | 'unknown';
+
+interface ServiceState {
+  word: ServiceStatus;
+  mail: ServiceStatus;
+  cloud: ServiceStatus;
+  eternitas: ServiceStatus;
+  error?: string;
+}
+
 export default function SettingsPage({ userId, onLogout, onNavigate }: SettingsPageProps) {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [language, setLanguage] = useState('en');
   const [notifications, setNotifications] = useState(true);
+  const [services, setServices] = useState<ServiceState>({
+    // Word is always "connected" — auth itself flows through Windy Word
+    // (Pro account-server). Other three start at unknown until the
+    // ecosystem-status call returns.
+    word: 'connected',
+    mail: 'unknown',
+    cloud: 'unknown',
+    eternitas: 'unknown',
+  });
+  const [connectError, setConnectError] = useState<Record<string, string>>({});
+
+  const refreshServices = useCallback(async () => {
+    const token = localStorage.getItem('windy_jwt');
+    if (!token) return;
+    try {
+      const res = await fetch(`${env.accountServerUrl}/api/v1/identity/ecosystem-status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const products = (data.products as Record<string, { status?: string }>) || {};
+      const statusOf = (key: string): ServiceStatus => {
+        const s = products[key]?.status;
+        if (s === 'active') return 'connected';
+        if (s === 'pending' || s === 'inactive' || !s) return 'not_connected';
+        return 'unknown';
+      };
+      setServices(prev => ({
+        ...prev,
+        word: 'connected',
+        mail: statusOf('windy_mail'),
+        cloud: statusOf('windy_cloud'),
+        // Eternitas connected if the user holds OR operates an active passport.
+        eternitas: products['eternitas']?.status === 'active' ? 'connected' : 'not_connected',
+      }));
+    } catch { /* non-fatal — leave as unknown */ }
+  }, []);
+
+  useEffect(() => { refreshServices(); }, [refreshServices]);
+
+  const connectMail = useCallback(async () => {
+    const token = localStorage.getItem('windy_jwt');
+    if (!token) return;
+    setConnectError(s => ({ ...s, mail: '' }));
+    setServices(s => ({ ...s, mail: 'connecting' }));
+    try {
+      const res = await fetch(`${env.accountServerUrl}/api/v1/identity/mail/provision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: '{}',
+      });
+      const detail = await res.text().catch(() => '');
+      if (!res.ok) {
+        setConnectError(s => ({ ...s, mail: `Provision failed (${res.status})` }));
+        setServices(s => ({ ...s, mail: 'not_connected' }));
+        return;
+      }
+      setServices(s => ({ ...s, mail: 'connected' }));
+      // Surface the assigned address briefly so the user knows it worked.
+      try {
+        const data = JSON.parse(detail);
+        if (data?.mail_address) {
+          setConnectError(s => ({ ...s, mail: `Mailbox ${data.mail_address} ready.` }));
+        }
+      } catch { /* ignore */ }
+      refreshServices();
+    } catch (err: any) {
+      setConnectError(s => ({ ...s, mail: err?.message || 'Could not connect.' }));
+      setServices(s => ({ ...s, mail: 'not_connected' }));
+    }
+  }, [refreshServices]);
 
   const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
     <div className="mb-8">
@@ -27,6 +109,64 @@ export default function SettingsPage({ userId, onLogout, onNavigate }: SettingsP
       {children}
     </div>
   );
+
+  // ConnectionStatus renders the right-hand cell of a "Connected services"
+  // row: a green pill if active, a "Connect now" button if not, or
+  // "Connecting…" while the provision call is in flight. For services
+  // without a direct user-side provision endpoint (Cloud, Eternitas), we
+  // route the click to an external setup surface instead of failing.
+  const ConnectionStatus = ({ status, onConnect, externalUrl, label }: {
+    status: ServiceStatus;
+    onConnect?: () => void;
+    externalUrl?: string;
+    label: string;
+  }) => {
+    if (status === 'connected') {
+      return (
+        <span className="text-xs px-2 py-1 rounded" style={{ background: 'rgba(52,211,153,0.15)', color: 'var(--success)' }}>
+          ✓ Connected
+        </span>
+      );
+    }
+    if (status === 'connecting') {
+      return (
+        <span className="text-xs px-2 py-1 rounded" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
+          Connecting…
+        </span>
+      );
+    }
+    if (onConnect) {
+      return (
+        <button
+          type="button"
+          onClick={onConnect}
+          aria-label={`Connect ${label}`}
+          className="text-xs px-3 py-1.5 rounded-lg font-medium transition-opacity hover:opacity-90"
+          style={{ background: 'var(--accent)', color: 'white' }}
+        >
+          Connect now
+        </button>
+      );
+    }
+    if (externalUrl) {
+      return (
+        <a
+          href={externalUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs px-3 py-1.5 rounded-lg font-medium"
+          style={{ background: 'var(--accent)', color: 'white' }}
+        >
+          Set up ↗
+        </a>
+      );
+    }
+    return (
+      <span className="text-xs px-2 py-1 rounded" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
+        Not connected
+      </span>
+    );
+  };
 
   return (
     <div className="max-w-2xl mx-auto py-8 px-4">
@@ -103,16 +243,21 @@ export default function SettingsPage({ userId, onLogout, onNavigate }: SettingsP
 
       <Section title="Connected Services">
         <Row label="Windy Word">
-          <span className="text-xs px-2 py-1 rounded" style={{ background: 'rgba(52,211,153,0.15)', color: 'var(--success)' }}>Connected</span>
+          <ConnectionStatus status={services.word} label="Windy Word" />
         </Row>
         <Row label="Windy Mail">
-          <span className="text-xs px-2 py-1 rounded" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>Not connected</span>
+          <ConnectionStatus status={services.mail} onConnect={connectMail} label="Windy Mail" />
         </Row>
+        {connectError.mail && (
+          <div className="px-4 py-2 text-xs" style={{ color: connectError.mail.startsWith('Mailbox') ? 'var(--success)' : 'var(--danger)' }}>
+            {connectError.mail}
+          </div>
+        )}
         <Row label="Windy Cloud">
-          <span className="text-xs px-2 py-1 rounded" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>Not connected</span>
+          <ConnectionStatus status={services.cloud} externalUrl="https://cloud.windycloud.com" label="Windy Cloud" />
         </Row>
         <Row label="Eternitas">
-          <span className="text-xs px-2 py-1 rounded" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>Not connected</span>
+          <ConnectionStatus status={services.eternitas} externalUrl="https://eternitas.ai/get-started" label="Eternitas" />
         </Row>
       </Section>
 
