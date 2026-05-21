@@ -145,7 +145,13 @@ export interface MyProfile {
   onboardingComplete: boolean;
 }
 
-const onboardingBase = `${env.matrixUrl.replace(/\/$/, '')}/api/v1/chat/profile`;
+// Use a RELATIVE path so the Cloudflare Pages Function at
+// `web/functions/api/[[path]].ts` proxies the call to chat.windychat.ai
+// from the browser's POV as same-origin. Going absolute to env.matrixUrl
+// turns this into a cross-origin call that hits the backend's CORS
+// allowlist, which surfaces in the SPA as a stuck "Failed to fetch" if
+// the browser cached an earlier denied preflight.
+const onboardingBase = '/api/v1/chat/profile';
 
 export async function getMyProfile(): Promise<MyProfile | null> {
   const res = await apiFetch(`${onboardingBase}/me`);
