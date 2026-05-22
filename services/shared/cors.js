@@ -32,12 +32,13 @@ const DEFAULT_ORIGINS = [
   'https://windychat.ai',
   // windyword.ai (Word) + sibling product apex hosts — each product ships a
   // frontend that legitimately XHRs into chat's REST API (cross-product
-  // integrations). The `app.` subdomain is the Word/dashboard SPA, which
+  // integrations). The `account.` subdomain is the Word/dashboard SPA, which
   // calls Pro account-server but also cross-origin XHRs the chat onboarding
-  // service (Activate-Chat flow → /chat/provision).
+  // service (Activate-Chat flow → /chat/provision). Per canonical-domains v8
+  // only the `account.` host is canonical for Word; other subdomains are banned.
   'https://windyword.ai',
   'https://www.windyword.ai',
-  'https://app.windyword.ai',
+  'https://account.windyword.ai',
   'https://mail.windymail.ai',
   'https://windyclone.ai',
   'https://windyfly.ai',
