@@ -480,8 +480,13 @@ services:
       # sending domain). Agents send "from" the operator's windymail.ai
       # address via this relay until windy-mail's delegation engine ships.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
-      # Seeded owner → mail-address map until Pro exposes a lookup
-      # endpoint. Comma-separated `<windy_id>=<addr>`.
+      # Pro account-server URL for service-to-service lookups
+      # (mail-address-by-windy-id). Falls back to MAIL_ADDRESS_SEED
+      # if CHAT_SERVICE_TOKEN isn't configured.
+      WINDY_ACCOUNT_SERVER_URL: ${WINDY_ACCOUNT_SERVER_URL:-https://account.windyword.ai}
+      CHAT_SERVICE_TOKEN: ${CHAT_SERVICE_TOKEN:-}
+      # Seeded owner → mail-address map; useful in dev or before Pro
+      # has the user's row. Comma-separated `<windy_id>=<addr>`.
       MAIL_ADDRESS_SEED: ${MAIL_ADDRESS_SEED:-}
       RECONCILE_INTERVAL_MS: ${RECONCILE_INTERVAL_MS:-30000}
     depends_on:

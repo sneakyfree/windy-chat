@@ -78,26 +78,78 @@ function resolveOwnerDisplay(db, ownerWindyId) {
   return row?.display_name || null;
 }
 
-// Per-windy_identity_id cache for mail address. Static seeds via
-// MAIL_ADDRESS_SEED env (comma-separated `<windy_id>=<addr>`) so we
-// can light up the mail tool for known operators without depending
-// on a new Pro endpoint. v0.2 will add a service-token Pro lookup
-// (POST /api/v1/identity/mail/address-by-windy-id) so newly-
-// provisioned users light up automatically.
-const mailAddressCache = new Map();
+// Per-windy_identity_id cache for mail address.
+//
+// Resolution chain:
+//   1. In-memory cache (5-min TTL) — hot path
+//   2. Pro account-server POST /api/v1/identity/mail/address-by-windy-id
+//      with X-Service-Token (CHAT_SERVICE_TOKEN) — authoritative
+//   3. MAIL_ADDRESS_SEED env static fallback — for dev / before Pro
+//      ships the endpoint
+//
+// Cache miss → async refresh; first call to resolveMailAddress for an
+// unseen owner returns null but kicks off the lookup; next reconcile
+// (30s later) sees the cached value and exposes the tool. This avoids
+// blocking the reconcile loop on Pro round-trips.
+const mailAddressCache = new Map(); // windyId → { addr, ts }
+const MAIL_CACHE_MS = 5 * 60 * 1000;
+const PRO_ACCOUNT_URL = (process.env.WINDY_ACCOUNT_SERVER_URL || 'https://account.windyword.ai').replace(/\/$/, '');
+const CHAT_SERVICE_TOKEN = process.env.CHAT_SERVICE_TOKEN || '';
+
 (function seedMailAddresses() {
   const raw = process.env.MAIL_ADDRESS_SEED || '';
   for (const pair of raw.split(',')) {
     const [windyId, addr] = pair.split('=').map(s => (s || '').trim());
-    if (windyId && addr) mailAddressCache.set(windyId, addr);
+    if (windyId && addr) mailAddressCache.set(windyId, { addr, ts: Date.now() });
   }
   if (mailAddressCache.size) {
     console.log(`[roster] seeded ${mailAddressCache.size} mail addresses from env`);
   }
 })();
+
+async function refreshMailAddressFromPro(ownerWindyId) {
+  if (!CHAT_SERVICE_TOKEN || !ownerWindyId) return null;
+  try {
+    const res = await fetch(`${PRO_ACCOUNT_URL}/api/v1/identity/mail/address-by-windy-id`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Service-Token': CHAT_SERVICE_TOKEN,
+      },
+      body: JSON.stringify({ windy_identity_id: ownerWindyId }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.status === 404) {
+      // Cache the negative result briefly so we don't hammer Pro for
+      // unprovisioned users every reconcile.
+      mailAddressCache.set(ownerWindyId, { addr: null, ts: Date.now() });
+      return null;
+    }
+    if (!res.ok) {
+      console.warn(`[roster] Pro mail-lookup ${res.status} for ${ownerWindyId}`);
+      return null;
+    }
+    const data = await res.json();
+    if (data?.mail_address) {
+      mailAddressCache.set(ownerWindyId, { addr: data.mail_address, ts: Date.now() });
+      return data.mail_address;
+    }
+    return null;
+  } catch (err) {
+    console.warn(`[roster] Pro mail-lookup failed for ${ownerWindyId}: ${err.message}`);
+    return null;
+  }
+}
+
 function resolveMailAddress(ownerWindyId) {
   if (!ownerWindyId) return null;
-  return mailAddressCache.get(ownerWindyId) || null;
+  const cached = mailAddressCache.get(ownerWindyId);
+  if (cached && Date.now() - cached.ts < MAIL_CACHE_MS) return cached.addr;
+  // Stale or absent — kick off a background refresh, return whatever
+  // we last knew (or null). The next reconcile will see the updated
+  // value once the Pro call returns.
+  refreshMailAddressFromPro(ownerWindyId).catch(() => {});
+  return cached ? cached.addr : null;
 }
 
 function reconcile() {
