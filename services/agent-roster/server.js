@@ -23,6 +23,7 @@ const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
 const { AgentRunner } = require('./lib/agent-runner');
+const { snapshot: quotaSnapshot } = require('./lib/quota');
 
 const PORT = parseInt(process.env.PORT || '8106', 10);
 const ONBOARDING_DB_PATH = process.env.ONBOARDING_DB_PATH
@@ -249,6 +250,7 @@ app.get('/status', (_req, res) => {
     roster_size: roster.size,
     homeserver: HOMESERVER,
     runners,
+    quotas: quotaSnapshot(),
   });
 });
 
