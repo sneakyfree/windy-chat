@@ -1,0 +1,212 @@
+/**
+ * Per-agent Matrix listener. One instance per hatched agent.
+ *
+ * Responsibilities:
+ *   1. Long-poll Synapse's /sync endpoint as the agent's Matrix user
+ *   2. On incoming m.room.message events from non-self senders:
+ *      - generate a reply via the LLM module
+ *      - send the reply back to the room
+ *      - emit typing indicators while drafting
+ *   3. Survive transient failures with exponential backoff
+ *
+ * Why this approach (vs matrix-js-sdk / matrix-bot-sdk):
+ *   - Zero dependencies. The /sync REST contract is stable and tiny.
+ *   - No browser-globals polyfilling needed (matrix-js-sdk wants
+ *     `localStorage`, `IndexedDB`, `crypto.subtle` etc. in Node).
+ *   - Easier to reason about under load — one fetch loop per agent,
+ *     all running in the same asyncio event loop via node's libuv.
+ *
+ * The /sync long-poll holds for 30s; on each iteration we walk all
+ * joined rooms and dispatch new m.room.message events newer than
+ * INITIAL_SYNC_AGE_SECS so we don't backlog-spam old conversations on
+ * cold start.
+ */
+
+const { generateReply } = require('./llm');
+
+const INITIAL_SYNC_AGE_SECS = 30;
+const SYNC_TIMEOUT_MS = 30000;
+const BACKOFF_MAX_MS = 60000;
+
+function newTxnId() {
+  return `windy-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+class AgentRunner {
+  constructor({ matrixUserId, accessToken, agentName, ownerWindyId, homeserver }) {
+    this.matrixUserId = matrixUserId;
+    this.accessToken = accessToken;
+    this.agentName = agentName;
+    this.ownerWindyId = ownerWindyId;
+    // Strip any trailing slash; the /_matrix paths assume bare host.
+    this.homeserver = (homeserver || 'https://chat.windychat.ai').replace(/\/$/, '');
+    this.since = null;
+    this.startedAt = Date.now();
+    this.running = false;
+    this.lastError = null;
+    this.lastEventAt = null;
+    this.repliesSent = 0;
+    this._loopPromise = null;
+  }
+
+  start() {
+    if (this.running) return;
+    this.running = true;
+    this._loopPromise = this._loop().catch(err => {
+      console.error(`[runner ${this.matrixUserId}] fatal loop error:`, err.message);
+      this.running = false;
+    });
+  }
+
+  stop() {
+    this.running = false;
+  }
+
+  async _request(path, options = {}) {
+    const url = `${this.homeserver}${path}`;
+    const res = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.accessToken}`,
+        ...(options.headers || {}),
+      },
+    });
+    return res;
+  }
+
+  async _sendMessage(roomId, body) {
+    const txnId = newTxnId();
+    const path = `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`;
+    const res = await this._request(path, {
+      method: 'PUT',
+      body: JSON.stringify({ msgtype: 'm.text', body, windy_original: true }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`send ${res.status}: ${detail.slice(0, 200)}`);
+    }
+    this.repliesSent += 1;
+  }
+
+  async _setTyping(roomId, isTyping) {
+    try {
+      const path = `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/typing/${encodeURIComponent(this.matrixUserId)}`;
+      await this._request(path, {
+        method: 'PUT',
+        body: JSON.stringify({ typing: isTyping, timeout: isTyping ? 15000 : 0 }),
+      });
+    } catch (_e) { /* non-fatal */ }
+  }
+
+  async _handleMessage(roomId, event) {
+    if (event.sender === this.matrixUserId) return;
+    const body = event.content?.body;
+    if (!body || typeof body !== 'string') return;
+    // Ignore old events on first cold start so we don't reply to a week
+    // of backlog with a flurry.
+    const ageSecs = (Date.now() - (event.origin_server_ts || 0)) / 1000;
+    if (ageSecs > INITIAL_SYNC_AGE_SECS) return;
+
+    console.log(`[runner ${this.matrixUserId}] msg from ${event.sender} in ${roomId}: ${body.slice(0, 80)}`);
+    this.lastEventAt = new Date().toISOString();
+
+    await this._setTyping(roomId, true);
+    let replyText;
+    try {
+      const result = await generateReply({
+        userText: body,
+        agentName: this.agentName,
+        ownerDisplayName: null, // Future: look up from user_profiles
+      });
+      replyText = result.text;
+    } catch (err) {
+      console.error(`[runner ${this.matrixUserId}] LLM error: ${err.message}`);
+      this.lastError = err.message;
+      replyText = "I hit a snag generating a reply — try again in a moment.";
+    }
+    try {
+      await this._sendMessage(roomId, replyText);
+    } catch (err) {
+      console.error(`[runner ${this.matrixUserId}] send failed: ${err.message}`);
+      this.lastError = err.message;
+    } finally {
+      await this._setTyping(roomId, false);
+    }
+  }
+
+  async _syncOnce() {
+    const params = new URLSearchParams();
+    params.set('timeout', String(SYNC_TIMEOUT_MS));
+    if (this.since) params.set('since', this.since);
+    // First sync: tiny filter so we don't pull megabytes of history.
+    if (!this.since) {
+      params.set('filter', JSON.stringify({ room: { timeline: { limit: 1 } } }));
+    }
+    const res = await this._request(`/_matrix/client/v3/sync?${params.toString()}`, { method: 'GET' });
+    if (!res.ok) {
+      throw new Error(`sync ${res.status}`);
+    }
+    const data = await res.json();
+    this.since = data.next_batch;
+
+    // Walk joined rooms looking for new messages.
+    const joinRooms = data.rooms?.join || {};
+    for (const [roomId, room] of Object.entries(joinRooms)) {
+      const events = room.timeline?.events || [];
+      for (const event of events) {
+        if (event.type !== 'm.room.message') continue;
+        try {
+          await this._handleMessage(roomId, event);
+        } catch (err) {
+          console.error(`[runner ${this.matrixUserId}] handleMessage error: ${err.message}`);
+        }
+      }
+    }
+
+    // Auto-join invite rooms so the agent can be added to new DM rooms
+    // post-hatch (e.g., the owner re-invites it after a leave).
+    const inviteRooms = data.rooms?.invite || {};
+    for (const roomId of Object.keys(inviteRooms)) {
+      try {
+        await this._request(`/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/join`, {
+          method: 'POST',
+          body: '{}',
+        });
+        console.log(`[runner ${this.matrixUserId}] auto-joined invite room ${roomId}`);
+      } catch (err) {
+        console.warn(`[runner ${this.matrixUserId}] auto-join ${roomId} failed: ${err.message}`);
+      }
+    }
+  }
+
+  async _loop() {
+    let backoffMs = 1000;
+    while (this.running) {
+      try {
+        await this._syncOnce();
+        backoffMs = 1000; // reset on success
+      } catch (err) {
+        this.lastError = err.message;
+        console.warn(`[runner ${this.matrixUserId}] sync error: ${err.message}; backoff ${backoffMs}ms`);
+        await new Promise(r => setTimeout(r, backoffMs));
+        backoffMs = Math.min(backoffMs * 2, BACKOFF_MAX_MS);
+      }
+    }
+  }
+
+  status() {
+    return {
+      matrixUserId: this.matrixUserId,
+      agentName: this.agentName,
+      ownerWindyId: this.ownerWindyId,
+      running: this.running,
+      startedAt: new Date(this.startedAt).toISOString(),
+      lastEventAt: this.lastEventAt,
+      lastError: this.lastError,
+      repliesSent: this.repliesSent,
+    };
+  }
+}
+
+module.exports = { AgentRunner };
