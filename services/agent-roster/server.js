@@ -53,6 +53,22 @@ function loadAgents(db) {
   `).all();
 }
 
+/**
+ * Resolve the owner's Matrix ID from chat-onboarding's user_profiles.
+ * Returns null if the owner hasn't activated their own chat yet (which
+ * means we can't back-invite them yet — they'll get the invite when
+ * they next come through the activate-chat flow, or we'll catch them
+ * on the next reconcile cycle after they do).
+ */
+function resolveOwnerMatrixId(db, ownerWindyId) {
+  const row = db.prepare(
+    'SELECT chat_user_id FROM user_profiles WHERE windy_identity_id = ?',
+  ).get(ownerWindyId);
+  if (!row || !row.chat_user_id) return null;
+  const homeServer = (process.env.SYNAPSE_SERVER_NAME || 'chat.windychat.ai').trim();
+  return `@${row.chat_user_id}:${homeServer}`;
+}
+
 function reconcile() {
   let db;
   try {
@@ -67,9 +83,24 @@ function reconcile() {
   } finally {
     db.close();
   }
+  // Pre-resolve all owner Matrix IDs in one pass so we can pass them
+  // through to first-start back-invites without re-opening the DB per row.
+  const ownerMxidByWindyId = new Map();
+  for (const a of agents) {
+    if (ownerMxidByWindyId.has(a.owner_windy_id)) continue;
+    ownerMxidByWindyId.set(a.owner_windy_id, resolveOwnerMatrixId(db, a.owner_windy_id));
+  }
+
   let added = 0;
   for (const a of agents) {
-    if (roster.has(a.agent_matrix_id)) continue;
+    const ownerMxid = ownerMxidByWindyId.get(a.owner_windy_id);
+    if (roster.has(a.agent_matrix_id)) {
+      // Re-attempt back-invite on each reconcile — cheap and self-heals
+      // when the owner activates chat mid-session.
+      const existing = roster.get(a.agent_matrix_id);
+      if (ownerMxid) existing._backInviteOwner(ownerMxid).catch(() => {});
+      continue;
+    }
     const runner = new AgentRunner({
       matrixUserId: a.agent_matrix_id,
       accessToken: a.access_token,
@@ -81,6 +112,9 @@ function reconcile() {
     roster.set(a.agent_matrix_id, runner);
     added += 1;
     console.log(`[roster] started runner for ${a.agent_matrix_id} (${a.agent_name})`);
+    if (ownerMxid) {
+      runner._backInviteOwner(ownerMxid).catch(() => {});
+    }
   }
   if (added > 0) {
     console.log(`[roster] reconcile: +${added}, total=${roster.size}`);

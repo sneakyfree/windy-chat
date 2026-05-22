@@ -58,6 +58,57 @@ class AgentRunner {
     });
   }
 
+  /**
+   * Hatch-race recovery. If the operator's Matrix account didn't exist when
+   * this agent hatched, the DM room was created by the agent with no invitee
+   * (the agent's room ends up as a 1-member room — just the agent). Once
+   * the operator provisions their own Matrix user, nothing currently
+   * back-invites them; the seedPendingAgentDMs path in onboarding only
+   * fires if welcomed_at is null, which it usually isn't post-hatch.
+   *
+   * This method, called once per startup, finds any joined rooms where the
+   * agent is the only member and the operator's Matrix ID is resolvable,
+   * and invites the operator. Idempotent — if already in the room, the
+   * Synapse invite returns 400 M_FORBIDDEN which we swallow.
+   */
+  async _backInviteOwner(ownerMatrixId) {
+    if (!ownerMatrixId) return;
+    try {
+      // List joined rooms; for each, check member count. If we're the only
+      // member, invite the owner.
+      const res = await this._request('/_matrix/client/v3/joined_rooms', { method: 'GET' });
+      if (!res.ok) return;
+      const data = await res.json();
+      const rooms = data.joined_rooms || [];
+      for (const roomId of rooms) {
+        try {
+          const mRes = await this._request(
+            `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/joined_members`,
+            { method: 'GET' },
+          );
+          if (!mRes.ok) continue;
+          const mData = await mRes.json();
+          const memberIds = Object.keys(mData.joined || {});
+          if (memberIds.length === 1 && memberIds[0] === this.matrixUserId) {
+            // Solo room — invite the owner.
+            const inviteRes = await this._request(
+              `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/invite`,
+              {
+                method: 'POST',
+                body: JSON.stringify({ user_id: ownerMatrixId }),
+              },
+            );
+            if (inviteRes.ok) {
+              console.log(`[runner ${this.matrixUserId}] back-invited ${ownerMatrixId} to solo room ${roomId}`);
+            }
+          }
+        } catch (_e) { /* per-room non-fatal */ }
+      }
+    } catch (err) {
+      console.warn(`[runner ${this.matrixUserId}] back-invite scan failed: ${err.message}`);
+    }
+  }
+
   stop() {
     this.running = false;
   }
