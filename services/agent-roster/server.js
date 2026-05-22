@@ -78,20 +78,21 @@ function reconcile() {
     return;
   }
   let agents;
+  // Pre-resolve owner Matrix IDs from the SAME open db handle so we
+  // don't fight WAL snapshot drift mid-cycle. Close after both reads.
+  const ownerMxidByWindyId = new Map();
   try {
     agents = loadAgents(db);
+    for (const a of agents) {
+      if (ownerMxidByWindyId.has(a.owner_windy_id)) continue;
+      ownerMxidByWindyId.set(a.owner_windy_id, resolveOwnerMatrixId(db, a.owner_windy_id));
+    }
   } finally {
     db.close();
   }
-  // Pre-resolve all owner Matrix IDs in one pass so we can pass them
-  // through to first-start back-invites without re-opening the DB per row.
-  const ownerMxidByWindyId = new Map();
-  for (const a of agents) {
-    if (ownerMxidByWindyId.has(a.owner_windy_id)) continue;
-    ownerMxidByWindyId.set(a.owner_windy_id, resolveOwnerMatrixId(db, a.owner_windy_id));
-  }
 
   let added = 0;
+  if (!agents) return;
   for (const a of agents) {
     const ownerMxid = ownerMxidByWindyId.get(a.owner_windy_id);
     if (roster.has(a.agent_matrix_id)) {
