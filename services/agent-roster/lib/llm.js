@@ -44,23 +44,28 @@ async function callAnthropic(messages, systemPrompt) {
   return data.content?.[0]?.text || null;
 }
 
-async function callGroq(messages, systemPrompt) {
+async function callGroq(messages, systemPrompt, tools) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return null;
+  const body = {
+    model: 'llama-3.3-70b-versatile',
+    max_tokens: 512,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...messages,
+    ],
+  };
+  if (tools && tools.length) {
+    body.tools = tools;
+    body.tool_choice = 'auto';
+  }
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      max_tokens: 512,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...messages,
-      ],
-    }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(20000),
   });
   if (!res.ok) {
@@ -68,54 +73,84 @@ async function callGroq(messages, systemPrompt) {
     throw new Error(`groq ${res.status}: ${detail.slice(0, 200)}`);
   }
   const data = await res.json();
-  return data.choices?.[0]?.message?.content || null;
+  const msg = data.choices?.[0]?.message;
+  // Return the full message object so the caller can inspect tool_calls.
+  // Groq's OpenAI-shape includes role/content/tool_calls.
+  return msg || null;
+}
+
+function buildSystemPrompt({ agentName, ownerDisplayName, hasTools }) {
+  const base = `${DEFAULT_SYSTEM_PROMPT}
+
+Your name is ${agentName || 'your Windy Fly agent'}. The person messaging you is ${ownerDisplayName || 'your owner'}. You remember the conversation so far; refer back to earlier messages naturally when helpful.`;
+  if (!hasTools) return base;
+  return base + `
+
+You can send emails on behalf of the user via the send_email tool.
+ALWAYS follow this two-step pattern:
+  1. When the user asks to send an email, FIRST reply in chat with a
+     plain-text draft: "Here's what I'll send — To: <addr>, Subject:
+     <subject>, Body: <body>. Send it?" — and DO NOT call any tool.
+  2. ONLY when the user explicitly confirms (e.g. 'yes', 'send it',
+     'looks good') do you call the send_email tool.
+
+If the user gives you an incomplete request (no recipient, missing
+subject), ask for the missing pieces in chat — do not guess.`;
 }
 
 /**
  * Generate a reply.
  *
  * @param {Object} opts
- * @param {Array<{role:'user'|'assistant', content:string}>} opts.history
- *   Conversation history with the current user turn as the LAST element.
- *   The agent runner pulls this from Matrix /messages and converts.
- * @param {string} opts.agentName — agent's display name (personalises system prompt)
- * @param {string} opts.ownerDisplayName — owner's display name (if known)
+ * @param {Array<{role,content,tool_call_id?,name?}>} opts.history — chat history
+ * @param {string} opts.agentName
+ * @param {string} opts.ownerDisplayName
+ * @param {Array} opts.tools — OpenAI-shaped tool definitions (optional)
  *
- * Returns { text, provider }. Throws in production if every provider fails.
+ * Returns the full LLM message: { role:'assistant', content, tool_calls? }.
+ * The runner inspects tool_calls to decide whether to execute side-effects.
  */
-async function generateReply({ history, agentName, ownerDisplayName }) {
-  const systemPrompt = `${DEFAULT_SYSTEM_PROMPT}
+async function generateReply({ history, agentName, ownerDisplayName, tools }) {
+  const systemPrompt = buildSystemPrompt({
+    agentName,
+    ownerDisplayName,
+    hasTools: !!(tools && tools.length),
+  });
 
-Your name is ${agentName || 'your Windy Fly agent'}. The person messaging you is ${ownerDisplayName || 'your owner'}. You remember the conversation so far; refer back to earlier messages naturally when helpful.`;
-
-  // Convert history to the standard chat-completions shape.
-  // Anthropic API takes its own messages array; Groq takes OpenAI-style.
-  // Both share role + content; trim to last 10 turns for token budget.
+  // Trim to last 10 turns for token budget.
   const trimmed = history.slice(-10);
 
-  // Anthropic (preferred when API key is sk-ant-api03)
-  try {
-    const reply = await callAnthropic(trimmed, systemPrompt);
-    if (reply) return { text: reply, provider: 'anthropic' };
-  } catch (err) {
-    console.warn(`[llm] anthropic failed: ${err.message}`);
+  // Anthropic doesn't share OpenAI's tool schema; skip Anthropic when tools
+  // are required and fall through to Groq. (BYOM with Anthropic native
+  // tool-calling lands when sk-ant-api03 keys land.)
+  if (!tools || !tools.length) {
+    try {
+      const reply = await callAnthropic(trimmed, systemPrompt);
+      if (reply) {
+        return { role: 'assistant', content: reply, provider: 'anthropic' };
+      }
+    } catch (err) {
+      console.warn(`[llm] anthropic failed: ${err.message}`);
+    }
   }
 
-  // Groq fallback (default workhorse)
+  // Groq with optional tools
   try {
-    const reply = await callGroq(trimmed, systemPrompt);
-    if (reply) return { text: reply, provider: 'groq' };
+    const msg = await callGroq(trimmed, systemPrompt, tools);
+    if (msg) {
+      return { ...msg, provider: 'groq' };
+    }
   } catch (err) {
     console.warn(`[llm] groq failed: ${err.message}`);
   }
 
-  // Stub — only acceptable outside production
   if (process.env.NODE_ENV === 'production') {
     throw new Error('No LLM provider configured (ANTHROPIC_API_KEY / GROQ_API_KEY)');
   }
   const last = trimmed[trimmed.length - 1]?.content || '';
   return {
-    text: `(dev stub) Heard: "${last.slice(0, 100)}". Configure an LLM key to get real responses.`,
+    role: 'assistant',
+    content: `(dev stub) Heard: "${last.slice(0, 100)}". Configure an LLM key to get real responses.`,
     provider: 'stub',
   };
 }

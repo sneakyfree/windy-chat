@@ -473,8 +473,16 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       ONBOARDING_DB_PATH: /onboarding-data/onboarding.db
       SYNAPSE_HOMESERVER: http://synapse:8008
+      SYNAPSE_SERVER_NAME: ${SYNAPSE_SERVER_NAME:-chat.windychat.ai}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
+      # Day-5 mail tool: Resend SMTP relay token (windymail.ai verified
+      # sending domain). Agents send "from" the operator's windymail.ai
+      # address via this relay until windy-mail's delegation engine ships.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      # Seeded owner → mail-address map until Pro exposes a lookup
+      # endpoint. Comma-separated `<windy_id>=<addr>`.
+      MAIL_ADDRESS_SEED: ${MAIL_ADDRESS_SEED:-}
       RECONCILE_INTERVAL_MS: ${RECONCILE_INTERVAL_MS:-30000}
     depends_on:
       onboarding:

@@ -54,11 +54,13 @@ function loadAgents(db) {
 }
 
 /**
- * Resolve the owner's Matrix ID from chat-onboarding's user_profiles.
- * Returns null if the owner hasn't activated their own chat yet (which
- * means we can't back-invite them yet — they'll get the invite when
- * they next come through the activate-chat flow, or we'll catch them
- * on the next reconcile cycle after they do).
+ * Resolve the owner's full context for an agent: Matrix ID + display
+ * name + mail address (if provisioned).
+ *
+ * Matrix ID + display name come from chat-onboarding's user_profiles
+ * (this DB). Mail address comes from Pro account-server's
+ * /api/v1/identity/ecosystem-status — we cache it in-memory per
+ * windy_identity_id to avoid hammering Pro on every reconcile.
  */
 function resolveOwnerMatrixId(db, ownerWindyId) {
   const row = db.prepare(
@@ -67,6 +69,35 @@ function resolveOwnerMatrixId(db, ownerWindyId) {
   if (!row || !row.chat_user_id) return null;
   const homeServer = (process.env.SYNAPSE_SERVER_NAME || 'chat.windychat.ai').trim();
   return `@${row.chat_user_id}:${homeServer}`;
+}
+
+function resolveOwnerDisplay(db, ownerWindyId) {
+  const row = db.prepare(
+    'SELECT display_name FROM user_profiles WHERE windy_identity_id = ?',
+  ).get(ownerWindyId);
+  return row?.display_name || null;
+}
+
+// Per-windy_identity_id cache for mail address. Static seeds via
+// MAIL_ADDRESS_SEED env (comma-separated `<windy_id>=<addr>`) so we
+// can light up the mail tool for known operators without depending
+// on a new Pro endpoint. v0.2 will add a service-token Pro lookup
+// (POST /api/v1/identity/mail/address-by-windy-id) so newly-
+// provisioned users light up automatically.
+const mailAddressCache = new Map();
+(function seedMailAddresses() {
+  const raw = process.env.MAIL_ADDRESS_SEED || '';
+  for (const pair of raw.split(',')) {
+    const [windyId, addr] = pair.split('=').map(s => (s || '').trim());
+    if (windyId && addr) mailAddressCache.set(windyId, addr);
+  }
+  if (mailAddressCache.size) {
+    console.log(`[roster] seeded ${mailAddressCache.size} mail addresses from env`);
+  }
+})();
+function resolveMailAddress(ownerWindyId) {
+  if (!ownerWindyId) return null;
+  return mailAddressCache.get(ownerWindyId) || null;
 }
 
 function reconcile() {
@@ -78,14 +109,16 @@ function reconcile() {
     return;
   }
   let agents;
-  // Pre-resolve owner Matrix IDs from the SAME open db handle so we
-  // don't fight WAL snapshot drift mid-cycle. Close after both reads.
-  const ownerMxidByWindyId = new Map();
+  const ownerCtxByWindyId = new Map();
   try {
     agents = loadAgents(db);
     for (const a of agents) {
-      if (ownerMxidByWindyId.has(a.owner_windy_id)) continue;
-      ownerMxidByWindyId.set(a.owner_windy_id, resolveOwnerMatrixId(db, a.owner_windy_id));
+      if (ownerCtxByWindyId.has(a.owner_windy_id)) continue;
+      ownerCtxByWindyId.set(a.owner_windy_id, {
+        matrixId: resolveOwnerMatrixId(db, a.owner_windy_id),
+        displayName: resolveOwnerDisplay(db, a.owner_windy_id),
+        mailAddress: resolveMailAddress(a.owner_windy_id),
+      });
     }
   } finally {
     db.close();
@@ -94,12 +127,16 @@ function reconcile() {
   let added = 0;
   if (!agents) return;
   for (const a of agents) {
-    const ownerMxid = ownerMxidByWindyId.get(a.owner_windy_id);
+    const ctx = ownerCtxByWindyId.get(a.owner_windy_id) || {};
     if (roster.has(a.agent_matrix_id)) {
-      // Re-attempt back-invite on each reconcile — cheap and self-heals
-      // when the owner activates chat mid-session.
+      // Reconcile: refresh owner context (mail may have just been
+      // seeded) and re-attempt back-invite.
       const existing = roster.get(a.agent_matrix_id);
-      if (ownerMxid) existing._backInviteOwner(ownerMxid).catch(() => {});
+      existing.updateOwnerContext({
+        displayName: ctx.displayName,
+        mailAddress: ctx.mailAddress,
+      });
+      if (ctx.matrixId) existing._backInviteOwner(ctx.matrixId).catch(() => {});
       continue;
     }
     const runner = new AgentRunner({
@@ -108,13 +145,17 @@ function reconcile() {
       agentName: a.agent_name,
       ownerWindyId: a.owner_windy_id,
       homeserver: HOMESERVER,
+      ownerContext: {
+        displayName: ctx.displayName,
+        mailAddress: ctx.mailAddress,
+      },
     });
     runner.start();
     roster.set(a.agent_matrix_id, runner);
     added += 1;
-    console.log(`[roster] started runner for ${a.agent_matrix_id} (${a.agent_name})`);
-    if (ownerMxid) {
-      runner._backInviteOwner(ownerMxid).catch(() => {});
+    console.log(`[roster] started runner for ${a.agent_matrix_id} (${a.agent_name})${ctx.mailAddress ? ' [mail:on]' : ''}`);
+    if (ctx.matrixId) {
+      runner._backInviteOwner(ctx.matrixId).catch(() => {});
     }
   }
   if (added > 0) {

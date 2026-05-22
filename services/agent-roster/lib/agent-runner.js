@@ -23,6 +23,7 @@
  */
 
 const { generateReply } = require('./llm');
+const { TOOLS, executeTool } = require('./tools');
 
 const INITIAL_SYNC_AGE_SECS = 30;
 const SYNC_TIMEOUT_MS = 30000;
@@ -33,11 +34,17 @@ function newTxnId() {
 }
 
 class AgentRunner {
-  constructor({ matrixUserId, accessToken, agentName, ownerWindyId, homeserver }) {
+  constructor({ matrixUserId, accessToken, agentName, ownerWindyId, homeserver, ownerContext }) {
     this.matrixUserId = matrixUserId;
     this.accessToken = accessToken;
     this.agentName = agentName;
     this.ownerWindyId = ownerWindyId;
+    // ownerContext is { mailAddress, displayName } — provided by the
+    // roster so the agent can act ON BEHALF OF the operator (send mail
+    // from their address, address them by name in replies). May be
+    // null on cold-start before the owner activates chat; in that case
+    // tool calls fall back to a friendly "set up Mail first" reply.
+    this.ownerContext = ownerContext || {};
     // Strip any trailing slash; the /_matrix paths assume bare host.
     this.homeserver = (homeserver || 'https://chat.windychat.ai').replace(/\/$/, '');
     this.since = null;
@@ -46,7 +53,14 @@ class AgentRunner {
     this.lastError = null;
     this.lastEventAt = null;
     this.repliesSent = 0;
+    this.toolCallsExecuted = 0;
     this._loopPromise = null;
+  }
+
+  /** Update owner context (mailAddress + displayName) — called by the
+   *  roster on reconcile so newly-activated mailboxes light up live. */
+  updateOwnerContext(ctx) {
+    this.ownerContext = { ...this.ownerContext, ...ctx };
   }
 
   start() {
@@ -200,10 +214,8 @@ class AgentRunner {
     this.lastEventAt = new Date().toISOString();
 
     await this._setTyping(roomId, true);
-    let replyText;
     try {
-      // Pull conversation memory from Matrix /messages. Includes the
-      // just-arrived event because /sync delivers AND /messages persists.
+      // Pull conversation memory from Matrix /messages.
       const history = await this._fetchHistory(roomId);
       // Defensive: if history doesn't end with the current message
       // (timing race between sync + messages), append it.
@@ -212,22 +224,71 @@ class AgentRunner {
         history.push({ role: 'user', content: body });
       }
 
+      // Tool calls — only expose tools if the operator has at least a
+      // mail address configured. Otherwise the LLM might try to send
+      // and fail; better to disable the capability and reply honestly.
+      const toolsAvailable = !!this.ownerContext?.mailAddress;
+      const tools = toolsAvailable ? TOOLS : null;
+
       const result = await generateReply({
         history,
         agentName: this.agentName,
-        ownerDisplayName: null, // Future: look up from user_profiles
+        ownerDisplayName: this.ownerContext?.displayName || null,
+        tools,
       });
-      replyText = result.text;
+
+      // If the LLM emitted tool_calls, execute them in order and
+      // surface results back to the user. We keep it simple — one
+      // round of tool execution per inbound message; no agent-loop
+      // recursion. This matches the always-confirm grandma UX:
+      // confirmation is its own turn, the actual send is the next.
+      const toolCalls = result.tool_calls || [];
+      if (toolCalls.length > 0) {
+        // Send the assistant's textual reply first (if any), THEN
+        // execute each tool call and append its result as a follow-up
+        // message. This keeps the conversation transcript readable.
+        if (result.content && result.content.trim()) {
+          await this._sendMessage(roomId, result.content);
+        }
+        for (const call of toolCalls) {
+          const name = call.function?.name;
+          let args;
+          try {
+            args = JSON.parse(call.function?.arguments || '{}');
+          } catch {
+            await this._sendMessage(roomId, `I tried to run the ${name} tool but the arguments were malformed — sorry. Try asking me again.`);
+            continue;
+          }
+          console.log(`[runner ${this.matrixUserId}] tool ${name}(${JSON.stringify(args).slice(0, 200)})`);
+          this.toolCallsExecuted += 1;
+          const out = await executeTool(name, args, {
+            ownerMailAddress: this.ownerContext?.mailAddress,
+            ownerDisplayName: this.ownerContext?.displayName,
+            agentName: this.agentName,
+          });
+          // Surface a grandma-friendly result. Successes are short
+          // confirmations; failures are honest and actionable.
+          if (out.ok) {
+            if (name === 'send_email') {
+              await this._sendMessage(roomId, `Sent ✓ — from ${out.from} to ${args.to}.`);
+            } else {
+              await this._sendMessage(roomId, `Done — ${name} succeeded.`);
+            }
+          } else {
+            await this._sendMessage(roomId, out.error || `Sorry — the ${name} tool failed.`);
+          }
+        }
+      } else {
+        // Plain text reply path
+        const replyText = result.content || "I'm not sure how to respond to that yet.";
+        await this._sendMessage(roomId, replyText);
+      }
     } catch (err) {
       console.error(`[runner ${this.matrixUserId}] LLM error: ${err.message}`);
       this.lastError = err.message;
-      replyText = "I hit a snag generating a reply — try again in a moment.";
-    }
-    try {
-      await this._sendMessage(roomId, replyText);
-    } catch (err) {
-      console.error(`[runner ${this.matrixUserId}] send failed: ${err.message}`);
-      this.lastError = err.message;
+      try {
+        await this._sendMessage(roomId, "I hit a snag generating a reply — try again in a moment.");
+      } catch (_e) { /* fall-through */ }
     } finally {
       await this._setTyping(roomId, false);
     }
