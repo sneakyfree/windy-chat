@@ -102,14 +102,24 @@ export default function App() {
     }
   }, [login]);
 
-  // Check if user arrived from windy go (hatch flow) — skip to agent DM
+  // Deep-link from the Windy Word dashboard's "Open Helper" CTA:
+  // /?agent_room=<roomId>  →  switch to Chat view and auto-select that
+  // room so grandma lands directly in conversation with her agent
+  // instead of in an empty rooms list. The room id is sanitised before
+  // hitting state (Matrix room IDs are !aZ:host shaped).
   useEffect(() => {
+    if (!auth.isLoggedIn) return;
     const params = new URLSearchParams(window.location.search);
     const agentRoom = params.get('agent_room');
-    if (agentRoom && auth.isLoggedIn) {
-      setView('chat');
-      // The ChatPage will pick up the room from the URL param
-    }
+    if (!agentRoom) return;
+    if (!/^![A-Za-z0-9_-]+:[\w.-]+$/.test(agentRoom)) return;
+    setSelectedRoomId(agentRoom);
+    setView('chat');
+    // Strip the param so a future tab-switch doesn't keep snapping
+    // back to this room.
+    const url = new URL(window.location.href);
+    url.searchParams.delete('agent_room');
+    window.history.replaceState(null, '', url.toString());
   }, [auth.isLoggedIn]);
 
   // SSO handoff from the ecosystem dashboard. When a logged-in user
