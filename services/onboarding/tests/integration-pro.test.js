@@ -264,7 +264,9 @@ describe('2. Unified Login Provisioning', () => {
     const r = await request('POST', onboardingUrl, '/api/v1/onboarding/unified-login', {}, auth(token));
     assert.equal(r.status, 201);
     assert.ok(r.body.matrix_user_id);
-    assert.match(r.body.matrix_user_id, /@windy_.*:chat\.windychat\.ai/);
+    // Mail-aligned localpart per services/shared/localpart.js: lowercase
+    // alphanumeric + `._-` only (intersection of Matrix + Mail charsets).
+    assert.match(r.body.matrix_user_id, /^@[a-z0-9._-]+:chat\.windychat\.ai$/);
     assert.equal(r.body.already_existed, false);
     assert.equal(r.body.windy_identity_id, claims.windy_identity_id);
     assert.equal(r.body.display_name, claims.display_name);
@@ -273,10 +275,12 @@ describe('2. Unified Login Provisioning', () => {
     loginResponse = r.body;
   });
 
-  it('2.2 display_name is sanitized in matrix user ID', async () => {
-    assert.ok(loginResponse.chat_user_id.startsWith('windy_'));
-    // Should be lowercase, no special chars
-    assert.match(loginResponse.chat_user_id, /^windy_[a-z0-9._/-]+$/);
+  it('2.2 display_name is sanitized to mail-aligned localpart', async () => {
+    // 'Test Agent Alpha' → mailAlignedLocalpart → 'test.agent.alpha'
+    // (spaces → dots, lowercase, charset-stripped). See
+    // services/shared/localpart.js for the full algorithm.
+    assert.match(loginResponse.chat_user_id, /^[a-z0-9._-]+$/);
+    assert.equal(loginResponse.chat_user_id, 'test.agent.alpha');
   });
 
   it('2.3 onboarding DB was updated with matrix_provisioned = 1', async () => {
@@ -355,9 +359,13 @@ describe('4. DM Room Creation', () => {
   });
 
   it('4.2 agent-room lookup returns the created room', async () => {
+    // agent_user_id in the agent_rooms table is the mail-aligned chat_user_id
+    // (i.e. 'room.agent' for display_name 'Room Agent'), NOT a windy_-prefixed
+    // form. owner_user_id is the JWT `sub` of the owner (room-owner). See
+    // services/onboarding/routes/provision.js around line 920.
     const token = makeHS256Token({ sub: 'lookup-user' });
     const r = await request('GET', onboardingUrl,
-      '/api/v1/onboarding/agent-room?agentId=windy_room_agent&ownerId=room-owner',
+      '/api/v1/onboarding/agent-room?agentId=room.agent&ownerId=room-owner',
       null, auth(token));
     assert.equal(r.status, 200);
     assert.ok(r.body.room_id);
