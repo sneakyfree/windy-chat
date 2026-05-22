@@ -150,6 +150,43 @@ class AgentRunner {
     } catch (_e) { /* non-fatal */ }
   }
 
+  /**
+   * Pull recent room history from Matrix and turn it into the
+   * standard chat-completions shape: alternating user/assistant
+   * messages. Used to give the LLM a memory of the conversation so
+   * it isn't a per-message vending machine.
+   *
+   * We fetch up to limit*2 history events and keep only m.room.message
+   * with msgtype m.text (drop typing/read-receipts/media-with-no-body).
+   * The agent's own past messages become role:assistant; everyone
+   * else becomes role:user (multi-party rooms collapse non-agent
+   * speakers into the user voice — fine for v0 DM-mostly traffic).
+   */
+  async _fetchHistory(roomId, limit = 12) {
+    try {
+      const path = `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/messages?dir=b&limit=${limit * 2}`;
+      const res = await this._request(path, { method: 'GET' });
+      if (!res.ok) return [];
+      const data = await res.json();
+      const chunk = (data.chunk || []).reverse(); // chronological (oldest → newest)
+      const history = [];
+      for (const ev of chunk) {
+        if (ev.type !== 'm.room.message') continue;
+        const body = ev.content?.body;
+        const msgtype = ev.content?.msgtype;
+        if (!body || msgtype !== 'm.text') continue;
+        history.push({
+          role: ev.sender === this.matrixUserId ? 'assistant' : 'user',
+          content: body,
+        });
+      }
+      return history.slice(-limit);
+    } catch (err) {
+      console.warn(`[runner ${this.matrixUserId}] history fetch failed: ${err.message}`);
+      return [];
+    }
+  }
+
   async _handleMessage(roomId, event) {
     if (event.sender === this.matrixUserId) return;
     const body = event.content?.body;
@@ -165,8 +202,18 @@ class AgentRunner {
     await this._setTyping(roomId, true);
     let replyText;
     try {
+      // Pull conversation memory from Matrix /messages. Includes the
+      // just-arrived event because /sync delivers AND /messages persists.
+      const history = await this._fetchHistory(roomId);
+      // Defensive: if history doesn't end with the current message
+      // (timing race between sync + messages), append it.
+      const last = history[history.length - 1];
+      if (!last || last.content !== body) {
+        history.push({ role: 'user', content: body });
+      }
+
       const result = await generateReply({
-        userText: body,
+        history,
         agentName: this.agentName,
         ownerDisplayName: null, // Future: look up from user_profiles
       });
