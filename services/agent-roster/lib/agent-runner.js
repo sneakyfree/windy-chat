@@ -24,6 +24,7 @@
 
 const { generateReply } = require('./llm');
 const { TOOLS, executeTool } = require('./tools');
+const { consumeMessage, consumeMail, quotaMessage } = require('./quota');
 
 const INITIAL_SYNC_AGE_SECS = 30;
 const SYNC_TIMEOUT_MS = 30000;
@@ -213,6 +214,19 @@ class AgentRunner {
     console.log(`[runner ${this.matrixUserId}] msg from ${event.sender} in ${roomId}: ${body.slice(0, 80)}`);
     this.lastEventAt = new Date().toISOString();
 
+    // Daily message-quota check BEFORE the LLM call. If over-budget,
+    // reply with an honest cap message and bail — no LLM cost, no
+    // surprise to the user. Quota is keyed to the OWNER's windy_id
+    // so multi-agent owners share the budget (the human's allowance,
+    // not the agent's).
+    const msgGate = consumeMessage(this.ownerWindyId);
+    if (!msgGate.allowed) {
+      try {
+        await this._sendMessage(roomId, quotaMessage('message', msgGate.resetInHours));
+      } catch (_e) { /* fall-through */ }
+      return;
+    }
+
     await this._setTyping(roomId, true);
     try {
       // Pull conversation memory from Matrix /messages.
@@ -260,6 +274,16 @@ class AgentRunner {
             continue;
           }
           console.log(`[runner ${this.matrixUserId}] tool ${name}(${JSON.stringify(args).slice(0, 200)})`);
+          // Per-tool quota check. Today only send_email has a quota;
+          // other future tools may add their own. Each quota is daily
+          // and per-owner.
+          if (name === 'send_email') {
+            const mailGate = consumeMail(this.ownerWindyId);
+            if (!mailGate.allowed) {
+              await this._sendMessage(roomId, quotaMessage('mail', mailGate.resetInHours));
+              continue;
+            }
+          }
           this.toolCallsExecuted += 1;
           const out = await executeTool(name, args, {
             ownerMailAddress: this.ownerContext?.mailAddress,
