@@ -446,6 +446,60 @@ services:
         limits:
           memory: 256M
 
+  # ── Agent Roster (the multi-tenant Matrix listener) ──
+  # Reads agent_credentials from onboarding's SQLite (shared volume),
+  # spawns one AgentRunner per hatched agent. Each runner long-polls
+  # /sync as the agent's Matrix user and replies via the LLM.
+  # Without this, hatched agents' Matrix accounts are dead mailboxes —
+  # the chat UI looks like ChatGPT but the agent literally can't read
+  # incoming messages.
+  agent-roster:
+    build:
+      context: ./services
+      dockerfile: agent-roster/Dockerfile
+      args:
+        COMMIT_SHA: ${COMMIT_SHA:-}
+        BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
+    container_name: windy-agent-roster
+    ports:
+      - "8106:8106"
+    volumes:
+      # Mount onboarding_data read-only so the roster can see
+      # agent_credentials without risking schema writes from outside the
+      # onboarding service.
+      - onboarding_data:/onboarding-data:ro
+    environment:
+      PORT: 8106
+      NODE_ENV: ${NODE_ENV:-development}
+      ONBOARDING_DB_PATH: /onboarding-data/onboarding.db
+      SYNAPSE_HOMESERVER: http://synapse:8008
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      RECONCILE_INTERVAL_MS: ${RECONCILE_INTERVAL_MS:-30000}
+    depends_on:
+      onboarding:
+        condition: service_healthy
+      synapse:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8106/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          # 1 process, N asyncio fetch loops, ~10 MB per agent
+          # comfortably fits in 256 MB for grandma-launch scale.
+          memory: 256M
+
   # ── Rich Media (K4) — File upload, thumbnails, serving ──
   media:
     build:

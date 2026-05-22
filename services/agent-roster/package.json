@@ -1,0 +1,13 @@
+{
+  "name": "windy-chat-agent-roster",
+  "version": "0.1.0",
+  "description": "Multi-tenant Matrix listener for every hatched Windy Fly agent. Logs in as each agent stored in agent_credentials and responds in their DM rooms.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.5.0",
+    "express": "^4.21.1"
+  }
+}
