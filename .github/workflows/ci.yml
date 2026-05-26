@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.22.0'  # pin: node:test IPC bug (nodejs/node#57135) regressed in 22.22.3
+          node-version: '22'
       - name: Install shared deps
         run: cd services/shared && npm ci
       - name: Install ${{ matrix.service }} deps
@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.22.0'  # pin: node:test IPC bug (nodejs/node#57135) regressed in 22.22.3
+          node-version: '22'
       - name: Install shared deps
         run: cd services/shared && npm ci
       - name: Install deps
@@ -79,7 +79,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.22.0'  # pin: node:test IPC bug (nodejs/node#57135) regressed in 22.22.3
+          node-version: '22'
       - name: Install all deps
         run: |
           cd services/shared && npm ci && cd ..
@@ -102,7 +102,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.22.0'  # pin: node:test IPC bug (nodejs/node#57135) regressed in 22.22.3
+          node-version: '22'
       - name: Install all deps
         run: |
           cd services/shared && npm ci && cd ..
@@ -123,7 +123,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.22.0'  # pin: node:test IPC bug (nodejs/node#57135) regressed in 22.22.3
+          node-version: '22'
       - name: Check for syntax errors (all .js files)
         run: |
           for f in $(find services -name '*.js' -not -path '*/node_modules/*'); do
@@ -137,7 +137,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.22.0'  # pin: node:test IPC bug (nodejs/node#57135) regressed in 22.22.3
+          node-version: '22'
       - name: Install deps
         run: cd web && npm ci
       - name: TypeScript check
