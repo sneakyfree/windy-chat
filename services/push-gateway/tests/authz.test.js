@@ -50,7 +50,15 @@ function startServer() {
   });
 }
 function stopServer() {
-  return new Promise((resolve) => server && server.close(() => resolve()));
+  // closeAllConnections() (Node 18.2+) drops keep-alive sockets so server.close
+  // resolves immediately. Without it, lingering fetch() connections can fire an
+  // async response after the test ends, surfacing as a node:test runner IPC
+  // deserialization error and a flaky CI run.
+  return new Promise((resolve) => {
+    if (!server) return resolve();
+    server.closeAllConnections?.();
+    server.close(() => resolve());
+  });
 }
 
 function jwtFor(claims) {
