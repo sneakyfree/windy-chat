@@ -47,7 +47,10 @@ function stripHtml(str) {
 }
 
 function isValidUserId(val) {
-  return typeof val === 'string' && val.length > 0 && val.length <= 255 && /^[a-zA-Z0-9_-]+$/.test(val);
+  // Mail-aligned localpart charset: lowercase alnum + `._-` (intersection of
+  // Matrix [a-z0-9._=/-] and Mail [a-z0-9._-]). Kept in sync with the
+  // matching validator in routes/provision.js.
+  return typeof val === 'string' && val.length > 0 && val.length <= 255 && /^[a-zA-Z0-9._-]+$/.test(val);
 }
 
 // ── Cleanup expired sessions periodically ──

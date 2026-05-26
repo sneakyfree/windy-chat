@@ -50,7 +50,15 @@ function startServer() {
   });
 }
 function stopServer() {
-  return new Promise((resolve) => server && server.close(() => resolve()));
+  // closeAllConnections() (Node 18.2+) drops keep-alive sockets so server.close
+  // resolves immediately. Without it, lingering fetch() connections can fire an
+  // async response after the test ends, surfacing as a node:test runner IPC
+  // deserialization error and a flaky CI run.
+  return new Promise((resolve) => {
+    if (!server) return resolve();
+    server.closeAllConnections?.();
+    server.close(() => resolve());
+  });
 }
 
 function jwtFor(claims) {
@@ -75,11 +83,16 @@ async function postJson(pathname, body, headers = {}) {
   return { status: res.status, body: json };
 }
 
+// Single top-level lifecycle — two describe blocks below share one server.
+// Two separate before/after pairs (one per describe) consistently trigger a
+// node:test IPC `Unable to deserialize cloned data` failure in GitHub
+// Actions runners — see nodejs/node#57135. Hoisting to a single
+// start/stop pair avoids the race entirely.
+before(startServer);
+after(stopServer);
+
 // ── H-1 ─────────────────────────────────────────────────────────────
 describe('Wave 12 H-1 — /api/v1/chat/push/register binds userId to JWT', { concurrency: false }, () => {
-  before(startServer);
-  after(stopServer);
-
   it('test_push_register_rejects_foreign_userId', async () => {
     const attackerToken = jwtFor({ sub: 'attacker-001', windy_identity_id: 'attacker-001' });
     const { status, body } = await postJson('/api/v1/chat/push/register', {
@@ -166,9 +179,6 @@ describe('Wave 12 H-1 — /api/v1/chat/push/register binds userId to JWT', { con
 
 // ── M-1 ─────────────────────────────────────────────────────────────
 describe('Wave 12 M-1 — /api/v1/chat/push/test requires ownership', { concurrency: false }, () => {
-  before(startServer);
-  after(stopServer);
-
   it('test_push_test_rejects_unowned_pushkey', async () => {
     // victim-m1 registers a pushkey of their own
     const victim = jwtFor({ sub: 'victim-m1', windy_identity_id: 'victim-m1' });
