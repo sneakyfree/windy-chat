@@ -38,13 +38,25 @@ function startServer() {
   });
 }
 function stopServer() {
-  return new Promise((resolve) => server && server.close(() => resolve()));
+  // closeAllConnections() (Node 18.2+) drops keep-alive sockets so server.close
+  // resolves immediately. Without it, lingering fetch() connections can fire an
+  // async response after the test ends, surfacing as a node:test runner IPC
+  // deserialization error and a flaky CI run.
+  return new Promise((resolve) => {
+    if (!server) return resolve();
+    server.closeAllConnections?.();
+    server.close(() => resolve());
+  });
 }
 
 async function postJson(pathname, body, headers = {}) {
   const res = await fetch(`${baseUrl}${pathname}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...headers },
+    // Connection: close prevents undici from holding the socket open after the
+    // response. Combined with server.closeAllConnections() in stopServer, this
+    // eliminates the "asynchronous activity after the test ended" race that
+    // surfaces as a node:test IPC deserialization failure.
+    headers: { 'Content-Type': 'application/json', Connection: 'close', ...headers },
     body: JSON.stringify(body),
   });
   const text = await res.text();
