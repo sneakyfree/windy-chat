@@ -6,9 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "jest --forceExit --detectOpenHandles && bash -c 'for i in 1 2 3 4 5 6 7 8; do echo \"node:test attempt $i — flaky IPC bug per nodejs/node#57135\"; npm run --silent test:integration && exit 0; done; exit 1'",
+    "test": "jest --forceExit --detectOpenHandles && node --test tests/fcm-channels.test.js",
     "test:jest": "jest --forceExit --detectOpenHandles",
-    "test:integration": "node --test --test-concurrency=1 tests/notify.test.js tests/agent-hatched.test.js tests/authz.test.js tests/fcm-channels.test.js"
+    "test:integration": "node --test tests/fcm-channels.test.js"
   },
   "dependencies": {
     "apn": "^2.2.0",
@@ -32,9 +32,6 @@
     },
     "testPathIgnorePatterns": [
       "/node_modules/",
-      "/tests/notify.test.js",
-      "/tests/agent-hatched.test.js",
-      "/tests/authz.test.js",
       "/tests/fcm-channels.test.js"
     ]
   }
