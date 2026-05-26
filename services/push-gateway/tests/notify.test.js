@@ -4,11 +4,13 @@
  * Exercises POST /api/v1/push/notify — the cross-service publish surface
  * used by Mail, Chat homeserver, Clone, Fly, and Code.
  *
- * Run: node --test services/push-gateway/tests/notify.test.js
+ * Run: npx jest tests/notify.test.js
+ *
+ * Migrated from `node --test` to Jest 2026-05-26 to eliminate the IPC
+ * framing flake (Node 22.22.x bug nodejs/node#57135 — keep-alive sockets
+ * writing late stdout that breaks the parent process's V8 deserializer).
  */
 
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -39,9 +41,9 @@ function startServer() {
 }
 function stopServer() {
   // closeAllConnections() (Node 18.2+) drops keep-alive sockets so server.close
-  // resolves immediately. Without it, lingering fetch() connections can fire an
-  // async response after the test ends, surfacing as a node:test runner IPC
-  // deserialization error and a flaky CI run.
+  // resolves immediately. Defensive carryover from the node:test era — Jest's
+  // worker IPC is robust to late stdout, but lingering connections still slow
+  // teardown.
   return new Promise((resolve) => {
     if (!server) return resolve();
     server.closeAllConnections?.();
@@ -52,10 +54,6 @@ function stopServer() {
 async function postJson(pathname, body, headers = {}) {
   const res = await fetch(`${baseUrl}${pathname}`, {
     method: 'POST',
-    // Connection: close prevents undici from holding the socket open after the
-    // response. Combined with server.closeAllConnections() in stopServer, this
-    // eliminates the "asynchronous activity after the test ended" race that
-    // surfaces as a node:test IPC deserialization failure.
     headers: { 'Content-Type': 'application/json', Connection: 'close', ...headers },
     body: JSON.stringify(body),
   });
@@ -65,36 +63,36 @@ async function postJson(pathname, body, headers = {}) {
   return { status: res.status, body: json };
 }
 
-describe('Push Bus: /api/v1/push/notify', { concurrency: false }, () => {
-  before(startServer);
-  after(stopServer);
+describe('Push Bus: /api/v1/push/notify', () => {
+  beforeAll(startServer);
+  afterAll(stopServer);
 
   it('rejects missing bus token', async () => {
     const { status } = await postJson('/api/v1/push/notify', {
       windy_identity_id: 'id_x', event_type: 'chat.new_message', title: 'x',
     });
-    assert.equal(status, 401);
+    expect(status).toBe(401);
   });
 
   it('rejects invalid bus token', async () => {
     const { status } = await postJson('/api/v1/push/notify', {
       windy_identity_id: 'id_x', event_type: 'chat.new_message', title: 'x',
     }, { 'x-push-bus-token': 'wrong' });
-    assert.equal(status, 401);
+    expect(status).toBe(401);
   });
 
   it('rejects missing windy_identity_id', async () => {
     const { status } = await postJson('/api/v1/push/notify', {
       event_type: 'chat.new_message', title: 'x',
     }, { 'x-push-bus-token': BUS_TOKEN });
-    assert.equal(status, 400);
+    expect(status).toBe(400);
   });
 
   it('rejects missing event_type', async () => {
     const { status } = await postJson('/api/v1/push/notify', {
       windy_identity_id: 'id_x', title: 'x',
     }, { 'x-push-bus-token': BUS_TOKEN });
-    assert.equal(status, 400);
+    expect(status).toBe(400);
   });
 
   it('delivers to zero tokens gracefully', async () => {
@@ -104,10 +102,10 @@ describe('Push Bus: /api/v1/push/notify', { concurrency: false }, () => {
       title: 'Grant Whitmer',
       body: 'New message',
     }, { 'x-push-bus-token': BUS_TOKEN });
-    assert.equal(status, 200);
-    assert.equal(body.delivered, 0);
-    assert.deepEqual(body.rejected, []);
-    assert.equal(body.event_type, 'chat.new_message');
+    expect(status).toBe(200);
+    expect(body.delivered).toBe(0);
+    expect(body.rejected).toEqual([]);
+    expect(body.event_type).toBe('chat.new_message');
   });
 
   it('fans out to every registered device for the user', async () => {
@@ -129,9 +127,9 @@ describe('Push Bus: /api/v1/push/notify', { concurrency: false }, () => {
       deep_link: 'windy://mail/inbox',
     }, { 'x-push-bus-token': BUS_TOKEN });
 
-    assert.equal(status, 200);
+    expect(status).toBe(200);
     // FCM + APNs both stub-succeed in test mode (no firebase/apns configured)
-    assert.equal(body.delivered, 2);
-    assert.deepEqual(body.rejected, []);
+    expect(body.delivered).toBe(2);
+    expect(body.rejected).toEqual([]);
   });
 });

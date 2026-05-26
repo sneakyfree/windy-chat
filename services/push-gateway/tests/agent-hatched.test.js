@@ -5,11 +5,13 @@
  * "agent.hatched": the owner's phone should buzz with the agent's avatar
  * and a deep link into the DM room the moment the welcome lands.
  *
- * Run: node --test services/push-gateway/tests/agent-hatched.test.js
+ * Run: npx jest tests/agent-hatched.test.js
+ *
+ * Migrated from `node --test` to Jest 2026-05-26 to eliminate the IPC
+ * framing flake (Node 22.22.x bug nodejs/node#57135 — keep-alive sockets
+ * writing late stdout that breaks the parent process's V8 deserializer).
  */
 
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -39,9 +41,9 @@ function startServer() {
 }
 function stopServer() {
   // closeAllConnections() (Node 18.2+) drops keep-alive sockets so server.close
-  // resolves immediately. Without it, lingering fetch() connections can fire an
-  // async response after the test ends, surfacing as a node:test runner IPC
-  // deserialization error and a flaky CI run.
+  // resolves immediately. Defensive carryover from the node:test era — Jest's
+  // worker IPC is robust to late stdout, but lingering connections still slow
+  // teardown.
   return new Promise((resolve) => {
     if (!server) return resolve();
     server.closeAllConnections?.();
@@ -52,10 +54,6 @@ function stopServer() {
 async function postJson(pathname, body, headers = {}) {
   const res = await fetch(`${baseUrl}${pathname}`, {
     method: 'POST',
-    // Connection: close prevents undici from holding the socket open after the
-    // response. Combined with server.closeAllConnections() in stopServer, this
-    // eliminates the "asynchronous activity after the test ended" race that
-    // surfaces as a node:test IPC deserialization failure.
     headers: { 'Content-Type': 'application/json', Connection: 'close', ...headers },
     body: JSON.stringify(body),
   });
@@ -65,18 +63,18 @@ async function postJson(pathname, body, headers = {}) {
   return { status: res.status, body: json };
 }
 
-describe('Wave 8 — agent.hatched payload shape', { concurrency: false }, () => {
+describe('Wave 8 — agent.hatched payload shape', () => {
   it('defaults deep link to windychat://room/{roomId}', () => {
     const payload = buildAgentHatchedPayload({
       room_id: '!abc123:chat.windychat.ai',
       agent_name: 'Buzz',
       agent_avatar_url: 'https://cdn.windy.ai/buzz.png',
     });
-    assert.equal(payload.eventType, 'agent.hatched');
-    assert.equal(payload.deepLink, 'windychat://room/!abc123:chat.windychat.ai');
-    assert.equal(payload.imageUrl, 'https://cdn.windy.ai/buzz.png');
-    assert.equal(payload.roomId, '!abc123:chat.windychat.ai');
-    assert.equal(payload.agentName, 'Buzz');
+    expect(payload.eventType).toBe('agent.hatched');
+    expect(payload.deepLink).toBe('windychat://room/!abc123:chat.windychat.ai');
+    expect(payload.imageUrl).toBe('https://cdn.windy.ai/buzz.png');
+    expect(payload.roomId).toBe('!abc123:chat.windychat.ai');
+    expect(payload.agentName).toBe('Buzz');
   });
 
   it('provides default title and body when caller omits copy', () => {
@@ -84,8 +82,8 @@ describe('Wave 8 — agent.hatched payload shape', { concurrency: false }, () =>
       room_id: '!r:chat.windychat.ai',
       agent_name: 'Nimbus',
     });
-    assert.match(payload.title, /Nimbus just hatched/);
-    assert.ok(payload.body && payload.body.length > 0);
+    expect(payload.title).toMatch(/Nimbus just hatched/);
+    expect(payload.body && payload.body.length > 0).toBeTruthy();
   });
 
   it('respects caller-supplied copy and deep_link overrides', () => {
@@ -95,15 +93,15 @@ describe('Wave 8 — agent.hatched payload shape', { concurrency: false }, () =>
       deep_link: 'https://windychat.ai/room/abc',
       agent_name: 'Ivy',
     });
-    assert.equal(payload.title, 'Custom title');
-    assert.equal(payload.body, 'Custom body');
-    assert.equal(payload.deepLink, 'https://windychat.ai/room/abc');
+    expect(payload.title).toBe('Custom title');
+    expect(payload.body).toBe('Custom body');
+    expect(payload.deepLink).toBe('https://windychat.ai/room/abc');
   });
 });
 
-describe('Wave 8 — /api/v1/push/notify agent.hatched', { concurrency: false }, () => {
-  before(startServer);
-  after(stopServer);
+describe('Wave 8 — /api/v1/push/notify agent.hatched', () => {
+  beforeAll(startServer);
+  afterAll(stopServer);
 
   it('accepts agent.hatched without an explicit title', async () => {
     const { status, body } = await postJson('/api/v1/push/notify', {
@@ -115,9 +113,9 @@ describe('Wave 8 — /api/v1/push/notify agent.hatched', { concurrency: false },
       passport_number: 'ET-HATCH-001',
     }, { 'x-push-bus-token': BUS_TOKEN });
 
-    assert.equal(status, 200);
-    assert.equal(body.event_type, 'agent.hatched');
-    assert.equal(body.delivered, 0);
+    expect(status).toBe(200);
+    expect(body.event_type).toBe('agent.hatched');
+    expect(body.delivered).toBe(0);
   });
 
   it('fans out agent.hatched to registered devices', async () => {
@@ -140,9 +138,9 @@ describe('Wave 8 — /api/v1/push/notify agent.hatched', { concurrency: false },
       passport_number: 'ET-HATCH-002',
     }, { 'x-push-bus-token': BUS_TOKEN });
 
-    assert.equal(status, 200);
-    assert.equal(body.delivered, 2);
-    assert.deepEqual(body.rejected, []);
+    expect(status).toBe(200);
+    expect(body.delivered).toBe(2);
+    expect(body.rejected).toEqual([]);
   });
 
   it('still requires title for non-agent events', async () => {
@@ -150,6 +148,6 @@ describe('Wave 8 — /api/v1/push/notify agent.hatched', { concurrency: false },
       windy_identity_id: 'id_x',
       event_type: 'chat.new_message',
     }, { 'x-push-bus-token': BUS_TOKEN });
-    assert.equal(status, 400);
+    expect(status).toBe(400);
   });
 });

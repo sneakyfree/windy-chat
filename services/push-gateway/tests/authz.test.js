@@ -15,11 +15,13 @@
  *   oracle. The fix requires the pushkey to be registered against
  *   the caller's own userId before the test push fires.
  *
- * Run: node --test services/push-gateway/tests/authz.test.js
+ * Run: npx jest tests/authz.test.js
+ *
+ * Migrated from `node --test` to Jest 2026-05-26 to eliminate the IPC
+ * framing flake (Node 22.22.x bug nodejs/node#57135 — keep-alive sockets
+ * writing late stdout that breaks the parent process's V8 deserializer).
  */
 
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -51,9 +53,9 @@ function startServer() {
 }
 function stopServer() {
   // closeAllConnections() (Node 18.2+) drops keep-alive sockets so server.close
-  // resolves immediately. Without it, lingering fetch() connections can fire an
-  // async response after the test ends, surfacing as a node:test runner IPC
-  // deserialization error and a flaky CI run.
+  // resolves immediately. Defensive carryover from the node:test era — Jest's
+  // worker IPC is robust to late stdout, but lingering connections still slow
+  // teardown.
   return new Promise((resolve) => {
     if (!server) return resolve();
     server.closeAllConnections?.();
@@ -83,16 +85,15 @@ async function postJson(pathname, body, headers = {}) {
   return { status: res.status, body: json };
 }
 
-// Single top-level lifecycle — two describe blocks below share one server.
-// Two separate before/after pairs (one per describe) consistently trigger a
-// node:test IPC `Unable to deserialize cloned data` failure in GitHub
-// Actions runners — see nodejs/node#57135. Hoisting to a single
-// start/stop pair avoids the race entirely.
-before(startServer);
-after(stopServer);
+// Single top-level lifecycle — the two describe blocks below share one server.
+// In Jest, file-scope beforeAll/afterAll run once per test file and wrap every
+// nested describe, which is the same shape the node:test version was emulating
+// with top-level before/after hooks.
+beforeAll(startServer);
+afterAll(stopServer);
 
 // ── H-1 ─────────────────────────────────────────────────────────────
-describe('Wave 12 H-1 — /api/v1/chat/push/register binds userId to JWT', { concurrency: false }, () => {
+describe('Wave 12 H-1 — /api/v1/chat/push/register binds userId to JWT', () => {
   it('test_push_register_rejects_foreign_userId', async () => {
     const attackerToken = jwtFor({ sub: 'attacker-001', windy_identity_id: 'attacker-001' });
     const { status, body } = await postJson('/api/v1/chat/push/register', {
@@ -102,15 +103,15 @@ describe('Wave 12 H-1 — /api/v1/chat/push/register binds userId to JWT', { con
       deviceName: 'Attacker Device',
     }, { Authorization: `Bearer ${attackerToken}` });
 
-    assert.equal(status, 403);
-    assert.equal(body.error, 'forbidden');
-    assert.match(body.detail, /userId must match authenticated user/);
+    expect(status).toBe(403);
+    expect(body.error).toBe('forbidden');
+    expect(body.detail).toMatch(/userId must match authenticated user/);
 
     // And the DB must not have been written
     const row = pushDb.db
       .prepare('SELECT user_id FROM push_tokens WHERE pushkey = ?')
       .get('h1-stolen-pushkey');
-    assert.equal(row, undefined, 'pushkey must not exist in DB');
+    expect(row).toBeUndefined();
   });
 
   it('accepts a self-registration (userId === sub)', async () => {
@@ -122,13 +123,13 @@ describe('Wave 12 H-1 — /api/v1/chat/push/register binds userId to JWT', { con
       deviceName: 'Grant Pixel',
     }, { Authorization: `Bearer ${token}` });
 
-    assert.equal(status, 201);
-    assert.equal(body.success, true);
+    expect(status).toBe(201);
+    expect(body.success).toBe(true);
 
     const row = pushDb.db
       .prepare('SELECT user_id FROM push_tokens WHERE pushkey = ?')
       .get('h1-self-pushkey');
-    assert.equal(row.user_id, 'grant-001');
+    expect(row.user_id).toBe('grant-001');
   });
 
   it('accepts a registration with the canonical windy_identity_id claim', async () => {
@@ -141,7 +142,7 @@ describe('Wave 12 H-1 — /api/v1/chat/push/register binds userId to JWT', { con
       platform: 'ios',
       deviceName: 'iPhone',
     }, { Authorization: `Bearer ${token}` });
-    assert.equal(status, 201);
+    expect(status).toBe(201);
   });
 
   it('lets the CHAT_API_TOKEN service caller register on behalf of any user', async () => {
@@ -151,8 +152,8 @@ describe('Wave 12 H-1 — /api/v1/chat/push/register binds userId to JWT', { con
       platform: 'web',
       deviceName: 'account-server re-provision',
     }, { Authorization: `Bearer ${process.env.CHAT_API_TOKEN}` });
-    assert.equal(status, 201);
-    assert.equal(body.success, true);
+    expect(status).toBe(201);
+    expect(body.success).toBe(true);
   });
 
   it('test_push_mute_rejects_foreign_userId', async () => {
@@ -162,8 +163,8 @@ describe('Wave 12 H-1 — /api/v1/chat/push/register binds userId to JWT', { con
       roomId: '!room:chat.windychat.ai',
       duration: '1h',
     }, { Authorization: `Bearer ${token}` });
-    assert.equal(status, 403);
-    assert.equal(body.error, 'forbidden');
+    expect(status).toBe(403);
+    expect(body.error).toBe('forbidden');
   });
 
   it('test_push_unmute_rejects_foreign_userId', async () => {
@@ -172,13 +173,13 @@ describe('Wave 12 H-1 — /api/v1/chat/push/register binds userId to JWT', { con
       userId: 'victim-001',
       roomId: '!room:chat.windychat.ai',
     }, { Authorization: `Bearer ${token}` });
-    assert.equal(status, 403);
-    assert.equal(body.error, 'forbidden');
+    expect(status).toBe(403);
+    expect(body.error).toBe('forbidden');
   });
 });
 
 // ── M-1 ─────────────────────────────────────────────────────────────
-describe('Wave 12 M-1 — /api/v1/chat/push/test requires ownership', { concurrency: false }, () => {
+describe('Wave 12 M-1 — /api/v1/chat/push/test requires ownership', () => {
   it('test_push_test_rejects_unowned_pushkey', async () => {
     // victim-m1 registers a pushkey of their own
     const victim = jwtFor({ sub: 'victim-m1', windy_identity_id: 'victim-m1' });
@@ -196,9 +197,9 @@ describe('Wave 12 M-1 — /api/v1/chat/push/test requires ownership', { concurre
       title: 'pwned',
       body: 'oh no',
     }, { Authorization: `Bearer ${attacker}` });
-    assert.equal(status, 403);
-    assert.equal(body.error, 'forbidden');
-    assert.match(body.detail, /pushkey must be registered to authenticated user/);
+    expect(status).toBe(403);
+    expect(body.error).toBe('forbidden');
+    expect(body.detail).toMatch(/pushkey must be registered to authenticated user/);
   });
 
   it('rejects an unknown pushkey', async () => {
@@ -207,8 +208,8 @@ describe('Wave 12 M-1 — /api/v1/chat/push/test requires ownership', { concurre
       pushkey: 'nobody-registered-this',
       platform: 'android',
     }, { Authorization: `Bearer ${attacker}` });
-    assert.equal(status, 403);
-    assert.equal(body.error, 'forbidden');
+    expect(status).toBe(403);
+    expect(body.error).toBe('forbidden');
   });
 
   it('allows a self-test against a pushkey the caller owns', async () => {
@@ -226,8 +227,8 @@ describe('Wave 12 M-1 — /api/v1/chat/push/test requires ownership', { concurre
       title: 'Hello',
       body: 'Test',
     }, { Authorization: `Bearer ${self}` });
-    assert.equal(status, 200);
-    assert.equal(body.success, true);
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
   });
 
   it('rejects a platform that does not match the stored pushkey', async () => {
@@ -242,8 +243,8 @@ describe('Wave 12 M-1 — /api/v1/chat/push/test requires ownership', { concurre
       pushkey: 'm1-platform-pushkey',
       platform: 'ios',
     }, { Authorization: `Bearer ${self}` });
-    assert.equal(status, 400);
-    assert.match(body.error, /platform mismatch/);
+    expect(status).toBe(400);
+    expect(body.error).toMatch(/platform mismatch/);
   });
 
   it('lets the service token exercise any pushkey (ops diagnostic)', async () => {
@@ -258,7 +259,7 @@ describe('Wave 12 M-1 — /api/v1/chat/push/test requires ownership', { concurre
       pushkey: 'm1-service-pushkey',
       platform: 'android',
     }, { Authorization: `Bearer ${process.env.CHAT_API_TOKEN}` });
-    assert.equal(status, 200);
-    assert.equal(body.success, true);
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
   });
 });
