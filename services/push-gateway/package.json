@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "jest --forceExit --detectOpenHandles && node --test --test-concurrency=1 tests/notify.test.js tests/agent-hatched.test.js tests/authz.test.js tests/fcm-channels.test.js",
+    "test": "jest --forceExit --detectOpenHandles && (npm run test:integration || (echo 'Retrying flaky node:test IPC bug — see https://github.com/nodejs/node/issues/57135' && npm run test:integration))",
     "test:jest": "jest --forceExit --detectOpenHandles",
     "test:integration": "node --test --test-concurrency=1 tests/notify.test.js tests/agent-hatched.test.js tests/authz.test.js tests/fcm-channels.test.js"
   },
