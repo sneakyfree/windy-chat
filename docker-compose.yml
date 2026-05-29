@@ -558,6 +558,9 @@ services:
     build:
       context: ./services
       dockerfile: call-history/Dockerfile
+      args:
+        COMMIT_SHA: ${COMMIT_SHA:-}
+        BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
     container_name: windy-call-history
     ports:
       - "8108:8108"
