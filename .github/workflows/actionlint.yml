@@ -1,0 +1,33 @@
+name: actionlint
+
+# Lints GitHub Actions workflow files on any PR/push that touches them.
+# Added 2026-05-29 after a hand-edited deploy.yml shipped with a broken
+# block scalar (a multi-line `python3 -c` that terminated the YAML early) —
+# deploy.yml has no other PR-time gate, so that error would have merged
+# unseen. actionlint catches YAML syntax + shellcheck issues in `run:` steps.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download actionlint
+        id: get
+        run: bash <(curl -sSf https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+      - name: Run actionlint
+        # SHELLCHECK_OPTS excludes two pre-existing *style* warnings in ci.yml
+        # that are intentional idioms (SC2015 best-effort `A && B || C`; SC2044
+        # find-loop over safe inputs). Real errors — invalid YAML, bad uses:,
+        # undefined env/needs, and genuine shellcheck errors — still fail.
+        env:
+          SHELLCHECK_OPTS: --exclude=SC2015,SC2044
+        run: ${{ steps.get.outputs.executable }} -color
