@@ -24,4 +24,10 @@ jobs:
         id: get
         run: bash <(curl -sSf https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
       - name: Run actionlint
+        # SHELLCHECK_OPTS excludes two pre-existing *style* warnings in ci.yml
+        # that are intentional idioms (SC2015 best-effort `A && B || C`; SC2044
+        # find-loop over safe inputs). Real errors — invalid YAML, bad uses:,
+        # undefined env/needs, and genuine shellcheck errors — still fail.
+        env:
+          SHELLCHECK_OPTS: --exclude=SC2015,SC2044
         run: ${{ steps.get.outputs.executable }} -color
