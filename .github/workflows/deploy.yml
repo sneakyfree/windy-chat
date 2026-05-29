@@ -26,6 +26,12 @@ name: Deploy
 # Chat compose MUST use BOTH files + the env-file or coturn fails to resolve
 # its image (see kit-army-config feedback_windy_chat_compose_invocation).
 #
+# Deploys ONLY the live service set (onboarding directory push-gateway backup
+# social media agent-roster). The compose also defines call-history + web,
+# which have been build-broken since 2026-03-31 and which prod has never run;
+# a full `up --build` fails on them. Fixing/removing those is separate follow-up
+# (tracked in the SoU). synapse/coturn/dbs are upstream images, left running.
+#
 # Graceful degradation: if DEPLOY_* secrets aren't set, skip cleanly instead of
 # failing every push.
 
@@ -117,15 +123,25 @@ jobs:
             cd /opt/windy-chat
             export COMMIT_SHA
             export BUILD_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            # Both compose files + env-file are REQUIRED (coturn image + prod overrides).
-            sudo COMMIT_SHA="$COMMIT_SHA" BUILD_TIMESTAMP="$BUILD_TIMESTAMP" \
-              docker compose -f docker-compose.yml -f docker-compose.prod.yml \
-              --env-file .env.production up -d --build
-            # MF1 /version verification — onboarding publishes 3001 -> host 127.0.0.1:9101.
-            # Poll until the recreated container binds (cached build -> fast restart race).
+            # Deploy ONLY the live service set. The full compose also defines
+            # call-history + web, whose Dockerfiles have been build-broken since
+            # 2026-03-31 (call-history's `COPY package*.json` doesn't match its
+            # `./services` context) and which prod has never run — a full
+            # `up --build` therefore fails on them and would red every push.
+            # These 7 are exactly the custom-built containers prod runs; synapse,
+            # coturn, synapse-db, synapse-redis are upstream images left as-is.
+            # BOTH compose files + --env-file required (coturn image + prod overrides).
+            LIVE="onboarding directory push-gateway backup social media agent-roster"
+            COMPOSE="docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production"
+            sudo COMMIT_SHA="$COMMIT_SHA" BUILD_TIMESTAMP="$BUILD_TIMESTAMP" $COMPOSE build $LIVE
+            # --no-deps so we recreate ONLY the live services; synapse + dbs +
+            # coturn keep running (no Matrix/session disruption, no data risk).
+            sudo COMMIT_SHA="$COMMIT_SHA" BUILD_TIMESTAMP="$BUILD_TIMESTAMP" $COMPOSE up -d --no-deps $LIVE
+            # MF1 /version verification — onboarding binds host 127.0.0.1:8101.
+            # Poll until the recreated container is up (build cache -> fast race).
             DEPLOYED=""
             for i in $(seq 1 30); do
-              BODY=$(curl -s --max-time 5 http://127.0.0.1:9101/version || true)
+              BODY=$(curl -s --max-time 5 http://127.0.0.1:8101/version || true)
               if [[ -n "$BODY" ]]; then
                 DEPLOYED=$(printf '%s' "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('commit_sha','')[:7])" 2>/dev/null || true)
               fi
