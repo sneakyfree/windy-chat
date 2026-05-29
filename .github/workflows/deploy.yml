@@ -123,15 +123,15 @@ jobs:
             cd /opt/windy-chat
             export COMMIT_SHA
             export BUILD_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            # Deploy ONLY the live service set. The full compose also defines
-            # call-history + web, whose Dockerfiles have been build-broken since
-            # 2026-03-31 (call-history's `COPY package*.json` doesn't match its
-            # `./services` context) and which prod has never run — a full
-            # `up --build` therefore fails on them and would red every push.
-            # These 7 are exactly the custom-built containers prod runs; synapse,
-            # coturn, synapse-db, synapse-redis are upstream images left as-is.
+            # Deploy the live service set. The full compose ALSO defines `web`
+            # (the SPA — served separately, NOT on this host) which we skip.
+            # call-history was build-broken since 2026-03-31 (Dockerfile fixed
+            # 2026-05-29) and is now included so prod actually serves
+            # /api/v1/calls/ (nginx proxies it to call-history:8108). These 8 are
+            # the custom-built containers prod runs; synapse, coturn, synapse-db,
+            # synapse-redis are upstream images left as-is.
             # BOTH compose files + --env-file required (coturn image + prod overrides).
-            LIVE="onboarding directory push-gateway backup social media agent-roster"
+            LIVE="onboarding directory push-gateway backup social media agent-roster call-history"
             COMPOSE="docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production"
             sudo COMMIT_SHA="$COMMIT_SHA" BUILD_TIMESTAMP="$BUILD_TIMESTAMP" $COMPOSE build $LIVE
             # --no-deps so we recreate ONLY the live services; synapse + dbs +
