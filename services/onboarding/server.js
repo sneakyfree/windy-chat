@@ -66,12 +66,25 @@ app.use(globalLimiter);
 app.get('/health', createHealthHandler({
   service: 'windy-chat-onboarding',
   version: '1.0.0',
-  checks: async () => ({
-    synapse: !!process.env.SYNAPSE_REGISTRATION_SECRET,
-    redis: process.env.REDIS_URL ? 'configured' : 'in-memory fallback',
-    twilio: !!process.env.TWILIO_ACCOUNT_SID,
-    sendgrid: !!process.env.SENDGRID_API_KEY,
-  }),
+  checks: async () => {
+    const deps = {
+      synapse: !!process.env.SYNAPSE_REGISTRATION_SECRET,
+      redis: process.env.REDIS_URL ? 'configured' : 'in-memory fallback',
+    };
+    // Twilio/SendGrid back the phone/email OTP verify path (routes/verify.js),
+    // which is OFF by default — chat delegates identity to the windy-pro
+    // account-server (see CLAUDE.md: "this repo has NO user database"), so the
+    // OTP providers are intentionally unconfigured. Only surface them as health
+    // dependencies when OTP is actually enabled, so /health doesn't report a
+    // misleading `twilio:false / sendgrid:false` for a feature that isn't meant
+    // to be on. When CHAT_OTP_ENABLED is set, report their real config state so
+    // a genuinely-misconfigured OTP deploy is still caught.
+    if (String(process.env.CHAT_OTP_ENABLED).toLowerCase() === 'true') {
+      deps.twilio = !!process.env.TWILIO_ACCOUNT_SID;
+      deps.sendgrid = !!process.env.SENDGRID_API_KEY;
+    }
+    return deps;
+  },
 }));
 
 // ── MF1: /version (deployment identity, no auth, no DB) ──
