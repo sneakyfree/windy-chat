@@ -4,10 +4,11 @@ name: Deploy
 # chat.windychat.ai) on every push to main.
 #
 # Model: rsync-from-runner (mirrors windy-mind PR #37). The runner checks out
-# the code and rsyncs it to /opt/windy-chat, then rebuilds the stack on the
-# host. This deliberately does NOT use `git pull` on the host — the host's git
-# remote auth is broken (dead HTTPS token, no GitHub deploy key), which is why
-# prod silently went 8 days stale. rsync-from-runner is auth-independent.
+# the code and rsyncs it to /opt/windy-chat (as root via sudo — the dir is
+# root:root 0700), then rebuilds the stack on the host. This deliberately does
+# NOT use `git pull` on the host — the host's in-tree git is root-owned and its
+# remote can't pull, which is why prod silently went 8 days stale.
+# rsync-from-runner is auth-independent.
 #
 # SAFETY — operator state that must NEVER be touched (all preserved by excludes
 # or by living outside the repo dir):
@@ -16,9 +17,11 @@ name: Deploy
 #                                        excluded below)
 #   - /opt/windy-chat-data/             (Synapse/postgres/coturn data; OUTSIDE
 #                                        /opt/windy-chat so rsync can't reach it)
-# rsync --delete does not delete excluded paths. Verified via --dry-run before
-# the first manual catch-up (2026-05-29): 0 operator/data deletions, only
-# stale host-side node_modules/cache cruft.
+# rsync --delete does not delete excluded paths. Verified by real --dry-run
+# 2026-05-29 (venv excluded): 0 deletions; and the first catch-up deploy via
+# this exact path confirmed .env.production + secrets/ byte-identical before/
+# after, with postgres/redis/synapse/coturn left Running (only the node
+# microservices recreated).
 #
 # Chat compose MUST use BOTH files + the env-file or coturn fails to resolve
 # its image (see kit-army-config feedback_windy_chat_compose_invocation).
@@ -79,18 +82,27 @@ jobs:
 
       - name: Rsync code to production
         run: |
-          # Single './' source + --delete + explicit excludes. NEVER add the
-          # operator paths below to the source tree, or --delete will reconcile
-          # them away on the host.
-          rsync -az --delete \
+          # /opt/windy-chat is root:root 0700 (it holds the boot-guarded
+          # APNs/FCM secrets), so the deploy user cannot write it directly —
+          # rsync MUST run as root on the far end via --rsync-path="sudo rsync"
+          # (the deploy user has passwordless sudo). Single './' source +
+          # --delete + explicit excludes; NEVER add the operator paths below to
+          # the source tree or --delete would reconcile them away on the host.
+          # Verified by real --dry-run 2026-05-29: with venv excluded, 0
+          # deletions; .env.production + secrets/ + /opt/windy-chat-data (which
+          # lives OUTSIDE this dir) are all preserved.
+          rsync -az --delete --rsync-path="sudo rsync" \
             -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
             --exclude='.git' \
             --exclude='.github' \
             --exclude='node_modules' \
             --exclude='__pycache__' \
             --exclude='*.pyc' \
+            --exclude='venv/' \
+            --exclude='.venv/' \
             --exclude='.env' \
             --exclude='.env.production' \
+            --exclude='.env.production.*' \
             --exclude='secrets/' \
             ./ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/opt/windy-chat/"
 
