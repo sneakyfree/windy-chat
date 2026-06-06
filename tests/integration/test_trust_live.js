@@ -99,6 +99,9 @@ function startStandin() {
   });
 }
 function stopStandin() {
+  if (standinServer && typeof standinServer.closeAllConnections === 'function') {
+    standinServer.closeAllConnections();
+  }
   return new Promise((resolve) => standinServer && standinServer.close(() => resolve()));
 }
 
@@ -151,10 +154,27 @@ function startServices() {
   ]);
 }
 function stopServices() {
+  // closeAllConnections() drops any lingering keep-alive sockets so close()'s
+  // callback fires promptly instead of waiting on idle connections.
+  for (const s of [dirServer, onbServer]) {
+    if (s && typeof s.closeAllConnections === 'function') s.closeAllConnections();
+  }
   return Promise.all([
     new Promise((r) => dirServer && dirServer.close(() => r())),
     new Promise((r) => onbServer && onbServer.close(() => r())),
   ]);
+}
+
+// The test exercises the apps over real HTTP via the global `fetch`. Node's
+// built-in fetch (undici) holds outbound sockets in a keep-alive pool that
+// otherwise lingers for seconds after the servers close — long enough to trip
+// the file-level test timeout. Close the global dispatcher during teardown so
+// the process exits cleanly.
+async function closeFetchPool() {
+  const dispatcher = globalThis[Symbol.for('undici.globalDispatcher.1')];
+  if (dispatcher && typeof dispatcher.close === 'function') {
+    try { await dispatcher.close(); } catch { /* already closed */ }
+  }
 }
 
 async function post(url, pathname, body, headers = {}) {
@@ -228,6 +248,7 @@ describe('Trust contract round-trip (stand-in HTTP)', { concurrency: false }, ()
   after(async () => {
     await stopServices();
     await stopStandin();
+    await closeFetchPool();
   });
   beforeEach(() => {
     trustClient._clearCacheForTest();
