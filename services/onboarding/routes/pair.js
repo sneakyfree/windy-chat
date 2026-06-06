@@ -54,9 +54,13 @@ function isValidUserId(val) {
 }
 
 // ── Cleanup expired sessions periodically ──
-setInterval(() => {
+// .unref() so this keepalive timer never holds the event loop open — otherwise
+// requiring this router (e.g. from the onboarding server in a test) leaks a
+// handle that prevents the process from exiting cleanly.
+const _sessionCleanupTimer = setInterval(() => {
   onboardingDb.deleteExpiredSessions.run('pending', Date.now());
 }, 30 * 1000);
+if (typeof _sessionCleanupTimer.unref === 'function') _sessionCleanupTimer.unref();
 
 // ── POST /api/v1/chat/pair/generate ──
 

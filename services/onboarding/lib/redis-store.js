@@ -122,10 +122,14 @@ class RedisStore {
       if (this._fallbackTimers.has(key)) {
         clearTimeout(this._fallbackTimers.get(key));
       }
-      this._fallbackTimers.set(key, setTimeout(() => {
+      const expiryTimer = setTimeout(() => {
         this._fallback.delete(key);
         this._fallbackTimers.delete(key);
-      }, ttl * 1000));
+      }, ttl * 1000);
+      // .unref() so a pending in-memory expiry timer never holds the event loop
+      // open (e.g. keeps a test process alive past its assertions).
+      if (typeof expiryTimer.unref === 'function') expiryTimer.unref();
+      this._fallbackTimers.set(key, expiryTimer);
     }
   }
 
