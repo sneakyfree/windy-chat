@@ -365,3 +365,45 @@ describe('Webhook: trust/changed', { concurrency: false }, () => {
     assert.equal(body.flushed, false);
   });
 });
+
+describe('Webhook: eternitas (unified)', { concurrency: false }, () => {
+  before(startServer);
+  after(stopServer);
+
+  it('rejects invalid signature', async () => {
+    const { status } = await postJson('/api/v1/webhooks/eternitas',
+      { passport: 'ET-BAD' },
+      { 'x-eternitas-signature': 'deadbeef', 'x-eternitas-event': 'passport.revoked' });
+    assert.equal(status, 401);
+  });
+
+  it('routes trust.changed → cache flush, no deactivate', async () => {
+    const payload = { passport: 'ET-UNIFIED-TRUST', event: 'trust.changed' };
+    const sig = signHmac(JSON.stringify(payload), ETERNITAS_SECRET);
+    const { status, body } = await postJson('/api/v1/webhooks/eternitas', payload,
+      { 'x-eternitas-signature': sig, 'x-eternitas-event': 'trust.changed' });
+    assert.equal(status, 200);
+    assert.equal(body.event, 'trust.changed');
+    assert.equal(body.deactivated, false);
+  });
+
+  it('routes passport.revoked → deactivates a provisioned account', async () => {
+    const identityPayload = {
+      windy_identity_id: 'id_unified_revoke_001',
+      first_name: 'Uni', last_name: 'Fied',
+      passport_id: 'ET-UNIFIED-REVOKE-001',
+    };
+    const isig = signHmac(JSON.stringify(identityPayload), IDENTITY_SECRET);
+    const prov = await postJson(
+      '/api/v1/webhooks/identity/created', identityPayload, { 'x-windy-signature': isig });
+    assert.equal(prov.status, 200);
+
+    const payload = { passport: 'ET-UNIFIED-REVOKE-001', event: 'passport.revoked' };
+    const sig = signHmac(JSON.stringify(payload), ETERNITAS_SECRET);
+    const { status, body } = await postJson('/api/v1/webhooks/eternitas', payload,
+      { 'x-eternitas-signature': sig, 'x-eternitas-event': 'passport.revoked' });
+    assert.equal(status, 200);
+    assert.equal(body.event, 'passport.revoked');
+    assert.equal(body.matrix_user_id, prov.body.matrix_user_id);
+  });
+});

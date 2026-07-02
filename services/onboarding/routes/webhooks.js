@@ -350,5 +350,59 @@ router.post(
   }),
 );
 
+// ── POST /api/v1/webhooks/eternitas ──
+//
+// Unified Eternitas receiver. Eternitas dispatches ALL events for a platform to
+// ONE webhook_url with the type in the X-Eternitas-Event header (it does NOT
+// append per-event paths like /passport/revoked). Every other platform
+// (Mail/Search/etc.) registers a single /webhooks endpoint; chat had only the
+// per-event handlers above and was never registered, so revocations never
+// reached Matrix. Register chat's platform webhook_url here and route by event:
+// passport revoke/suspend → deactivate the Matrix account; any trust/integrity
+// change → flush the shared trust cache.
+router.post(
+  '/eternitas',
+  hmacMiddleware({ header: 'x-eternitas-signature', secret: ETERNITAS_WEBHOOK_SECRET, name: 'eternitas' }),
+  asyncHandler(async (req, res) => {
+    const event = String(req.get('x-eternitas-event') || req.body?.event || '').toLowerCase();
+    const passport = req.body?.passport || req.body?.passport_id;
+    if (!passport || typeof passport !== 'string') {
+      return res.status(400).json({ error: 'passport is required' });
+    }
+
+    const isRevocation =
+      event.startsWith('passport.revoked') || event.startsWith('passport.suspended');
+    let deactivated = false;
+    let matrixUserId = null;
+    if (isRevocation) {
+      let state = onboardingDb.getOnboardingStateByPassport.get(passport);
+      if (!state) state = onboardingDb.getOnboardingState.get(`bot_${passport}`);
+      if (state && state.matrix_user_id) {
+        matrixUserId = state.matrix_user_id;
+        deactivated = await deactivateMatrixAccount(matrixUserId);
+        if (!deactivated) {
+          console.warn(`[webhooks] eternitas ${event}: Synapse deactivate failed for ${matrixUserId}`);
+        }
+      }
+    }
+
+    // Always flush so the next trust-gate check re-fetches the authoritative
+    // profile within the 5-min cache window (safe even when no entry exists).
+    const trustCacheFlushed = await invalidateTrustCache(passport);
+    console.log(
+      `[webhooks] eternitas ${event}: ${passport} (deactivated=${deactivated} matrix=${matrixUserId} cache_flushed=${trustCacheFlushed})`,
+    );
+
+    return res.status(200).json({
+      status: 'ok',
+      event,
+      passport,
+      deactivated,
+      matrix_user_id: matrixUserId,
+      trust_cache_flushed: trustCacheFlushed,
+    });
+  }),
+);
+
 module.exports = router;
 module.exports._internals = { mailAlignedLocalpart, verifyHmac };
