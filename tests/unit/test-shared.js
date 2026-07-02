@@ -244,6 +244,31 @@ describe('verifyToken', () => {
     );
     await assert.rejects(() => verifyToken(token), /expired/i);
   });
+
+  it('rejects HS256 tokens in production (RS256/JWKS is the only trust root)', async () => {
+    const saved = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      // Signed with the very secret the hosts set to an "unused" placeholder —
+      // in prod this must NOT be a valid forgery key.
+      const token = makeJwt({ sub: 'attacker' });
+      await assert.rejects(() => verifyToken(token), /production/i);
+    } finally {
+      process.env.NODE_ENV = saved;
+    }
+  });
+
+  it('still accepts HS256 outside production (dev/test convenience)', async () => {
+    const saved = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    try {
+      const token = makeJwt({ sub: 'dev-user' });
+      const decoded = await verifyToken(token);
+      assert.equal(decoded.sub, 'dev-user');
+    } finally {
+      process.env.NODE_ENV = saved;
+    }
+  });
 });
 
 describe('createAuthMiddleware', () => {
