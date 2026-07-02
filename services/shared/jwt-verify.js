@@ -69,25 +69,41 @@ function getSigningKey(header) {
 }
 
 /**
- * Verify a JWT token. Tries RS256 (JWKS) first, falls back to HS256 (shared secret).
+ * Verify a JWT token.
+ *
+ * Production trust model: RS256 via the account-server JWKS is the ONLY
+ * accepted algorithm. HS256 (the shared `WINDY_JWT_SECRET`) is a dev/test
+ * convenience — on the hosts that secret is a deliberate "unused" placeholder,
+ * so accepting HS256 in production would turn a guessable/leaked shared secret
+ * into a full token-forgery key. HS256 is therefore refused when
+ * NODE_ENV === 'production', and an RS256 token is never silently downgraded to
+ * the HS256 secret when JWKS is unreachable (fail closed).
  */
 async function verifyToken(token) {
   // Decode header to check algorithm
   const decoded = jwt.decode(token, { complete: true });
   if (!decoded) throw new Error('Invalid token');
 
-  // If the token uses RS256, verify with JWKS
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  // RS256 → verify against the account-server JWKS.
   if (decoded.header.alg === 'RS256') {
     try {
       const publicKey = await getSigningKey(decoded.header);
       return jwt.verify(token, publicKey, { algorithms: ['RS256'] });
     } catch (jwksErr) {
-      // Fall back to HS256 shared secret if JWKS fetch fails (development)
+      // Production fails CLOSED: never fall back to the shared HS256 secret
+      // when JWKS is unreachable. Dev/test may fall back so local flows work
+      // without a running account-server.
+      if (isProduction) throw jwksErr;
       return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
     }
   }
 
-  // HS256 tokens (development / legacy)
+  // Any non-RS256 token (HS256 / HS384 / none / …) is dev/legacy only.
+  if (isProduction) {
+    throw new Error('unsupported token algorithm in production (RS256 only)');
+  }
   return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
 }
 
