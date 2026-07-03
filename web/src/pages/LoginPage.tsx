@@ -63,7 +63,7 @@ export default function LoginPage({ onLogin, mode, onToggleMode, onBack }: Login
         await onLogin(existingJwt);
         return;
       }
-      window.location.href = `${env.accountServerUrl}/oauth/authorize?client_id=windy-chat&redirect_uri=${encodeURIComponent(window.location.origin + '/auth/callback')}`;
+      window.location.href = `${env.accountServerUrl}/api/v1/oauth/authorize?client_id=windy-chat&redirect_uri=${encodeURIComponent(window.location.origin + '/auth/callback')}`;
     } catch (err: any) {
       setError(err.message);
     } finally {
