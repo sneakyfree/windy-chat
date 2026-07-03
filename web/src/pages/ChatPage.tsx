@@ -222,7 +222,10 @@ export default function ChatPage({ userId, onEmailMessage, onNavigate, selectedR
 
   // Load messages for selected room
   useEffect(() => {
-    if (!selectedRoomId) { setMessages([]); return; }
+    // Bail out with the same array identity when already empty — an
+    // unconditional new [] here re-renders, and with any unstable dep
+    // that's an infinite loop.
+    if (!selectedRoomId) { setMessages(prev => (prev.length ? [] : prev)); return; }
     const client = matrix.getClient();
     if (!client) return;
 
