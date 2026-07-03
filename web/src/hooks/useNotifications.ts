@@ -1,5 +1,5 @@
 /** Notification hook — sounds, browser notifications, title badge, favicon */
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as matrix from '../lib/matrix';
 
 let audioContext: AudioContext | null = null;
@@ -93,10 +93,15 @@ export function useNotifications() {
     }
   }, [hasPermission]);
 
-  return {
+  // Memoize the returned object — consumers put it in useEffect deps
+  // (ChatPage's message subscription), and a fresh object every render
+  // makes those effects re-run each render. Combined with an
+  // unconditional setState inside, that was an infinite
+  // render→effect→setState loop ("Maximum update depth exceeded").
+  return useMemo(() => ({
     unreadTotal,
     hasPermission,
     requestPermission,
     notifyNewMessage,
-  };
+  }), [unreadTotal, hasPermission, requestPermission, notifyNewMessage]);
 }

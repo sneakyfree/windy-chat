@@ -14,6 +14,7 @@ import WelcomeOverlay from './components/WelcomeOverlay';
 import MailPanel from './components/MailPanel';
 import NotificationsPanel from './components/NotificationsPanel';
 import * as api from './lib/api';
+import { completeWindySignIn } from './lib/sso';
 
 type View = 'chat' | 'social' | 'contacts' | 'discover' | 'settings' | 'privacy' | 'terms' | 'profile';
 type AuthScreen = 'landing' | 'signin' | 'register';
@@ -46,6 +47,7 @@ export default function App() {
   const { auth, login, logout } = useAuth();
   const [view, setView] = useState<View>('chat');
   const [authScreen, setAuthScreen] = useState<AuthScreen>('landing');
+  const [ssoError, setSsoError] = useState('');
   const [showWelcome, setShowWelcome] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
   const [mailCompose, setMailCompose] = useState<{ body?: string; to?: string } | null>(null);
@@ -155,6 +157,23 @@ export default function App() {
     });
   }, [handleLogin]);
 
+  // "Sign in with Windy" OAuth callback (authorization-code + PKCE).
+  // beginWindySignIn() in LoginPage navigated away; the account-server
+  // sent the browser back to /auth/callback?code=…&state=…. Exchange the
+  // code for a Windy JWT and log in. On failure, land the user on the
+  // sign-in screen with a visible, human-readable error.
+  useEffect(() => {
+    completeWindySignIn()
+      .then((accessToken) => {
+        if (accessToken) return handleLogin(accessToken);
+      })
+      .catch((err: any) => {
+        console.warn('Windy SSO callback failed', err);
+        setSsoError(err?.message || 'Sign-in failed. Please try again.');
+        setAuthScreen('signin');
+      });
+  }, [handleLogin]);
+
   // ── Unauthenticated: Landing → SignIn/Register ──
   if (!auth.isLoggedIn) {
     if (authScreen === 'landing') {
@@ -171,6 +190,7 @@ export default function App() {
         mode={authScreen === 'register' ? 'register' : 'signin'}
         onToggleMode={() => setAuthScreen(s => s === 'signin' ? 'register' : 'signin')}
         onBack={() => setAuthScreen('landing')}
+        initialError={ssoError}
       />
     );
   }

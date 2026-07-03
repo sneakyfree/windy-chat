@@ -1,18 +1,21 @@
 import { useState, type FormEvent } from 'react';
 import { env } from '../env';
+import { beginWindySignIn } from '../lib/sso';
 
 interface LoginPageProps {
   onLogin: (jwt: string) => Promise<void>;
   mode: 'signin' | 'register';
   onToggleMode: () => void;
   onBack: () => void;
+  /** Seed the error banner (e.g. an SSO callback failure surfaced by App). */
+  initialError?: string;
 }
 
-export default function LoginPage({ onLogin, mode, onToggleMode, onBack }: LoginPageProps) {
+export default function LoginPage({ onLogin, mode, onToggleMode, onBack, initialError }: LoginPageProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(initialError || '');
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
@@ -63,7 +66,10 @@ export default function LoginPage({ onLogin, mode, onToggleMode, onBack }: Login
         await onLogin(existingJwt);
         return;
       }
-      window.location.href = `${env.accountServerUrl}/api/v1/oauth/authorize?client_id=windy-chat&redirect_uri=${encodeURIComponent(window.location.origin + '/auth/callback')}`;
+      // Full OAuth authorization-code + PKCE flow. The account-server shows
+      // its own login page when the user isn't signed in, then sends the
+      // browser back to /auth/callback (handled in App.tsx on boot).
+      await beginWindySignIn();
     } catch (err: any) {
       setError(err.message);
     } finally {
