@@ -153,6 +153,18 @@ function resolveMailAddress(ownerWindyId) {
   return cached ? cached.addr : null;
 }
 
+// The agent's OWN mailbox, minted at hatch. Derived from the agent name with
+// the SAME rule the hatch used (account-server routes/agent.ts step 5:
+// `${name.toLowerCase().replace(/[^a-z0-9]+/g,'-')}@windymail.ai`), so it
+// matches the real Stalwart mailbox. Used as the agent's send-from address
+// when the operator has no windymail address of their own.
+function deriveAgentMailAddress(agentName) {
+  if (!agentName) return null;
+  const localpart = agentName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!localpart) return null;
+  return `${localpart}@windymail.ai`;
+}
+
 function reconcile() {
   let db;
   try {
@@ -192,6 +204,7 @@ function reconcile() {
       if (ctx.matrixId) existing._backInviteOwner(ctx.matrixId).catch(() => {});
       continue;
     }
+    const agentMailAddress = deriveAgentMailAddress(a.agent_name);
     const runner = new AgentRunner({
       matrixUserId: a.agent_matrix_id,
       accessToken: a.access_token,
@@ -202,11 +215,15 @@ function reconcile() {
         displayName: ctx.displayName,
         mailAddress: ctx.mailAddress,
       },
+      agentMailAddress,
     });
     runner.start();
     roster.set(a.agent_matrix_id, runner);
     added += 1;
-    console.log(`[roster] started runner for ${a.agent_matrix_id} (${a.agent_name})${ctx.mailAddress ? ' [mail:on]' : ''}`);
+    // Mail is [on] whenever the agent can send from SOME windymail address —
+    // the operator's own, or (fallback) the agent's own mailbox.
+    const mailOn = ctx.mailAddress || agentMailAddress;
+    console.log(`[roster] started runner for ${a.agent_matrix_id} (${a.agent_name})${mailOn ? ' [mail:on]' : ''}`);
     if (ctx.matrixId) {
       runner._backInviteOwner(ctx.matrixId).catch(() => {});
     }

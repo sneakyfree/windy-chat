@@ -35,7 +35,7 @@ function newTxnId() {
 }
 
 class AgentRunner {
-  constructor({ matrixUserId, accessToken, agentName, ownerWindyId, homeserver, ownerContext }) {
+  constructor({ matrixUserId, accessToken, agentName, ownerWindyId, homeserver, ownerContext, agentMailAddress }) {
     this.matrixUserId = matrixUserId;
     this.accessToken = accessToken;
     this.agentName = agentName;
@@ -46,6 +46,14 @@ class AgentRunner {
     // null on cold-start before the owner activates chat; in that case
     // tool calls fall back to a friendly "set up Mail first" reply.
     this.ownerContext = ownerContext || {};
+    // The agent's OWN mailbox (minted at hatch, e.g.
+    // fable-s-agent@windymail.ai). Used as the send-from address when the
+    // operator has no windymail address of their own — which is the common
+    // case, since most people sign up with an external email. Without this,
+    // the send_email tool stays disabled forever for those users and the
+    // agent can only ever say "I'm still learning that". Resend has
+    // windymail.ai verified, so the From: header works for any agent mailbox.
+    this.agentMailAddress = agentMailAddress || null;
     // Strip any trailing slash; the /_matrix paths assume bare host.
     this.homeserver = (homeserver || 'https://chat.windychat.ai').replace(/\/$/, '');
     this.since = null;
@@ -238,10 +246,18 @@ class AgentRunner {
         history.push({ role: 'user', content: body });
       }
 
-      // Tool calls — only expose tools if the operator has at least a
-      // mail address configured. Otherwise the LLM might try to send
-      // and fail; better to disable the capability and reply honestly.
-      const toolsAvailable = !!this.ownerContext?.mailAddress;
+      // Tool calls — expose the send tool if there's ANY windymail address
+      // to send from: the operator's own if they have one, else the agent's
+      // own mailbox. Sending from the agent's address is honest ("Fable's
+      // Agent <fable-s-agent@windymail.ai>") and means a fresh gmail-signup
+      // user's agent can actually send email instead of only ever chatting.
+      const ownerMail = this.ownerContext?.mailAddress || null;
+      const sendFromAddress = ownerMail || this.agentMailAddress;
+      // When sending from the agent's own mailbox, the From: display name
+      // should be the agent (not the human), so the recipient sees who's
+      // really writing.
+      const sendFromDisplay = ownerMail ? (this.ownerContext?.displayName || null) : this.agentName;
+      const toolsAvailable = !!sendFromAddress;
       const tools = toolsAvailable ? TOOLS : null;
 
       const result = await generateReply({
@@ -286,8 +302,8 @@ class AgentRunner {
           }
           this.toolCallsExecuted += 1;
           const out = await executeTool(name, args, {
-            ownerMailAddress: this.ownerContext?.mailAddress,
-            ownerDisplayName: this.ownerContext?.displayName,
+            ownerMailAddress: sendFromAddress,
+            ownerDisplayName: sendFromDisplay,
             agentName: this.agentName,
           });
           // Surface a grandma-friendly result. Successes are short
