@@ -20,6 +20,37 @@ export function initClient(accessToken: string, userId: string): sdk.MatrixClien
   return client;
 }
 
+// Auto-accept room invites. When an agent is hatched, the chat backend
+// creates the DM room and INVITES the owner (agent_provision.js) — but a
+// pending invite isn't a joined room, and getRooms() only surfaces joined
+// rooms, so a brand-new user would log in and never see their own agent.
+// Joining invites on sync makes the agent DM appear immediately ("God's gift
+// to grandmas" — no "accept invite" step to understand). Safe here: the
+// homeserver is federation-disabled + invite-only, and the directory service
+// trust-gates bot→human DMs, so there's no invite-spam vector to auto-join.
+const _joining = new Set<string>();
+function joinInvitedRoom(c: sdk.MatrixClient, roomId: string) {
+  if (_joining.has(roomId)) return;
+  _joining.add(roomId);
+  c.joinRoom(roomId)
+    .catch((err) => console.warn('[matrix] auto-join invite failed', roomId, err?.message))
+    .finally(() => _joining.delete(roomId));
+}
+
+function autoAcceptInvites(c: sdk.MatrixClient) {
+  // Live: any future invite (membership flips to 'invite') is joined at once.
+  c.on(sdk.RoomEvent.MyMembership as any, (room: sdk.Room, membership: string) => {
+    if (membership === 'invite') joinInvitedRoom(c, room.roomId);
+  });
+  // Backfill: invites already present at first sync.
+  c.once(sdk.ClientEvent.Sync as any, (state: string) => {
+    if (state !== 'PREPARED') return;
+    for (const room of c.getRooms()) {
+      if (room.getMyMembership() === 'invite') joinInvitedRoom(c, room.roomId);
+    }
+  });
+}
+
 export async function startSync() {
   if (!client) throw new Error('Matrix client not initialized');
 
@@ -32,6 +63,7 @@ export async function startSync() {
     // Crypto init can fail in some browsers — continue without E2E
   }
 
+  autoAcceptInvites(client);
   await client.startClient({ initialSyncLimit: 20 });
 
   // Set presence to online
