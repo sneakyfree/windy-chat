@@ -218,6 +218,12 @@ class AgentRunner {
     }
   }
 
+  /** @agent_et26-acnz-e2dd:... -> ET26-ACNZ-E2DD (provision lowercased it) */
+  _passport() {
+    const localpart = this.matrixUserId.slice(1).split(':')[0];
+    return localpart.replace(/^agent_/, '').toUpperCase();
+  }
+
   /**
    * One-soul yield (2026-07-05): is the REAL Windy Fly connected to
    * chat for this agent? We ask Windy Mind's runtime-claim presence
@@ -227,12 +233,6 @@ class AgentRunner {
    * is a worse failure than a duplicate voice; availability first.
    * 15s cache so a chatty room doesn't hammer Mind.
    */
-  /** @agent_et26-acnz-e2dd:... -> ET26-ACNZ-E2DD (provision lowercased it) */
-  _passport() {
-    const localpart = this.matrixUserId.slice(1).split(':')[0];
-    return localpart.replace(/^agent_/, '').toUpperCase();
-  }
-
   async _realFlyActive() {
     const now = Date.now();
     if (this._yieldCache && now - this._yieldCache.at < 15000) {
