@@ -194,6 +194,10 @@ migrateFromJson();
 
 // Agent rooms
 const getAgentRoom = db.prepare('SELECT * FROM agent_rooms WHERE agent_user_id = ? AND owner_user_id = ?');
+// One-soul handoff: the agent-session route only knows the agent id.
+const getAgentRoomByAgent = db.prepare(
+  'SELECT * FROM agent_rooms WHERE agent_user_id = ? ORDER BY created_at DESC LIMIT 1'
+);
 const upsertAgentRoom = db.prepare(`
   INSERT OR REPLACE INTO agent_rooms (agent_user_id, owner_user_id, room_id, agent_name, created_at)
   VALUES (@agent_user_id, @owner_user_id, @room_id, @agent_name, @created_at)
@@ -243,6 +247,7 @@ module.exports = {
   getOnboardingStateByPassport,
   upsertOnboardingState,
   getAgentRoom,
+  getAgentRoomByAgent,
   upsertAgentRoom,
   getAgentRoomsByOwner,
   deleteAgentRoomsByAgent,
