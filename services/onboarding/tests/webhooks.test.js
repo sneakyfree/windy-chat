@@ -29,6 +29,7 @@ process.env.WINDY_IDENTITY_WEBHOOK_SECRET = IDENTITY_SECRET;
 process.env.ETERNITAS_WEBHOOK_SECRET = ETERNITAS_SECRET;
 process.env.SYNAPSE_REGISTRATION_SECRET = ''; // force dev-stub provisioning
 process.env.SYNAPSE_URL = 'http://127.0.0.1:1'; // unreachable — deactivate returns false
+process.env.SYNAPSE_ADMIN_TOKEN = 'webhook-test-admin-token';
 
 // Fresh data dir so idempotency assertions don't depend on prior runs
 const dataDir = path.join(__dirname, '..', 'data');
@@ -202,6 +203,44 @@ describe('Webhook: passport/revoked', { concurrency: false }, () => {
     assert.equal(status, 200);
     assert.equal(body.status, 'deactivated');
     assert.equal(body.matrix_user_id, prov.body.matrix_user_id);
+  });
+
+  it('authenticates the Synapse deactivate with SYNAPSE_ADMIN_TOKEN, not CHAT_API_TOKEN', async () => {
+    // Regression: the admin API rejects CHAT_API_TOKEN with M_UNKNOWN_TOKEN,
+    // which silently broke every passport-revoked deactivation in prod.
+    const identityPayload = {
+      windy_identity_id: 'id_webhook_revoke_admintok',
+      first_name: 'Adm',
+      last_name: 'Tok',
+      passport_id: 'ET-REVOKE-ADMINTOK',
+    };
+    const isig = signHmac(JSON.stringify(identityPayload), IDENTITY_SECRET);
+    const prov = await postJson(
+      '/api/v1/webhooks/identity/created', identityPayload, { 'x-windy-signature': isig });
+    assert.equal(prov.status, 200);
+
+    const seen = [];
+    const realFetch = global.fetch;
+    global.fetch = (url, opts = {}) => {
+      const u = String(url);
+      if (u.includes('/_synapse/admin/v1/deactivate/')) {
+        seen.push({ url: u, auth: opts.headers && opts.headers.Authorization });
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}), text: async () => '' });
+      }
+      return realFetch(url, opts);
+    };
+    try {
+      const revPayload = { passport: 'ET-REVOKE-ADMINTOK' };
+      const rsig = signHmac(JSON.stringify(revPayload), ETERNITAS_SECRET);
+      const { status, body } = await postJson(
+        '/api/v1/webhooks/passport/revoked', revPayload, { 'x-eternitas-signature': rsig });
+      assert.equal(status, 200);
+      assert.equal(body.status, 'deactivated');
+    } finally {
+      global.fetch = realFetch;
+    }
+    assert.equal(seen.length, 1, 'expected exactly one Synapse admin deactivate call');
+    assert.equal(seen[0].auth, 'Bearer webhook-test-admin-token');
   });
 
   it('flushes the trust cache for the revoked passport', async () => {
