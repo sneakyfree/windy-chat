@@ -31,6 +31,7 @@ const SYNAPSE_ADMIN_URL = process.env.SYNAPSE_ADMIN_URL || `${SYNAPSE_URL}/_syna
 const SYNAPSE_REGISTRATION_SECRET = process.env.SYNAPSE_REGISTRATION_SECRET || '';
 const SYNAPSE_SERVER_NAME = process.env.SYNAPSE_SERVER_NAME || 'chat.windychat.ai';
 const CHAT_API_TOKEN = process.env.CHAT_API_TOKEN || '';
+const SYNAPSE_ADMIN_TOKEN = process.env.SYNAPSE_ADMIN_TOKEN || '';
 
 const IDENTITY_WEBHOOK_SECRET = process.env.WINDY_IDENTITY_WEBHOOK_SECRET || '';
 const ETERNITAS_WEBHOOK_SECRET = process.env.ETERNITAS_WEBHOOK_SECRET || '';
@@ -153,17 +154,29 @@ async function provisionMatrixAccount(localpart, displayName) {
 }
 
 async function deactivateMatrixAccount(matrixUserId) {
+  // The Synapse admin API only accepts a server-admin USER token
+  // (SYNAPSE_ADMIN_TOKEN, @windy_service_admin). CHAT_API_TOKEN is chat's
+  // internal service token — Synapse rejects it with M_UNKNOWN_TOKEN, which
+  // silently broke every passport-revoked deactivation until 2026-07-05.
+  // server.js and social/eternitas-webhook.js already use the admin token.
+  if (!SYNAPSE_ADMIN_TOKEN) {
+    console.warn(`[webhooks] Synapse deactivate skipped for ${matrixUserId}: SYNAPSE_ADMIN_TOKEN not set`);
+    return false;
+  }
   const url = `${SYNAPSE_ADMIN_URL}/v1/deactivate/${encodeURIComponent(matrixUserId)}`;
   try {
     const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${CHAT_API_TOKEN}`,
+        'Authorization': `Bearer ${SYNAPSE_ADMIN_TOKEN}`,
       },
       body: JSON.stringify({ erase: false }), // preserve rooms for audit
       signal: AbortSignal.timeout(10000),
     });
+    if (!res.ok) {
+      console.warn(`[webhooks] Synapse deactivate ${res.status} for ${matrixUserId}`);
+    }
     return res.ok;
   } catch (err) {
     console.warn(`[webhooks] Synapse deactivate fetch failed: ${err.message}`);
