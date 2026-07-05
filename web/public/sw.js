@@ -52,13 +52,16 @@ self.addEventListener('fetch', (event) => {
 self.addEventListener('push', (event) => {
   if (!event.data) return;
   const data = event.data.json();
+  // The push-gateway nests room/url under data.data — accept both the
+  // flat and nested shapes so pushes deep-link to the room.
+  const inner = data.data || {};
   event.waitUntil(
     self.registration.showNotification(data.title || 'Windy Chat', {
       body: data.body || 'New message',
       icon: '/icon-192.png',
       badge: '/icon-192.png',
-      tag: data.room_id || 'default',
-      data: { url: data.url || '/' },
+      tag: data.tag || inner.room_id || data.room_id || 'default',
+      data: { url: inner.url || data.url || '/' },
     })
   );
 });

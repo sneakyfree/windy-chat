@@ -11,6 +11,7 @@ import PrivacyPage from './pages/PrivacyPage';
 import TermsPage from './pages/TermsPage';
 import ProfilePage from './pages/ProfilePage';
 import WelcomeOverlay from './components/WelcomeOverlay';
+import { resubscribeIfGranted } from './lib/push';
 import MailPanel from './components/MailPanel';
 import NotificationsPanel from './components/NotificationsPanel';
 import * as api from './lib/api';
@@ -76,6 +77,15 @@ export default function App() {
     const id = setInterval(tick, 30000);
     return () => { cancelled = true; clearInterval(id); };
   }, [auth.isLoggedIn, notificationsOpen]);
+
+  // Silent web-push refresh: if the user enabled push before and the
+  // browser still grants permission, re-register the subscription +
+  // Synapse pusher (unified-login mints fresh Matrix sessions; browser
+  // subscriptions rotate). Never prompts — enabling lives in Settings.
+  useEffect(() => {
+    if (!auth.isLoggedIn) return;
+    resubscribeIfGranted();
+  }, [auth.isLoggedIn]);
 
   // Open another user's profile page in the main content area. Captures the
   // userId in state so the Profile view knows whose profile to render —
