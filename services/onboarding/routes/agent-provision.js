@@ -22,6 +22,8 @@ const SYNAPSE_ADMIN_URL = process.env.SYNAPSE_ADMIN_URL || `${SYNAPSE_URL}/_syna
 const SYNAPSE_REGISTRATION_SECRET = process.env.SYNAPSE_REGISTRATION_SECRET || '';
 const SYNAPSE_SERVER_NAME = process.env.SYNAPSE_SERVER_NAME || 'chat.windychat.ai';
 const CHAT_SERVICE_TOKEN = process.env.CHAT_SERVICE_TOKEN || process.env.CHAT_API_TOKEN || '';
+const SYNAPSE_ADMIN_TOKEN = process.env.SYNAPSE_ADMIN_TOKEN || '';
+const { verifyEpt } = require('../../shared/ept-verify');
 
 const agentLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -343,6 +345,92 @@ router.post('/', agentLimiter, serviceTokenAuth, asyncHandler(async (req, res) =
     agent_name: sanitizedName,
     passport_number,
     welcome_pending: !dmResult.room_id,
+  });
+}));
+
+
+// ── One-soul handoff (2026-07-05): the real Windy Fly claims its chat
+// identity. The agent presents its own EPT — no registration secret,
+// no service token on user machines — and receives a fresh Matrix
+// device session for @agent_<passport>. The agent must already have
+// been provisioned by the hatch (POST / above); this never creates
+// accounts, it only mints sessions for existing ones.
+
+const sessionLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  message: { error: 'Too many session requests' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+router.post('/session', sessionLimiter, asyncHandler(async (req, res) => {
+  const authHeader = req.headers.authorization || '';
+  if (!authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Bearer EPT required' });
+  }
+
+  let claims;
+  try {
+    claims = await verifyEpt(authHeader.slice(7));
+  } catch (err) {
+    return res.status(401).json({ error: `Invalid Eternitas passport token: ${err.message}` });
+  }
+
+  const passport = claims.sub;
+  const localpart = `agent_${passport.replace(/[^a-z0-9_-]/gi, '').toLowerCase()}`;
+  const matrixUserId = `@${localpart}:${SYNAPSE_SERVER_NAME}`;
+
+  const existing = onboardingDb.getOnboardingStateByPassport.get(passport);
+  if (!existing) {
+    return res.status(404).json({
+      error: 'Agent not provisioned on Windy Chat — hatch first',
+    });
+  }
+
+  if (!SYNAPSE_ADMIN_TOKEN) {
+    return res.status(503).json({ error: 'Session minting not configured' });
+  }
+
+  // Fresh device session via Synapse admin — same mechanism the human
+  // unified-login uses (provision.js mintFreshSession).
+  let session;
+  try {
+    const url = `${SYNAPSE_ADMIN_URL}/v1/users/${encodeURIComponent(matrixUserId)}/login`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SYNAPSE_ADMIN_TOKEN}`,
+      },
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) {
+      throw new Error(`synapse admin login ${resp.status}`);
+    }
+    session = await resp.json();
+  } catch (err) {
+    console.error(`[agent-session] mint failed for ${matrixUserId}: ${err.message}`);
+    return res.status(502).json({ error: 'Could not mint Matrix session' });
+  }
+
+  // The DM room with the owner, if we know it — saves the Fly a lookup.
+  let dmRoomId = null;
+  try {
+    const roomRow = onboardingDb.getAgentRoomByAgent
+      ? onboardingDb.getAgentRoomByAgent.get(matrixUserId)
+      : null;
+    if (roomRow) dmRoomId = roomRow.room_id;
+  } catch { /* best-effort */ }
+
+  console.log(`[agent-session] minted session for ${matrixUserId} (EPT tru=${claims.tru})`);
+  return res.json({
+    matrix_user_id: matrixUserId,
+    access_token: session.access_token,
+    device_id: session.device_id || null,
+    home_server: SYNAPSE_SERVER_NAME,
+    dm_room_id: dmRoomId,
   });
 }));
 

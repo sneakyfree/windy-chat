@@ -210,6 +210,39 @@ class AgentRunner {
     }
   }
 
+  /**
+   * One-soul yield (2026-07-05): is the REAL Windy Fly connected to
+   * chat for this agent? We ask Windy Mind's runtime-claim presence
+   * bit for the agent's `matrix` channel slot. Held -> the permanent
+   * brain is online and the midwife stays silent. Any doubt (Mind
+   * unreachable, timeout, malformed) -> answer anyway. A silent agent
+   * is a worse failure than a duplicate voice; availability first.
+   * 15s cache so a chatty room doesn't hammer Mind.
+   */
+  async _realFlyActive() {
+    const now = Date.now();
+    if (this._yieldCache && now - this._yieldCache.at < 15000) {
+      return this._yieldCache.active;
+    }
+    let active = false;
+    try {
+      // @agent_et26-acnz-e2dd:... -> ET26-ACNZ-E2DD (provision lowercased it)
+      const localpart = this.matrixUserId.slice(1).split(':')[0];
+      const passport = localpart.replace(/^agent_/, '').toUpperCase();
+      const mindApi = process.env.MIND_API_URL || 'https://api.windymind.ai';
+      const res = await fetch(
+        `${mindApi}/v1/runtime/claim/${encodeURIComponent(passport)}/status?source=matrix`,
+        { signal: AbortSignal.timeout(4000) },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        active = data.active === true;
+      }
+    } catch { /* fail open */ }
+    this._yieldCache = { at: now, active };
+    return active;
+  }
+
   async _handleMessage(roomId, event) {
     if (event.sender === this.matrixUserId) return;
     const body = event.content?.body;
@@ -221,6 +254,13 @@ class AgentRunner {
 
     console.log(`[runner ${this.matrixUserId}] msg from ${event.sender} in ${roomId}: ${body.slice(0, 80)}`);
     this.lastEventAt = new Date().toISOString();
+
+    // One-soul yield: if the real Windy Fly holds the matrix claim,
+    // the midwife stays silent — the permanent brain answers.
+    if (await this._realFlyActive()) {
+      console.log(`[runner ${this.matrixUserId}] real Fly online — yielding`);
+      return;
+    }
 
     // Daily message-quota check BEFORE the LLM call. If over-budget,
     // reply with an honest cap message and bail — no LLM cost, no
