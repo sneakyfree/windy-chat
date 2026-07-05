@@ -1,5 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { env } from '../env';
+import {
+  type PushStatus,
+  disableWebPush,
+  enableWebPush,
+  pushState,
+} from '../lib/push';
 
 interface SettingsPageProps {
   userId: string | null;
@@ -20,7 +26,36 @@ interface ServiceState {
 export default function SettingsPage({ userId, onLogout, onNavigate }: SettingsPageProps) {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [language, setLanguage] = useState('en');
-  const [notifications, setNotifications] = useState(true);
+  // Real web-push state (the old boolean was a decorative toggle that
+  // controlled nothing — grandma's closed tab stayed silent).
+  const [push, setPush] = useState<PushStatus>(() => pushState());
+  const [pushBusy, setPushBusy] = useState(false);
+
+  const pushHint =
+    push === 'unsupported'
+      ? 'Not supported in this browser'
+      : push === 'denied'
+        ? 'Blocked — allow notifications in your browser settings'
+        : push === 'unavailable'
+          ? 'Not switched on for this server yet'
+          : push === 'error'
+            ? "Couldn't turn on — try again"
+            : null;
+
+  const togglePush = async () => {
+    if (pushBusy) return;
+    setPushBusy(true);
+    try {
+      if (push === 'enabled') {
+        await disableWebPush();
+        setPush('disabled');
+      } else {
+        setPush(await enableWebPush());
+      }
+    } finally {
+      setPushBusy(false);
+    }
+  };
   const [services, setServices] = useState<ServiceState>({
     // Word is always "connected" — auth itself flows through Windy Word
     // (Pro account-server). Other three start at unknown until the
@@ -225,19 +260,30 @@ export default function SettingsPage({ userId, onLogout, onNavigate }: SettingsP
 
       <Section title="Notifications">
         <Row label="Push notifications">
-          <button
-            onClick={() => setNotifications(!notifications)}
-            className="w-11 h-6 rounded-full relative transition-colors"
-            style={{ background: notifications ? 'var(--accent)' : 'var(--bg-tertiary)' }}
-          >
-            <div
-              className="w-5 h-5 rounded-full absolute top-0.5 transition-all"
+          <div className="flex items-center gap-2">
+            {pushHint && (
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                {pushHint}
+              </span>
+            )}
+            <button
+              onClick={togglePush}
+              disabled={pushBusy || push === 'unsupported' || push === 'denied'}
+              className="w-11 h-6 rounded-full relative transition-colors"
               style={{
-                background: 'white',
-                left: notifications ? '22px' : '2px',
+                background: push === 'enabled' ? 'var(--accent)' : 'var(--bg-tertiary)',
+                opacity: push === 'unsupported' || push === 'denied' ? 0.5 : 1,
               }}
-            />
-          </button>
+            >
+              <div
+                className="w-5 h-5 rounded-full absolute top-0.5 transition-all"
+                style={{
+                  background: 'white',
+                  left: push === 'enabled' ? '22px' : '2px',
+                }}
+              />
+            </button>
+          </div>
         </Row>
       </Section>
 

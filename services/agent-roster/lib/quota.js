@@ -55,15 +55,20 @@ function hoursTilUtcMidnight() {
  * Check + consume a message budget. Returns { allowed, remaining, resetInHours }.
  * Call BEFORE the LLM request; on `allowed: false` skip the LLM and reply
  * with quota_message() instead.
+ *
+ * `multiplier` scales the daily limit — ADR-056: verified owners earn a
+ * larger allowance (the $1 upgrade genuinely buys a bigger day), so the
+ * runner passes >1 for clearance above 'registered'.
  */
-function consumeMessage(windyId) {
+function consumeMessage(windyId, multiplier = 1) {
   if (!windyId) return { allowed: true, remaining: Infinity, resetInHours: 0 };
+  const limit = Math.floor(MESSAGES_PER_DAY * Math.max(1, multiplier));
   const row = bucket(windyId);
-  if (row.messages >= MESSAGES_PER_DAY) {
+  if (row.messages >= limit) {
     return { allowed: false, remaining: 0, resetInHours: hoursTilUtcMidnight() };
   }
   row.messages += 1;
-  return { allowed: true, remaining: MESSAGES_PER_DAY - row.messages, resetInHours: hoursTilUtcMidnight() };
+  return { allowed: true, remaining: limit - row.messages, resetInHours: hoursTilUtcMidnight() };
 }
 
 function consumeMail(windyId) {
