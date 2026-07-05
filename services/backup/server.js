@@ -27,6 +27,10 @@ const { bodyErrorHandler } = require('../shared/body-errors');
 const backupDb = require('./lib/db');
 
 const app = express();
+// Behind host nginx (single hop) — trust it so express-rate-limit keys on the
+// real client IP, not nginx's 127.0.0.1 (which buckets all clients together).
+// Mirrors push-gateway (fixed 2026-05-08); the sibling services were missed.
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 8104;
 
 // ── CORS — shared allowlist with explicit 403 on disallowed origins

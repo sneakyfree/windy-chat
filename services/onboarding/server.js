@@ -28,6 +28,12 @@ const { initSentry, sentryErrorHandler } = require('../shared/sentry');
 const { bodyErrorHandler } = require('../shared/body-errors');
 
 const app = express();
+// Behind host nginx (single hop) — trust it so express-rate-limit keys on the
+// real client IP from X-Forwarded-For, not nginx's 127.0.0.1. Without this the
+// global limiter buckets ALL clients together (one caller can lock everyone
+// out) and logs an ERR_ERL_UNEXPECTED_X_FORWARDED_FOR ValidationError.
+// Mirrors push-gateway (fixed 2026-05-08); the sibling services were missed.
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 8101;
 
 // ── CORS — shared allowlist with explicit 403 on disallowed origins.
