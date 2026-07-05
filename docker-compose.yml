@@ -489,6 +489,18 @@ services:
       # has the user's row. Comma-separated `<windy_id>=<addr>`.
       MAIL_ADDRESS_SEED: ${MAIL_ADDRESS_SEED:-}
       RECONCILE_INTERVAL_MS: ${RECONCILE_INTERVAL_MS:-30000}
+      # One-soul yield (PR #111): where the roster reads the real-Fly
+      # presence bit. Default matches the code; here for overridability.
+      MIND_API_URL: ${MIND_API_URL:-https://api.windymind.ai}
+      # ADR-056 §5 — midwife exhaustion-upsell. ETERNITAS_URL feeds the
+      # clearance lookup (verified owners get the multiplied allowance);
+      # the $1 line in the exhaustion message stays OFF until
+      # VERIFIED_HATCH_UPSELL=1 flips at go-live together with
+      # VERIFIED_HATCH_ENABLED on Eternitas.
+      ETERNITAS_URL: ${ETERNITAS_URL:-https://api.eternitas.ai}
+      UPGRADE_URL: ${UPGRADE_URL:-https://app.windyword.ai/upgrade}
+      VERIFIED_HATCH_UPSELL: ${VERIFIED_HATCH_UPSELL:-}
+      QUOTA_VERIFIED_MULTIPLIER: ${QUOTA_VERIFIED_MULTIPLIER:-2}
     depends_on:
       onboarding:
         condition: service_healthy

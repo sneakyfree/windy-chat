@@ -25,6 +25,14 @@
 const { generateReply } = require('./llm');
 const { TOOLS, executeTool } = require('./tools');
 const { consumeMessage, consumeMail, quotaMessage } = require('./quota');
+const { getClearance, exhaustionMessage } = require('./upsell');
+
+// ADR-056: verified owners earn a larger daily message allowance — the
+// $1 upgrade genuinely buys a bigger day, so the exhaustion upsell is
+// honest. Multiplier applies to any clearance above 'registered'.
+const VERIFIED_QUOTA_MULTIPLIER = Math.max(
+  1, parseFloat(process.env.QUOTA_VERIFIED_MULTIPLIER || '2'),
+);
 
 const INITIAL_SYNC_AGE_SECS = 30;
 const SYNC_TIMEOUT_MS = 30000;
@@ -219,6 +227,12 @@ class AgentRunner {
    * is a worse failure than a duplicate voice; availability first.
    * 15s cache so a chatty room doesn't hammer Mind.
    */
+  /** @agent_et26-acnz-e2dd:... -> ET26-ACNZ-E2DD (provision lowercased it) */
+  _passport() {
+    const localpart = this.matrixUserId.slice(1).split(':')[0];
+    return localpart.replace(/^agent_/, '').toUpperCase();
+  }
+
   async _realFlyActive() {
     const now = Date.now();
     if (this._yieldCache && now - this._yieldCache.at < 15000) {
@@ -226,9 +240,7 @@ class AgentRunner {
     }
     let active = false;
     try {
-      // @agent_et26-acnz-e2dd:... -> ET26-ACNZ-E2DD (provision lowercased it)
-      const localpart = this.matrixUserId.slice(1).split(':')[0];
-      const passport = localpart.replace(/^agent_/, '').toUpperCase();
+      const passport = this._passport();
       const mindApi = process.env.MIND_API_URL || 'https://api.windymind.ai';
       const res = await fetch(
         `${mindApi}/v1/runtime/claim/${encodeURIComponent(passport)}/status?source=matrix`,
@@ -266,11 +278,24 @@ class AgentRunner {
     // reply with an honest cap message and bail — no LLM cost, no
     // surprise to the user. Quota is keyed to the OWNER's windy_id
     // so multi-agent owners share the budget (the human's allowance,
-    // not the agent's).
-    const msgGate = consumeMessage(this.ownerWindyId);
+    // not the agent's). Verified owners (clearance above 'registered')
+    // get a multiplied allowance — see VERIFIED_QUOTA_MULTIPLIER.
+    const passport = this._passport();
+    const clearance = await getClearance(passport); // 5-min cached, fail-null
+    const quotaMult = clearance && clearance !== 'registered'
+      ? VERIFIED_QUOTA_MULTIPLIER
+      : 1;
+    const msgGate = consumeMessage(this.ownerWindyId, quotaMult);
     if (!msgGate.allowed) {
+      // ADR-056 §5 — the wall is a warm hand-off, never a dead screen:
+      // offer link-your-own-compute (always) and the $1 verified
+      // upgrade (only when known-unverified AND the upsell flag is on).
       try {
-        await this._sendMessage(roomId, quotaMessage('message', msgGate.resetInHours));
+        await this._sendMessage(roomId, exhaustionMessage({
+          passport,
+          clearance,
+          resetInHours: msgGate.resetInHours,
+        }));
       } catch (_e) { /* fall-through */ }
       return;
     }
