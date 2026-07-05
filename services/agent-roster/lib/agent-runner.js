@@ -121,7 +121,28 @@ class AgentRunner {
           const mData = await mRes.json();
           const memberIds = Object.keys(mData.joined || {});
           if (memberIds.length === 1 && memberIds[0] === this.matrixUserId) {
-            // Solo room — invite the owner.
+            // Solo room. This method exists ONLY to recover from the hatch race
+            // (owner had no Matrix account when the agent created the DM, so was
+            // never invited). Invite ONLY when the owner has NO membership event
+            // at all. `joined_members` omits pending invites, so without this
+            // check an owner who was already invited but never joined (a
+            // deactivated or absent user) got re-invited on every reconcile
+            // forever — Synapse happily re-sends a pending invite. Any existing
+            // membership (invite/join/leave/ban) means we've done our job or the
+            // owner made a choice; either way, don't nag.
+            let ownerMembership = null;
+            try {
+              const stRes = await this._request(
+                `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.member/${encodeURIComponent(ownerMatrixId)}`,
+                { method: 'GET' },
+              );
+              if (stRes.ok) ownerMembership = (await stRes.json()).membership || null;
+            } catch (_e) { /* no state event = never invited; fall through to invite */ }
+
+            if (ownerMembership) {
+              continue; // already invite/join/leave/ban — nothing to recover
+            }
+
             const inviteRes = await this._request(
               `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/invite`,
               {
