@@ -58,3 +58,22 @@ test('persistent tool failure falls back to text-only answer', async () => {
   assert.equal(calls, 3);
   assert.equal(bodies[2].tools, undefined); // final attempt really dropped tools
 });
+
+test('per-model 429 falls back to the 8b model (own daily quota)', async () => {
+  process.env.GROQ_API_KEY = 'gsk_test';
+  const models = [];
+  globalThis.fetch = async (_url, opts) => {
+    const body = JSON.parse(opts.body);
+    models.push(body.model);
+    if (body.model === 'llama-3.3-70b-versatile') {
+      return { ok: false, status: 429, json: async () => ({}),
+               text: async () => JSON.stringify({ error: { message: 'tokens per day (TPD): Limit 100000', code: 'rate_limit_exceeded' } }) };
+    }
+    return { ok: true, status: 200, text: async () => '',
+             json: async () => ({ choices: [{ message: { role: 'assistant', content: 'from 8b' } }] }) };
+  };
+  const out = await generateReply({ history: [{ role: 'user', content: 'q' }], agentName: 'A', tools: TOOLS });
+  assert.equal(out.content, 'from 8b');
+  assert.equal(out.provider, 'groq:llama-3.1-8b-instant');
+  assert.deepEqual(models, ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant']);
+});
