@@ -44,11 +44,18 @@ async function callAnthropic(messages, systemPrompt) {
   return data.content?.[0]?.text || null;
 }
 
-async function callGroq(messages, systemPrompt, tools, toolChoice) {
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
+// Groq rate limits are PER-MODEL: when the shared free-tier key burns its
+// daily tokens on the primary model (seen live 2026-07-06: TPD 100k
+// exhausted → every fly dead until reset), the 8b model still has its own
+// untouched quota. Weaker answers beat a dead chat for the rest of the day.
+const GROQ_FALLBACK_MODEL = 'llama-3.1-8b-instant';
+
+async function callGroq(messages, systemPrompt, tools, toolChoice, model) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return null;
   const body = {
-    model: 'llama-3.3-70b-versatile',
+    model: model || GROQ_MODEL,
     max_tokens: 512,
     messages: [
       { role: 'system', content: systemPrompt },
@@ -169,11 +176,12 @@ async function generateReply({ history, agentName, ownerDisplayName, tools, tool
     }
   } catch (err) {
     console.warn(`[llm] groq failed: ${err.message}`);
+    const msg = String(err.message);
     // llama tool-calling is stochastic: a malformed emission surfaces as
     // Groq 400 tool_use_failed (seen live 2026-07-06 on the first
     // web_search E2E). Retry once — usually clears — then drop tools and
     // answer text-only. A knowledge-only answer beats a dead chat.
-    if (tools && tools.length && String(err.message).includes('tool_use_failed')) {
+    if (tools && tools.length && msg.includes('tool_use_failed')) {
       try {
         const retry = await callGroq(trimmed, systemPrompt, tools, toolChoice);
         if (retry) return { ...retry, provider: 'groq' };
@@ -185,6 +193,22 @@ async function generateReply({ history, agentName, ownerDisplayName, tools, tool
         if (textOnly) return { ...textOnly, provider: 'groq-notools' };
       } catch (err3) {
         console.warn(`[llm] groq no-tools fallback failed: ${err3.message}`);
+      }
+    }
+    // Per-model rate limit (429): the fallback model has its own daily
+    // quota — availability first.
+    if (msg.includes('groq 429')) {
+      try {
+        const alt = await callGroq(trimmed, systemPrompt, tools, toolChoice, GROQ_FALLBACK_MODEL);
+        if (alt) return { ...alt, provider: `groq:${GROQ_FALLBACK_MODEL}` };
+      } catch (err4) {
+        console.warn(`[llm] groq fallback model failed: ${err4.message}`);
+        try {
+          const altPlain = await callGroq(trimmed, systemPrompt, null, undefined, GROQ_FALLBACK_MODEL);
+          if (altPlain) return { ...altPlain, provider: `groq:${GROQ_FALLBACK_MODEL}-notools` };
+        } catch (err5) {
+          console.warn(`[llm] groq fallback no-tools failed: ${err5.message}`);
+        }
       }
     }
   }
