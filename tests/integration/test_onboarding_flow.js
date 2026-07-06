@@ -238,13 +238,14 @@ describe('Step 2: K2 Onboarding — Profile Setup', () => {
     assert.ok('available' in res.body);
   });
 
-  it('sends OTP for phone verification', async () => {
+  it('OTP verify path stays retired (404)', async () => {
+    // K2.1 OTP verify retired 2026-07-06 — identity is delegated to the
+    // windy-pro account-server. Guard against accidental resurrection.
     const res = await request('POST', onboardingUrl, '/api/v1/chat/verify/send', {
       type: 'email',
       identifier: 'integration@windyword.ai',
     }, authed(tokenA));
-    assert.equal(res.status, 200);
-    assert.equal(res.body.success, true);
+    assert.equal(res.status, 404);
   });
 });
 

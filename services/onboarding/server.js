@@ -14,7 +14,6 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 
-const verifyRoutes = require('./routes/verify');
 const profileRoutes = require('./routes/profile');
 const pairRoutes = require('./routes/pair');
 const provisionRoutes = require('./routes/provision');
@@ -73,23 +72,12 @@ app.get('/health', createHealthHandler({
   service: 'windy-chat-onboarding',
   version: '1.0.0',
   checks: async () => {
-    const deps = {
+    // OTP path retired 2026-07-06 — the CHAT_OTP_ENABLED twilio/sendgrid
+    // health gating went with it (identity lives in windy-pro account-server).
+    return {
       synapse: !!process.env.SYNAPSE_REGISTRATION_SECRET,
       redis: process.env.REDIS_URL ? 'configured' : 'in-memory fallback',
     };
-    // Twilio/SendGrid back the phone/email OTP verify path (routes/verify.js),
-    // which is OFF by default — chat delegates identity to the windy-pro
-    // account-server (see CLAUDE.md: "this repo has NO user database"), so the
-    // OTP providers are intentionally unconfigured. Only surface them as health
-    // dependencies when OTP is actually enabled, so /health doesn't report a
-    // misleading `twilio:false / sendgrid:false` for a feature that isn't meant
-    // to be on. When CHAT_OTP_ENABLED is set, report their real config state so
-    // a genuinely-misconfigured OTP deploy is still caught.
-    if (String(process.env.CHAT_OTP_ENABLED).toLowerCase() === 'true') {
-      deps.twilio = !!process.env.TWILIO_ACCOUNT_SID;
-      deps.sendgrid = !!process.env.SENDGRID_API_KEY;
-    }
-    return deps;
   },
 }));
 
@@ -106,7 +94,11 @@ app.use('/api/v1/webhooks', webhookRoutes);
 app.use('/api/v1/onboarding/agent', agentProvisionRoutes);
 
 // ── Auth-protected routes ──
-app.use('/api/v1/chat/verify', authMiddleware, verifyRoutes);
+// The K2.1 OTP verify path (/api/v1/chat/verify — Twilio/SendGrid) was
+// RETIRED 2026-07-06: chat delegates ALL identity to the windy-pro
+// account-server (email verification proven live there), the path was
+// never configured in prod, and the only client caller (windy-pro-mobile
+// chatOnboarding) posted a contract that never matched these routes.
 app.use('/api/v1/chat/profile', authMiddleware, profileRoutes);
 app.use('/api/v1/chat/pair', authMiddleware, pairRoutes);
 app.use('/api/v1/chat/provision', authMiddleware, provisionRoutes);

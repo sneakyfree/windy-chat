@@ -37,11 +37,11 @@ describe('GET /health', () => {
 // ─── Auth Required ────────────────────────────────────────────
 
 describe('Auth required on protected routes', () => {
-  it('POST /api/v1/chat/verify/send returns 401 without auth', async () => {
+  it('POST /api/v1/chat/verify/send returns 404 (OTP path retired 2026-07-06)', async () => {
     const res = await request(app)
       .post('/api/v1/chat/verify/send')
       .send({ identifier: '+1234567890', type: 'phone' });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(404);
   });
 
   it('POST /api/v1/chat/profile/setup returns 401 without auth', async () => {
@@ -66,37 +66,7 @@ describe('Auth required on protected routes', () => {
   });
 });
 
-// ─── Verify: Validation ───────────────────────────────────────
-
-describe('POST /api/v1/chat/verify/send (with auth)', () => {
-  it('rejects missing identifier', async () => {
-    const token = makeToken();
-    const res = await request(app)
-      .post('/api/v1/chat/verify/send')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ type: 'phone' });
-    expect(res.status).toBe(400);
-  });
-
-  it('rejects missing type', async () => {
-    const token = makeToken();
-    const res = await request(app)
-      .post('/api/v1/chat/verify/send')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ identifier: '+15551234567' });
-    expect(res.status).toBe(400);
-  });
-
-  it('accepts valid phone verification request', async () => {
-    const token = makeToken();
-    const res = await request(app)
-      .post('/api/v1/chat/verify/send')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ identifier: '+15551234567', type: 'phone' });
-    // Should succeed (stubbed SMS) or 400 if phone parsing fails
-    expect([200, 400]).toContain(res.status);
-  });
-});
+// (K2.1 OTP verify validation tests removed — path retired 2026-07-06.)
 
 // ─── Profile: Validation ──────────────────────────────────────
 

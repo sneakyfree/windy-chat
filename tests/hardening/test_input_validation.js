@@ -90,16 +90,7 @@ const auth = (t) => ({ Authorization: `Bearer ${t}` });
 // ═══════════════════════════════════════
 
 describe('K2 Onboarding Input Validation', () => {
-  it('rejects empty phone', async () => {
-    const r = await req('POST', 'onboarding', '/api/v1/chat/verify/send', { type: 'phone', identifier: '' }, auth(tokenA));
-    assert.equal(r.status, 400);
-  });
-
-  it('rejects non-E164 phone "abc"', async () => {
-    const r = await req('POST', 'onboarding', '/api/v1/chat/verify/send', { type: 'phone', identifier: 'abc' }, auth(tokenA));
-    assert.equal(r.status, 400);
-  });
-
+  // (verify/send phone-validation tests removed — OTP path retired 2026-07-06.)
   it('rejects display name over 64 chars', async () => {
     const r = await req('POST', 'onboarding', '/api/v1/chat/profile/setup', {
       verificationToken: 'dummy', displayName: 'x'.repeat(100), languages: ['en'],

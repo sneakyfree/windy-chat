@@ -69,21 +69,9 @@ async function crawl() {
   r = await req('POST', BASE_ONBOARDING, '/api/v1/onboarding/unified-login', {}, AUTH);
   record('onboarding', 'POST /onboarding/unified-login (2nd)', r.status, 'expect 200');
 
-  // Verify send — no auth → 401
-  r = await req('POST', BASE_ONBOARDING, '/api/v1/chat/verify/send', {});
-  record('onboarding', 'POST /chat/verify/send (no auth)', r.status, 'expect 401');
-
-  // Verify send — with auth
+  // Verify (K2.1 OTP) retired 2026-07-06 — must stay 404
   r = await req('POST', BASE_ONBOARDING, '/api/v1/chat/verify/send', { type: 'email', destination: 'test@test.com' }, AUTH);
-  record('onboarding', 'POST /chat/verify/send (auth)', r.status);
-
-  // Verify check
-  r = await req('POST', BASE_ONBOARDING, '/api/v1/chat/verify/check', { identifier: 'test@test.com', type: 'email', code: '123456' }, AUTH);
-  record('onboarding', 'POST /chat/verify/check', r.status);
-
-  // Verify status
-  r = await req('GET', BASE_ONBOARDING, '/api/v1/chat/verify/status?identifier=test@test.com', null, AUTH);
-  record('onboarding', 'GET /chat/verify/status', r.status);
+  record('onboarding', 'POST /chat/verify/send (retired)', r.status, 'expect 404');
 
   // Profile check-name
   r = await req('GET', BASE_ONBOARDING, '/api/v1/chat/profile/check-name?name=CrawlUser', null, AUTH);

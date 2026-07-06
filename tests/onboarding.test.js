@@ -101,92 +101,22 @@ describe('Unknown routes', () => {
 // ── Auth ──
 
 describe('Auth middleware', () => {
+  // Probe endpoint changed from verify/send → pair/generate when the
+  // K2.1 OTP path was retired (2026-07-06).
   it('rejects requests without Authorization header', async () => {
-    const res = await request('POST', '/api/v1/chat/verify/send', { type: 'email', identifier: 'a@b.com' }, { Authorization: '' });
+    const res = await request('POST', '/api/v1/chat/pair/generate', {}, { Authorization: '' });
     assert.equal(res.status, 401);
     assert.ok(res.body.error);
   });
 
   it('accepts valid service token', async () => {
-    // Even if the body is invalid, we should get past auth (400, not 401)
-    const res = await request('POST', '/api/v1/chat/verify/send', {});
+    // Whatever the handler returns, a valid token must get past auth (not 401)
+    const res = await request('POST', '/api/v1/chat/pair/generate', {});
     assert.notEqual(res.status, 401);
   });
 });
 
-// ── Verify Routes (K2.1) ──
-
-describe('POST /api/v1/chat/verify/send', () => {
-  it('rejects missing type', async () => {
-    const res = await request('POST', '/api/v1/chat/verify/send', { identifier: 'test@example.com' });
-    assert.equal(res.status, 400);
-    assert.match(res.body.error, /type/);
-  });
-
-  it('rejects invalid type', async () => {
-    const res = await request('POST', '/api/v1/chat/verify/send', { type: 'fax', identifier: 'test@example.com' });
-    assert.equal(res.status, 400);
-    assert.match(res.body.error, /type/);
-  });
-
-  it('rejects missing identifier', async () => {
-    const res = await request('POST', '/api/v1/chat/verify/send', { type: 'email' });
-    assert.equal(res.status, 400);
-    assert.match(res.body.error, /identifier/);
-  });
-
-  it('rejects invalid email format', async () => {
-    const res = await request('POST', '/api/v1/chat/verify/send', { type: 'email', identifier: 'not-an-email' });
-    assert.equal(res.status, 400);
-    assert.match(res.body.error, /email/i);
-  });
-
-  it('sends OTP for valid email (dev stub)', async () => {
-    const res = await request('POST', '/api/v1/chat/verify/send', { type: 'email', identifier: 'test@example.com' });
-    assert.equal(res.status, 200);
-    assert.equal(res.body.success, true);
-    assert.equal(res.body.type, 'email');
-    assert.equal(res.body.expiresInSeconds, 600);
-  });
-
-  it('rejects invalid phone number', async () => {
-    const res = await request('POST', '/api/v1/chat/verify/send', { type: 'phone', identifier: 'xyz' });
-    assert.equal(res.status, 400);
-  });
-});
-
-describe('POST /api/v1/chat/verify/check', () => {
-  it('rejects missing identifier', async () => {
-    const res = await request('POST', '/api/v1/chat/verify/check', { code: '123456' });
-    assert.equal(res.status, 400);
-    assert.match(res.body.error, /identifier/);
-  });
-
-  it('rejects missing code', async () => {
-    const res = await request('POST', '/api/v1/chat/verify/check', { identifier: 'test@example.com' });
-    assert.equal(res.status, 400);
-    assert.match(res.body.error, /code/);
-  });
-
-  it('rejects non-existent OTP', async () => {
-    const res = await request('POST', '/api/v1/chat/verify/check', { identifier: 'nobody@example.com', code: '000000' });
-    assert.equal(res.status, 400);
-    assert.match(res.body.error, /No verification code/);
-  });
-});
-
-describe('GET /api/v1/chat/verify/status', () => {
-  it('rejects missing identifier query param', async () => {
-    const res = await request('GET', '/api/v1/chat/verify/status');
-    assert.equal(res.status, 400);
-  });
-
-  it('returns not verified for unknown identifier', async () => {
-    const res = await request('GET', '/api/v1/chat/verify/status?identifier=nobody@example.com');
-    assert.equal(res.status, 200);
-    assert.equal(res.body.verified, false);
-  });
-});
+// (Verify Routes (K2.1) tests removed — OTP path retired 2026-07-06.)
 
 // ── Profile Routes (K2.2) ──
 
