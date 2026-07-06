@@ -5,6 +5,11 @@ RUN apk add --no-cache python3 make g++
 
 WORKDIR /app
 
+# Shared modules (admin-telemetry) — same layout as onboarding/directory:
+# /app/shared next to /app/service so `require('../../shared/<mod>')`
+# resolves from lib/.
+COPY shared/ /app/shared/
+
 # Install agent-roster dependencies
 COPY agent-roster/package.json /app/service/package.json
 WORKDIR /app/service
