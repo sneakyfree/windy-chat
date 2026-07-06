@@ -41,7 +41,16 @@ async function callAnthropic(messages, systemPrompt) {
     throw new Error(`anthropic ${res.status}: ${detail.slice(0, 200)}`);
   }
   const data = await res.json();
-  return data.content?.[0]?.text || null;
+  const text = data.content?.[0]?.text || null;
+  if (!text) return null;
+  return {
+    text,
+    model: data.model || 'claude-haiku-4-5-20251001',
+    usage: {
+      tokens_in: data.usage?.input_tokens ?? null,
+      tokens_out: data.usage?.output_tokens ?? null,
+    },
+  };
 }
 
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
@@ -85,9 +94,17 @@ async function callGroq(messages, systemPrompt, tools, toolChoice, model) {
   }
   const data = await res.json();
   const msg = data.choices?.[0]?.message;
+  if (!msg) return null;
   // Return the full message object so the caller can inspect tool_calls.
-  // Groq's OpenAI-shape includes role/content/tool_calls.
-  return msg || null;
+  // Groq's OpenAI-shape includes role/content/tool_calls. Attach the
+  // resolved model + token usage for the Windy Admin ledger (the model
+  // matters: it's the midwife A/B dimension, ADR-WA-001 §8).
+  msg.model = data.model || model || GROQ_MODEL;
+  msg.usage = {
+    tokens_in: data.usage?.prompt_tokens ?? null,
+    tokens_out: data.usage?.completion_tokens ?? null,
+  };
+  return msg;
 }
 
 function buildSystemPrompt({ agentName, ownerDisplayName, hasTools, canMail, canSearch }) {
@@ -161,7 +178,13 @@ async function generateReply({ history, agentName, ownerDisplayName, tools, tool
     try {
       const reply = await callAnthropic(trimmed, systemPrompt);
       if (reply) {
-        return { role: 'assistant', content: reply, provider: 'anthropic' };
+        return {
+          role: 'assistant',
+          content: reply.text,
+          provider: 'anthropic',
+          model: reply.model,
+          usage: reply.usage,
+        };
       }
     } catch (err) {
       console.warn(`[llm] anthropic failed: ${err.message}`);
