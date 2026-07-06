@@ -187,6 +187,10 @@ services:
       CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
       CHAT_SERVICE_TOKEN: ${CHAT_SERVICE_TOKEN:-}
       SYNAPSE_ADMIN_TOKEN: ${SYNAPSE_ADMIN_TOKEN:-}
+      # ADR-WA-001 — hatch-funnel telemetry (owner/agent chat provisioned).
+      # Onboarding has its own emitter token, distinct from the roster's.
+      WINDY_ADMIN_INGEST_URL: ${WINDY_ADMIN_INGEST_URL:-}
+      WINDY_ADMIN_INGEST_TOKEN: ${WINDY_ADMIN_INGEST_TOKEN_ONBOARDING:-}
     depends_on:
       synapse:
         condition: service_healthy

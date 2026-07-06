@@ -21,6 +21,7 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 const { asyncHandler } = require('../../shared/async-handler');
+const adminTelemetry = require('../../shared/admin-telemetry');
 const { withKeyLock } = require('../../shared/keyed-lock');
 const { deriveLocalpartForWindyId } = require('../../shared/localpart');
 
@@ -690,6 +691,17 @@ router.post('/', provisionLimiter, asyncHandler(async (req, res) => {
       matrix_user_id: matrixCredentials.matrixUserId,
       provisioned_at: new Date().toISOString(),
       passport_id: passportId,
+    });
+
+    // Hatch-funnel beat (ADR-WA-001 §3): the human's chat identity
+    // exists. already_existed distinguishes replays from first-time
+    // provisions when funnel queries count uniques.
+    adminTelemetry.emit({
+      service: 'chat-onboarding',
+      event_type: 'hatch.owner_chat_provisioned',
+      actor_type: 'human',
+      actor_id: windyIdentityId,
+      metadata: { already_existed: !!matrixCredentials.alreadyExisted },
     });
 
     console.log(`🏠 Matrix account provisioned: ${sanitizedDisplayName} → ${matrixCredentials.matrixUserId}`);

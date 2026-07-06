@@ -13,6 +13,7 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 const { asyncHandler } = require('../../shared/async-handler');
+const adminTelemetry = require('../../shared/admin-telemetry');
 const onboardingDb = require('../lib/db');
 
 const router = express.Router();
@@ -337,6 +338,21 @@ router.post('/', agentLimiter, serviceTokenAuth, asyncHandler(async (req, res) =
   });
 
   console.log(`[agent-provision] Agent provisioned: ${sanitizedName} (${passport_number}) → ${matrixResult.matrixUserId}, DM: ${dmResult.room_id || 'deferred'}`);
+
+  // Hatch-funnel beat (ADR-WA-001 §3): the agent's chat identity exists.
+  // Fresh provisions only — the already_provisioned replay above returns
+  // earlier and is not a funnel event.
+  adminTelemetry.emit({
+    service: 'chat-onboarding',
+    event_type: 'hatch.agent_chat_provisioned',
+    actor_type: 'agent',
+    actor_id: passport_number,
+    session_id: dmResult.room_id || null,
+    metadata: {
+      owner_windy_id: owner_windy_identity_id,
+      dm_room_deferred: !dmResult.room_id,
+    },
+  });
 
   res.status(201).json({
     matrix_user_id: matrixResult.matrixUserId,
