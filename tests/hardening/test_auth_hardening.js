@@ -83,7 +83,8 @@ function req(method, svc, urlPath, body, headers = {}) {
 
 // Protected endpoints for each service
 const protectedEndpoints = [
-  { svc: 'onboarding', method: 'POST', path: '/api/v1/chat/verify/send', body: { type: 'email', identifier: 'test@test.com' }, name: 'K2 Onboarding' },
+  // verify/send retired 2026-07-06 → probe auth on pair/generate instead
+  { svc: 'onboarding', method: 'POST', path: '/api/v1/chat/pair/generate', body: {}, name: 'K2 Onboarding' },
   { svc: 'directory', method: 'POST', path: '/api/v1/chat/directory/lookup', body: { hashes: ['abc'] }, name: 'K3 Directory' },
   { svc: 'social', method: 'POST', path: '/api/v1/social/posts', body: { content: 'test' }, name: 'K10 Social' },
   { svc: 'translation', method: 'POST', path: '/api/v1/translate', body: { text: 'hi', source_lang: 'en', target_lang: 'es' }, name: 'K9 Translation' },

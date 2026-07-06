@@ -243,91 +243,12 @@ or by windy-pro and other Windy services.
 **Base path:** `/api/v1/chat`
 **Rate limit:** 100 req/min global
 
-#### POST /api/v1/chat/verify/send
+#### ~~/api/v1/chat/verify/*~~ — RETIRED 2026-07-06
 
-Send a 6-digit OTP via SMS or email.
-
-**Auth:** User JWT or service token
-**Rate limit:** 5/min, 5/hour
-
-**Request:**
-
-```json
-{
-  "type": "phone | email",
-  "identifier": "string",
-  "countryCode": "string (optional, e.g. 'US')"
-}
-```
-
-**Response (200):**
-
-```json
-{
-  "success": true,
-  "type": "phone | email",
-  "identifier": "+1***5678 | g***@example.com",
-  "expiresInSeconds": 600
-}
-```
-
-**Errors:** 400 (invalid identifier), 429 (rate limited / cooldown active)
-
----
-
-#### POST /api/v1/chat/verify/check
-
-Validate OTP and receive a verification token.
-
-**Auth:** User JWT or service token
-
-**Request:**
-
-```json
-{
-  "identifier": "string",
-  "code": "string (6 digits)",
-  "type": "phone | email (optional)",
-  "countryCode": "string (optional)"
-}
-```
-
-**Response (200):**
-
-```json
-{
-  "success": true,
-  "verified": true,
-  "verificationToken": "UUID",
-  "identifier": "string",
-  "type": "phone | email"
-}
-```
-
-**Errors:** 400 (wrong code / max attempts), 429 (rate limited)
-
----
-
-#### GET /api/v1/chat/verify/status
-
-Check if an identifier has been verified.
-
-**Auth:** User JWT or service token
-
-**Query:** `?identifier=<phone_or_email>`
-
-**Response (200):**
-
-```json
-{
-  "identifier": "string",
-  "verified": true,
-  "verifiedAt": "ISO8601 | null",
-  "type": "phone | email"
-}
-```
-
----
+The K2.1 phone/email OTP path (`verify/send`, `verify/check`, `verify/status`;
+Twilio/SendGrid) was retired. Chat delegates all identity verification to the
+windy-pro account-server (`/api/v1/auth/send-verification` + `/verify-email`),
+which is the proven-live path. These endpoints now return 404.
 
 #### GET /api/v1/chat/profile/check-name
 

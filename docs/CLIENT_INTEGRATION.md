@@ -77,14 +77,17 @@ endpoint. Use this with matrix-js-sdk for all Matrix API calls.
 
 The client drives this flow step by step:
 
+> **2026-07-06:** the OTP steps (`verify/send` / `verify/check`) are RETIRED.
+> Identity verification happens in the windy-pro account-server (signup +
+> email OTP there); clients arrive at chat already authenticated via SSO /
+> unified-login. The remaining chat-side steps:
+
 ```
-1. POST /api/v1/chat/verify/send         → Send OTP to phone/email
-2. POST /api/v1/chat/verify/check         → Verify OTP code
-3. GET  /api/v1/chat/profile/check-name   → Check display name availability
-4. POST /api/v1/chat/profile/setup        → Create profile (name, languages, avatar)
-5. POST /api/v1/chat/provision            → Provision Matrix account
+1. GET  /api/v1/chat/profile/check-name   → Check display name availability
+2. POST /api/v1/chat/profile/setup        → Create profile (name, languages, avatar)
+3. POST /api/v1/chat/provision            → Provision Matrix account
    ↓ Returns: { matrix_user_id, access_token, device_id, home_server }
-6. Initialize matrix-js-sdk with the access token
+4. Initialize matrix-js-sdk with the access token
 ```
 
 All endpoints on port **8101**.

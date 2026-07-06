@@ -9,14 +9,16 @@ let server;
 let baseURL;
 
 before(() => {
-  const app = require('../server');
+  // server.js exports { app } (destructured) — the old bare `require`
+  // returned the module object and app.listen crashed every run; CI's
+  // billing-lock hid it. Pre-existing, fixed with the OTP retire.
+  const { app } = require('../server');
   server = app.listen(0);
   baseURL = `http://127.0.0.1:${server.address().port}`;
 });
 
 after(() => {
   if (server) server.close();
-  delete process.env.CHAT_OTP_ENABLED;
 });
 
 // /health always reports core deps.
@@ -30,22 +32,10 @@ test('GET /health returns ok with core dependencies', async () => {
   assert.ok('redis' in body.dependencies, 'reports redis');
 });
 
-// Twilio/SendGrid back the OTP verify path, which is off by default (identity
-// is delegated to windy-pro). They're gated behind CHAT_OTP_ENABLED so /health
-// doesn't report a misleading `false` for an intentionally-unconfigured feature.
-// checks() reads the env at request time, so we can toggle on one server.
-test('GET /health omits twilio/sendgrid when OTP disabled (default)', async () => {
-  delete process.env.CHAT_OTP_ENABLED;
+// OTP path retired 2026-07-06 — /health must never report OTP providers.
+test('GET /health never reports twilio/sendgrid (OTP path retired)', async () => {
   const res = await fetch(`${baseURL}/health`);
   const body = await res.json();
-  assert.ok(!('twilio' in body.dependencies), 'twilio omitted when OTP off');
-  assert.ok(!('sendgrid' in body.dependencies), 'sendgrid omitted when OTP off');
-});
-
-test('GET /health reports twilio/sendgrid when OTP enabled', async () => {
-  process.env.CHAT_OTP_ENABLED = 'true';
-  const res = await fetch(`${baseURL}/health`);
-  const body = await res.json();
-  assert.ok('twilio' in body.dependencies, 'twilio reported when OTP on');
-  assert.ok('sendgrid' in body.dependencies, 'sendgrid reported when OTP on');
+  assert.ok(!('twilio' in body.dependencies), 'twilio never reported');
+  assert.ok(!('sendgrid' in body.dependencies), 'sendgrid never reported');
 });

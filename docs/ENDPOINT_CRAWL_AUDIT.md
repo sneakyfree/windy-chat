@@ -11,9 +11,9 @@
 | Method | Path | Auth | Status Codes | Notes |
 |--------|------|------|-------------|-------|
 | GET | `/health` | None | 200 | Reports Synapse/Redis/Twilio/SendGrid status |
-| POST | `/api/v1/chat/verify/send` | JWT | 200, 400, 429 | OTP via Twilio SMS or SendGrid email; rate: 5/min, 5/hr |
-| POST | `/api/v1/chat/verify/check` | JWT | 200, 400, 429 | Validate 6-digit OTP; max 3 attempts |
-| GET | `/api/v1/chat/verify/status` | JWT | 200 | Check verification status by identifier |
+| POST | `/api/v1/chat/verify/send` | — | 404 | RETIRED 2026-07-06 (OTP path removed; identity in windy-pro account-server) |
+| POST | `/api/v1/chat/verify/check` | — | 404 | RETIRED 2026-07-06 |
+| GET | `/api/v1/chat/verify/status` | — | 404 | RETIRED 2026-07-06 |
 | GET | `/api/v1/chat/profile/check-name` | JWT | 200 | Name availability + suggestions |
 | POST | `/api/v1/chat/profile/setup` | JWT | 201, 400 | Create profile: name (2-64), languages, avatar; profanity filter |
 | GET | `/api/v1/chat/profile/:userId` | JWT | 200, 404 | Get profile by ID |
