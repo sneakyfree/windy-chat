@@ -23,7 +23,8 @@
  */
 
 const { generateReply } = require('./llm');
-const { TOOLS, executeTool } = require('./tools');
+const { availableTools, executeTool } = require('./tools');
+const windySearch = require('./windy-search');
 const { consumeMessage, consumeMail, quotaMessage } = require('./quota');
 const { getClearance, exhaustionMessage } = require('./upsell');
 
@@ -239,6 +240,50 @@ class AgentRunner {
     }
   }
 
+  /**
+   * Post-tool synthesis (2026-07-06, web_search): feed the tool result
+   * back to the LLM (OpenAI tool-message shape) so it answers the user
+   * in its own words instead of us dumping raw JSON at grandma.
+   * tool_choice:'none' blocks a second tool round — one search per
+   * inbound message, matching the loop's no-recursion posture. Any
+   * budget notice_to_user rides inside the tool content; the search
+   * prompt section tells the model to relay it gently.
+   */
+  async _synthesizeToolReply({ history, call, toolResult, canMail, canSearch }) {
+    const followUp = [
+      ...history,
+      { role: 'assistant', content: null, tool_calls: [call] },
+      {
+        role: 'tool',
+        tool_call_id: call.id || 'call_0',
+        name: call.function?.name || 'web_search',
+        content: JSON.stringify(toolResult),
+      },
+    ];
+    try {
+      const { availableTools } = require('./tools');
+      const synth = await generateReply({
+        history: followUp,
+        agentName: this.agentName,
+        ownerDisplayName: this.ownerContext?.displayName || null,
+        tools: availableTools({ canMail, canSearch }),
+        toolChoice: 'none',
+        canMail,
+        canSearch,
+      });
+      if (synth.content && synth.content.trim()) return synth.content;
+    } catch (err) {
+      console.warn(`[runner ${this.matrixUserId}] synthesis failed: ${err.message}`);
+    }
+    // Fallback: readable digest of the top results — never raw JSON.
+    const results = toolResult.results || [];
+    if (!results.length) return "I searched but didn't find anything useful — want me to try different words?";
+    const lines = results.slice(0, 3).map((r) => `• ${r.title} — ${r.snippet}`);
+    const notice = toolResult.notice_to_user ? '\n\n(One more thing — ' +
+      "I've used most of this month's included web searches; the allowance resets on the 1st.)" : '';
+    return `Here's what I found:\n${lines.join('\n')}${notice}`;
+  }
+
   /** @agent_et26-acnz-e2dd:... -> ET26-ACNZ-E2DD (provision lowercased it) */
   _passport() {
     const localpart = this.matrixUserId.slice(1).split(':')[0];
@@ -343,14 +388,21 @@ class AgentRunner {
       // should be the agent (not the human), so the recipient sees who's
       // really writing.
       const sendFromDisplay = ownerMail ? (this.ownerContext?.displayName || null) : this.agentName;
-      const toolsAvailable = !!sendFromAddress;
-      const tools = toolsAvailable ? TOOLS : null;
+      // Capability-gated tool list (2026-07-06): mail needs a send-from
+      // address; web search needs the windy-search + eternitas platform
+      // env. Search is deliberately NOT gated on mail — an agent without
+      // a mailbox can still look things up for its owner.
+      const canMail = !!sendFromAddress;
+      const canSearch = windySearch.isConfigured();
+      const tools = availableTools({ canMail, canSearch });
 
       const result = await generateReply({
         history,
         agentName: this.agentName,
         ownerDisplayName: this.ownerContext?.displayName || null,
         tools,
+        canMail,
+        canSearch,
       });
 
       // If the LLM emitted tool_calls, execute them in order and
@@ -391,10 +443,20 @@ class AgentRunner {
             ownerMailAddress: sendFromAddress,
             ownerDisplayName: sendFromDisplay,
             agentName: this.agentName,
+            passport: this._passport(),
           });
-          // Surface a grandma-friendly result. Successes are short
-          // confirmations; failures are honest and actionable.
-          if (out.ok) {
+          // Surface a grandma-friendly result. Action tools (send_email)
+          // get short confirmations; information tools (web_search) get a
+          // SYNTHESIS pass — the raw results go back to the LLM, which
+          // answers the user in its own words. Failures are honest and
+          // actionable either way.
+          if (out.ok && name === 'web_search') {
+            const answer = await this._synthesizeToolReply({
+              history, call: { ...call, function: { name, arguments: call.function?.arguments } },
+              toolResult: out, canMail, canSearch,
+            });
+            await this._sendMessage(roomId, answer);
+          } else if (out.ok) {
             if (name === 'send_email') {
               await this._sendMessage(roomId, `Sent ✓ — from ${out.from} to ${args.to}.`);
             } else {

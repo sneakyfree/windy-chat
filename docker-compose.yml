@@ -492,6 +492,13 @@ services:
       # VERIFIED_HATCH_UPSELL=1 flips at go-live together with
       # VERIFIED_HATCH_ENABLED on Eternitas.
       ETERNITAS_URL: ${ETERNITAS_URL:-https://api.eternitas.ai}
+      # 2026-07-06 — roster web_search through windy-search. Both must be
+      # set (plus ETERNITAS_URL above) or the tool simply isn't offered:
+      # the roster fetches each agent's EPT from eternitas (platform key)
+      # and searches windy-search as that agent (per-passport budget +
+      # integrity attribution).
+      WINDY_SEARCH_BASE_URL: ${WINDY_SEARCH_BASE_URL:-https://api.windysearch.com}
+      ETERNITAS_PLATFORM_API_KEY: ${ETERNITAS_PLATFORM_API_KEY:-}
       UPGRADE_URL: ${UPGRADE_URL:-https://app.windyword.ai/upgrade}
       VERIFIED_HATCH_UPSELL: ${VERIFIED_HATCH_UPSELL:-}
       QUOTA_VERIFIED_MULTIPLIER: ${QUOTA_VERIFIED_MULTIPLIER:-2}
