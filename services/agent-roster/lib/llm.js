@@ -169,10 +169,30 @@ async function generateReply({ history, agentName, ownerDisplayName, tools, tool
     }
   } catch (err) {
     console.warn(`[llm] groq failed: ${err.message}`);
+    // llama tool-calling is stochastic: a malformed emission surfaces as
+    // Groq 400 tool_use_failed (seen live 2026-07-06 on the first
+    // web_search E2E). Retry once — usually clears — then drop tools and
+    // answer text-only. A knowledge-only answer beats a dead chat.
+    if (tools && tools.length && String(err.message).includes('tool_use_failed')) {
+      try {
+        const retry = await callGroq(trimmed, systemPrompt, tools, toolChoice);
+        if (retry) return { ...retry, provider: 'groq' };
+      } catch (err2) {
+        console.warn(`[llm] groq tool retry failed: ${err2.message}`);
+      }
+      try {
+        const textOnly = await callGroq(trimmed, systemPrompt, null);
+        if (textOnly) return { ...textOnly, provider: 'groq-notools' };
+      } catch (err3) {
+        console.warn(`[llm] groq no-tools fallback failed: ${err3.message}`);
+      }
+    }
   }
 
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('No LLM provider configured (ANTHROPIC_API_KEY / GROQ_API_KEY)');
+    // Providers may be configured but all attempts failed this turn —
+    // the runner catches this and sends the friendly snag message.
+    throw new Error('All LLM attempts failed this turn (see [llm] warnings)');
   }
   const last = trimmed[trimmed.length - 1]?.content || '';
   return {
