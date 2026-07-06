@@ -1,0 +1,20 @@
+{
+  "name": "windy-chat-hub",
+  "version": "1.0.0",
+  "description": "Windy Chat — Hub Mode service (bridged-platform connection manager: wraps mautrix bridgev2 provisioning, owns connected_platforms state)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test tests/hub.test.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.5.0",
+    "jsonwebtoken": "^9.0.2",
+    "uuid": "^9.0.0"
+  },
+  "private": true
+}

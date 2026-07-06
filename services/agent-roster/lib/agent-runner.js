@@ -250,7 +250,7 @@ class AgentRunner {
    * budget notice_to_user rides inside the tool content; the search
    * prompt section tells the model to relay it gently.
    */
-  async _synthesizeToolReply({ history, call, toolResult, canMail, canSearch }) {
+  async _synthesizeToolReply({ history, call, toolResult, canMail, canSearch, ept }) {
     const followUp = [
       ...history,
       { role: 'assistant', content: null, tool_calls: [call] },
@@ -271,6 +271,7 @@ class AgentRunner {
         toolChoice: 'none',
         canMail,
         canSearch,
+        ept,
       });
       if (synth.content && synth.content.trim()) return synth.content;
     } catch (err) {
@@ -407,6 +408,18 @@ class AgentRunner {
       const canSearch = windySearch.isConfigured();
       const tools = availableTools({ canMail, canSearch });
 
+      // Per-agent EPT for the Mind route (Phase 1.5) — same credential
+      // machinery web_search uses (6h cache). Failure just means the
+      // direct Groq chain answers this turn; never block the reply.
+      let agentEpt = null;
+      if (process.env.ETERNITAS_URL && process.env.ETERNITAS_PLATFORM_API_KEY) {
+        try {
+          agentEpt = await windySearch.getAgentEpt(passport);
+        } catch (err) {
+          console.warn(`[runner ${this.matrixUserId}] EPT fetch failed (mind route skipped): ${err.message}`);
+        }
+      }
+
       const llmStartedAt = Date.now();
       const result = await generateReply({
         history,
@@ -415,6 +428,7 @@ class AgentRunner {
         tools,
         canMail,
         canSearch,
+        ept: agentEpt,
       });
       adminTelemetry.emit({
         service: 'agent-roster',
@@ -489,7 +503,7 @@ class AgentRunner {
           if (out.ok && name === 'web_search') {
             const answer = await this._synthesizeToolReply({
               history, call: { ...call, function: { name, arguments: call.function?.arguments } },
-              toolResult: out, canMail, canSearch,
+              toolResult: out, canMail, canSearch, ept: agentEpt,
             });
             await this._sendMessage(roomId, answer);
           } else if (out.ok) {

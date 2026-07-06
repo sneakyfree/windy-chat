@@ -1,0 +1,24 @@
+# Hub Mode — double-puppeting appservice registration (docs.mau.fi
+# /bridges/general/double-puppeting.html, "appservice method").
+#
+# A url-less registration whose as_token lets bridges masquerade as any
+# local user (namespace below), so outgoing bridged messages appear from
+# the user's own Matrix account with zero per-user action. ONE of these
+# is shared by ALL Hub bridges via each bridge's
+# `double_puppet.secrets: {<domain>: "as_token:${DOUBLEPUPPET_AS_TOKEN}"}`.
+#
+# Rendered by scripts/enable-hub-bridge.sh into
+# ${SYNAPSE_DATA}/appservices/doublepuppet-registration.yaml and listed in
+# homeserver.yaml `app_service_config_files`.
+
+id: doublepuppet
+url:
+as_token: "${DOUBLEPUPPET_AS_TOKEN}"
+hs_token: "${DOUBLEPUPPET_HS_TOKEN}"
+sender_localpart: "doublepuppet_unused"
+rate_limited: false
+
+namespaces:
+  users:
+    - exclusive: false
+      regex: "@.*:chat\\.windychat\\.ai"

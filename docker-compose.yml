@@ -511,6 +511,12 @@ services:
       # Fire-and-forget; both unset = emitter is inert.
       WINDY_ADMIN_INGEST_URL: ${WINDY_ADMIN_INGEST_URL:-}
       WINDY_ADMIN_INGEST_TOKEN: ${WINDY_ADMIN_INGEST_TOKEN:-}
+      # Phase 1.5 — the midwife's brain routes through Windy Mind
+      # (MIND_API_URL above), model resolved from the named surface.
+      # ROSTER_MIND_DISABLE=1 is the emergency killswitch back to
+      # Groq-direct.
+      MIND_CHAT_SURFACE: ${MIND_CHAT_SURFACE:-midwife}
+      ROSTER_MIND_DISABLE: ${ROSTER_MIND_DISABLE:-}
     depends_on:
       onboarding:
         condition: service_healthy
@@ -534,6 +540,89 @@ services:
           # 1 process, N asyncio fetch loops, ~10 MB per agent
           # comfortably fits in 256 MB for grandma-launch scale.
           memory: 256M
+
+  # ── Hub (Hub Mode) — bridged-platform connection manager ──
+  # Wraps the mautrix bridgev2 provisioning API (connect/disconnect
+  # Telegram/Slack/WhatsApp/Discord) + owns connected_platforms state.
+  # See exec-guide-hub-mode-2026-07-06.md. Port 8109 (8106 is
+  # double-booked by translation/agent-roster).
+  hub:
+    build:
+      context: ./services
+      dockerfile: hub/Dockerfile
+      args:
+        COMMIT_SHA: ${COMMIT_SHA:-}
+        BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
+    container_name: windy-hub
+    ports:
+      - "8109:8109"
+    volumes:
+      - hub_data:/app/service/data
+      # Read-only onboarding DB for windy_identity_id → MXID resolution
+      # (same pattern as agent-roster).
+      - onboarding_data:/onboarding-data:ro
+    environment:
+      PORT: 8109
+      NODE_ENV: ${NODE_ENV:-development}
+      ONBOARDING_DB_PATH: /onboarding-data/onboarding.db
+      SYNAPSE_SERVER_NAME: ${SYNAPSE_SERVER_NAME:-chat.windychat.ai}
+      WINDY_ACCOUNT_SERVER_URL: ${WINDY_ACCOUNT_SERVER_URL:-http://host.docker.internal:8098}
+      WINDY_JWT_SECRET: ${WINDY_JWT_SECRET:-dev-secret-change-me}
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
+      # Per-bridge provisioning endpoints — a platform is exposed to
+      # clients only when BOTH of its vars are set.
+      HUB_BRIDGE_TELEGRAM_URL: ${HUB_BRIDGE_TELEGRAM_URL:-}
+      HUB_BRIDGE_TELEGRAM_PROVISIONING_SECRET: ${HUB_BRIDGE_TELEGRAM_PROVISIONING_SECRET:-}
+      HUB_BRIDGE_SLACK_URL: ${HUB_BRIDGE_SLACK_URL:-}
+      HUB_BRIDGE_SLACK_PROVISIONING_SECRET: ${HUB_BRIDGE_SLACK_PROVISIONING_SECRET:-}
+      HUB_BRIDGE_WHATSAPP_URL: ${HUB_BRIDGE_WHATSAPP_URL:-}
+      HUB_BRIDGE_WHATSAPP_PROVISIONING_SECRET: ${HUB_BRIDGE_WHATSAPP_PROVISIONING_SECRET:-}
+      HUB_BRIDGE_DISCORD_URL: ${HUB_BRIDGE_DISCORD_URL:-}
+      HUB_BRIDGE_DISCORD_PROVISIONING_SECRET: ${HUB_BRIDGE_DISCORD_PROVISIONING_SECRET:-}
+    depends_on:
+      onboarding:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8109/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # ── Telegram bridge (mautrix-telegram, bridgev2) — Hub Mode ──
+  # Behind the `hub` compose profile: NOT started by a bare `up -d`.
+  # First run generates /data/config.yaml; scripts/enable-hub-bridge.sh
+  # patches config + installs the appservice registration, then a
+  # (Grant-gated in prod) Synapse restart activates it.
+  bridge-telegram:
+    image: dock.mau.dev/mautrix/telegram:latest
+    container_name: windy-bridge-telegram
+    profiles: ["hub"]
+    volumes:
+      - bridge_telegram_data:/data
+    restart: unless-stopped
+    depends_on:
+      synapse:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   # ── Rich Media (K4) — File upload, thumbnails, serving ──
   media:
@@ -662,3 +751,5 @@ volumes:
   translation_data:
   media_data:
   call_history_data:
+  hub_data:
+  bridge_telegram_data:
