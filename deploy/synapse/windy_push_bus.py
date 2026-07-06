@@ -135,12 +135,24 @@ class WindyPushBusModule:
     async def _resolve_recipients(
         self, room_id: str, exclude: str
     ) -> List[str]:
+        # ModuleApi has no get_users_in_room (never did on the public API —
+        # this crashed on every message, silently killing the bus republish).
+        # Resolve joined members from room state instead; get_room_state is
+        # public ModuleApi surface (present in Synapse 1.151).
         try:
-            members = await self._api.get_users_in_room(room_id)
+            state = await self._api.get_room_state(
+                room_id, [("m.room.member", None)]
+            )
         except Exception:
             logger.exception("Failed to list members for room %s", room_id)
             return []
-        return [m for m in members if m != exclude]
+        return [
+            state_key
+            for (etype, state_key), ev in state.items()
+            if etype == "m.room.member"
+            and ev.content.get("membership") == "join"
+            and state_key != exclude
+        ]
 
     async def _display_name(self, user_id: str) -> Optional[str]:
         try:
