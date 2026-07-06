@@ -53,6 +53,55 @@ async function callAnthropic(messages, systemPrompt) {
   };
 }
 
+// Phase 1.5 (ADR-WA-001 §8): the midwife's brain routes through Windy
+// Mind so the model is an operator-set config ("midwife" surface), not
+// a redeploy. Mind resolves the surface server-side; Groq-direct below
+// stays as the availability fallback (a silent agent is worse than a
+// duplicate voice). Auth = the agent's own EPT (per-passport EI rate
+// limits + audit attribution on Mind's side).
+const MIND_SURFACE = process.env.MIND_CHAT_SURFACE || 'midwife';
+
+async function callMind(messages, systemPrompt, tools, toolChoice, ept) {
+  if (!ept || process.env.ROSTER_MIND_DISABLE === '1') return null;
+  const base = (process.env.MIND_API_URL || 'https://api.windymind.ai').replace(/\/$/, '');
+  const body = {
+    surface: MIND_SURFACE,
+    max_tokens: 512,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...messages,
+    ],
+  };
+  if (tools && tools.length) {
+    body.tools = tools;
+    body.tool_choice = toolChoice || 'auto';
+  }
+  const res = await fetch(`${base}/v1/chat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${ept}`,
+    },
+    body: JSON.stringify(body),
+    // Mind adds a broker hop on top of the provider call.
+    signal: AbortSignal.timeout(25000),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`mind ${res.status}: ${detail.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const msg = data.choices?.[0]?.message;
+  if (!msg) return null;
+  // Mind reports the RESOLVED model (the A/B dimension) + usage.
+  msg.model = data.model || null;
+  msg.usage = {
+    tokens_in: data.usage?.prompt_tokens ?? null,
+    tokens_out: data.usage?.completion_tokens ?? null,
+  };
+  return msg;
+}
+
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 // Groq rate limits are PER-MODEL: when the shared free-tier key burns its
 // daily tokens on the primary model (seen live 2026-07-06: TPD 100k
@@ -159,7 +208,7 @@ web-access allowance, gently pass that along in your own words.`;
  * Returns the full LLM message: { role:'assistant', content, tool_calls? }.
  * The runner inspects tool_calls to decide whether to execute side-effects.
  */
-async function generateReply({ history, agentName, ownerDisplayName, tools, toolChoice, canMail, canSearch }) {
+async function generateReply({ history, agentName, ownerDisplayName, tools, toolChoice, canMail, canSearch, ept }) {
   const systemPrompt = buildSystemPrompt({
     agentName,
     ownerDisplayName,
@@ -170,6 +219,18 @@ async function generateReply({ history, agentName, ownerDisplayName, tools, tool
 
   // Trim to last 10 turns for token budget.
   const trimmed = history.slice(-10);
+
+  // Windy Mind first (Phase 1.5) — the model control plane decides the
+  // midwife's model. Any failure falls through to the direct chain
+  // below unchanged; availability first.
+  try {
+    const msg = await callMind(trimmed, systemPrompt, tools, toolChoice, ept);
+    if (msg) {
+      return { ...msg, provider: 'mind' };
+    }
+  } catch (err) {
+    console.warn(`[llm] mind failed, falling back direct: ${err.message}`);
+  }
 
   // Anthropic doesn't share OpenAI's tool schema; skip Anthropic when tools
   // are required and fall through to Groq. (BYOM with Anthropic native

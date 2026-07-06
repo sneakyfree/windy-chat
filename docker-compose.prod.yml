@@ -148,6 +148,26 @@ services:
       R2_BUCKET: ${R2_BUCKET:-windychat-backups}
     restart: unless-stopped
 
+  hub:
+    ports: !override
+      - "127.0.0.1:8109:8109"
+    environment:
+      NODE_ENV: production
+      COMMIT_SHA: ${COMMIT_SHA:-}
+      BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      WINDY_ACCOUNT_SERVER_URL: ${WINDY_ACCOUNT_SERVER_URL:?set via .env.production}
+      WINDY_JWKS_URL: ${WINDY_JWKS_URL:?set via .env.production}
+    restart: unless-stopped
+
+  # ── Telegram bridge (Hub Mode) — prod state on the host, like Synapse ──
+  # Bridge state (config.yaml, SQLite DB, MTProto session material) lives
+  # OUTSIDE /opt/windy-chat so the rsync deploy can never touch it.
+  bridge-telegram:
+    volumes: !override
+      - /opt/windy-chat-data/bridges/telegram:/data
+    restart: unless-stopped
+
   # ── Coturn — VoIP NAT traversal ────────────────────────────────
   # Host-network mode so Coturn can see real client source IPs (required
   # for STUN reflexive candidate discovery).

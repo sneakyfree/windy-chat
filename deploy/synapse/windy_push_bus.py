@@ -34,9 +34,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import urllib.request
 import urllib.error
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Pattern, Tuple
 
 import attr
 
@@ -52,6 +53,17 @@ class WindyPushBusConfig:
     push_bus_token: str = ""
     include_event_types: Tuple[str, ...] = ("m.room.message", "m.room.encrypted")
     request_timeout_seconds: float = 3.0
+    # Hub Mode (exec-guide-hub-mode-2026-07-06 §4.1): bridge portal rooms
+    # multiply message volume massively (backfill + busy remote channels).
+    # Senders matching any of these regexes are skipped entirely, and
+    # matching RECIPIENTS are dropped from the fan-out (puppet users have
+    # no Windy push tokens — POSTs for them are pure waste). Native Matrix
+    # push is untouched; this only bounds the cross-service bus republish.
+    ignore_sender_patterns: Tuple[Pattern[str], ...] = ()
+    # 0 = unlimited. Rooms with more joined members than this skip the bus
+    # republish (a 500-member bridged Discord channel must not become 500
+    # synchronous POSTs from inside Synapse's reactor per message).
+    max_fanout_recipients: int = 0
 
 
 class WindyPushBusModule:
@@ -84,6 +96,16 @@ class WindyPushBusModule:
         )
         if not isinstance(include, list) or not all(isinstance(t, str) for t in include):
             raise ConfigError("windy_push_bus: 'include_event_types' must be a list of strings")
+        ignore = config.get("ignore_sender_patterns", [])
+        if not isinstance(ignore, list) or not all(isinstance(p, str) for p in ignore):
+            raise ConfigError("windy_push_bus: 'ignore_sender_patterns' must be a list of regex strings")
+        try:
+            ignore_compiled = tuple(re.compile(p) for p in ignore)
+        except re.error as e:
+            raise ConfigError(f"windy_push_bus: invalid ignore_sender_patterns regex: {e}")
+        max_fanout = config.get("max_fanout_recipients", 0)
+        if not isinstance(max_fanout, int) or max_fanout < 0:
+            raise ConfigError("windy_push_bus: 'max_fanout_recipients' must be a non-negative integer")
         return WindyPushBusConfig(
             push_gateway_url=config.get(
                 "push_gateway_url", "http://host.docker.internal:8103"
@@ -93,6 +115,8 @@ class WindyPushBusModule:
             request_timeout_seconds=float(
                 config.get("request_timeout_seconds", 3.0)
             ),
+            ignore_sender_patterns=ignore_compiled,
+            max_fanout_recipients=max_fanout,
         )
 
     async def on_new_event(self, event, state_events) -> None:
@@ -108,8 +132,23 @@ class WindyPushBusModule:
             room_id = event.room_id
             sender = event.sender
 
+            if self._is_ignored(sender):
+                return
+
             recipients = await self._resolve_recipients(room_id, exclude=sender)
+            recipients = [r for r in recipients if not self._is_ignored(r)]
             if not recipients:
+                return
+            if (
+                self._config.max_fanout_recipients
+                and len(recipients) > self._config.max_fanout_recipients
+            ):
+                logger.debug(
+                    "Skipping bus republish for %s — %d recipients exceeds cap %d",
+                    room_id,
+                    len(recipients),
+                    self._config.max_fanout_recipients,
+                )
                 return
 
             title = await self._display_name(sender) or sender
@@ -131,6 +170,11 @@ class WindyPushBusModule:
         except Exception:
             # Never raise — this path is additive and must not break Synapse.
             logger.exception("WindyPushBusModule.on_new_event failed")
+
+    def _is_ignored(self, user_id: str) -> bool:
+        return any(
+            p.search(user_id) for p in self._config.ignore_sender_patterns
+        )
 
     async def _resolve_recipients(
         self, room_id: str, exclude: str

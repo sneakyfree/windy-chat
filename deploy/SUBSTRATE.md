@@ -57,6 +57,8 @@
 | `backup` | local node | 127.0.0.1:8104 | `/health` 200 + `/version` 200 |
 | `social` | local node | 127.0.0.1:8105 | `/health` 200 + `/version` 200 |
 | `media` | local node | 127.0.0.1:8107 | `/health` 200 + `/version` 200 |
+| `hub` | local node | 127.0.0.1:8109 | `/health` 200 + `/version` 200; `dependencies.configured_platforms` lists enabled bridges |
+| `bridge-telegram` | `dock.mau.dev/mautrix/telegram` | none (internal :29317) | compose profile `hub` — started by `scripts/enable-hub-bridge.sh`, NOT by the deploy workflow. Logs show "Bridge started". State (config.yaml + SQLite + MTProto sessions) in `/opt/windy-chat-data/bridges/telegram` — OUTSIDE the rsync tree; back up like Synapse data. Registrations in `/opt/windy-chat-data/synapse/appservices/` are listed in live homeserver.yaml `app_service_config_files` (Synapse REFUSES TO BOOT if a listed file is missing). Synapse restart (de)activates — operator-gated. |
 | `coturn` | `coturn/coturn` | host-network: 3478 udp+tcp, 5349 tcp, 49152–65535 udp+tcp | `turnutils_stunclient` reflexive OK |
 
 ## External ports (host-bound / SG ingress)

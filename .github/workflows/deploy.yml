@@ -131,7 +131,7 @@ jobs:
             # the custom-built containers prod runs; synapse, coturn, synapse-db,
             # synapse-redis are upstream images left as-is.
             # BOTH compose files + --env-file required (coturn image + prod overrides).
-            LIVE="onboarding directory push-gateway backup social media agent-roster call-history"
+            LIVE="onboarding directory push-gateway backup social media agent-roster call-history hub"
             COMPOSE="docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production"
             sudo COMMIT_SHA="$COMMIT_SHA" BUILD_TIMESTAMP="$BUILD_TIMESTAMP" $COMPOSE build $LIVE
             # --no-deps so we recreate ONLY the live services; synapse + dbs +

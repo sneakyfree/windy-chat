@@ -87,6 +87,32 @@ modules:
       include_event_types:
         - m.room.message
         - m.room.encrypted
+      # Hub Mode — keep bridge portal traffic off the cross-service bus
+      # (native Matrix push is unaffected). Prefixes match the puppet and
+      # bridge-bot namespaces each mautrix bridge registers.
+      ignore_sender_patterns:
+        - "^@telegram_"
+        - "^@telegrambot:"
+        - "^@slack_"
+        - "^@slackbot:"
+        - "^@whatsapp_"
+        - "^@whatsappbot:"
+        - "^@discord_"
+        - "^@discordbot:"
+      # A busy bridged group must not become N synchronous POSTs from
+      # inside Synapse per message.
+      max_fanout_recipients: 25
+
+# ── Application services (Hub Mode bridges) ──────────────────────
+# Registrations are rendered onto the host by scripts/enable-hub-bridge.sh
+# into /opt/windy-chat-data/synapse/appservices/ (container path
+# /data/appservices/). IMPORTANT: Synapse REFUSES TO BOOT if a listed
+# file is missing — the enable script appends entries here only after
+# the file exists. Expected entries once Telegram is enabled:
+#
+# app_service_config_files:
+#   - /data/appservices/telegram-registration.yaml
+#   - /data/appservices/doublepuppet-registration.yaml
 
 # ── Shared secrets (populated from .env.production) ──────────────
 registration_shared_secret: "${SYNAPSE_REGISTRATION_SECRET}"
