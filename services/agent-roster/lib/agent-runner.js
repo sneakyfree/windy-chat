@@ -27,6 +27,7 @@ const { availableTools, executeTool } = require('./tools');
 const windySearch = require('./windy-search');
 const { consumeMessage, consumeMail, quotaMessage } = require('./quota');
 const { getClearance, exhaustionMessage } = require('./upsell');
+const adminTelemetry = require('../../shared/admin-telemetry');
 
 // ADR-056: verified owners earn a larger daily message allowance — the
 // $1 upgrade genuinely buys a bigger day, so the exhaustion upsell is
@@ -353,6 +354,15 @@ class AgentRunner {
       : 1;
     const msgGate = consumeMessage(this.ownerWindyId, quotaMult);
     if (!msgGate.allowed) {
+      // Quota walls are funnel signal (ADR-WA-001 §3: rate-limit hits).
+      adminTelemetry.emit({
+        service: 'agent-roster',
+        event_type: 'roster.quota_denied',
+        actor_type: 'agent',
+        actor_id: passport,
+        session_id: roomId,
+        metadata: { quota: 'message', clearance: clearance || 'unknown' },
+      });
       // ADR-056 §5 — the wall is a warm hand-off, never a dead screen:
       // offer link-your-own-compute (always) and the $1 verified
       // upgrade (only when known-unverified AND the upsell flag is on).
@@ -367,6 +377,7 @@ class AgentRunner {
     }
 
     await this._setTyping(roomId, true);
+    const exchangeStartedAt = Date.now();
     try {
       // Pull conversation memory from Matrix /messages.
       const history = await this._fetchHistory(roomId);
@@ -396,6 +407,7 @@ class AgentRunner {
       const canSearch = windySearch.isConfigured();
       const tools = availableTools({ canMail, canSearch });
 
+      const llmStartedAt = Date.now();
       const result = await generateReply({
         history,
         agentName: this.agentName,
@@ -403,6 +415,19 @@ class AgentRunner {
         tools,
         canMail,
         canSearch,
+      });
+      adminTelemetry.emit({
+        service: 'agent-roster',
+        event_type: 'llm.call',
+        actor_type: 'agent',
+        actor_id: passport,
+        model: result.model || null,
+        provider: result.provider || null,
+        tokens_in: result.usage?.tokens_in ?? null,
+        tokens_out: result.usage?.tokens_out ?? null,
+        duration_ms: Date.now() - llmStartedAt,
+        session_id: roomId,
+        metadata: { tool_calls: (result.tool_calls || []).length },
       });
 
       // If the LLM emitted tool_calls, execute them in order and
@@ -445,6 +470,17 @@ class AgentRunner {
             agentName: this.agentName,
             passport: this._passport(),
           });
+          // First-tool-use funnel signal. web_search spend is already
+          // ledgered server-side by windy-search (cost.charge); this
+          // event is the roster-side view + covers send_email.
+          adminTelemetry.emit({
+            service: 'agent-roster',
+            event_type: 'roster.tool_call',
+            actor_type: 'agent',
+            actor_id: passport,
+            session_id: roomId,
+            metadata: { tool: name || 'unknown', ok: !!out.ok },
+          });
           // Surface a grandma-friendly result. Action tools (send_email)
           // get short confirmations; information tools (web_search) get a
           // SYNTHESIS pass — the raw results go back to the LLM, which
@@ -471,9 +507,32 @@ class AgentRunner {
         const replyText = result.content || "I'm not sure how to respond to that yet.";
         await this._sendMessage(roomId, replyText);
       }
+      // One exchange = one owner message fully handled. These are the
+      // per-exchange beats midwife session analytics aggregate over
+      // (ADR-WA-001 §3): count + duration per session_id, by model.
+      adminTelemetry.emit({
+        service: 'agent-roster',
+        event_type: 'roster.exchange',
+        actor_type: 'agent',
+        actor_id: passport,
+        model: result.model || null,
+        provider: result.provider || null,
+        duration_ms: Date.now() - exchangeStartedAt,
+        session_id: roomId,
+        metadata: { tool_calls: toolCalls.length },
+      });
     } catch (err) {
       console.error(`[runner ${this.matrixUserId}] LLM error: ${err.message}`);
       this.lastError = err.message;
+      adminTelemetry.emit({
+        service: 'agent-roster',
+        event_type: 'roster.exchange_failed',
+        actor_type: 'agent',
+        actor_id: passport,
+        duration_ms: Date.now() - exchangeStartedAt,
+        session_id: roomId,
+        metadata: {},
+      });
       try {
         await this._sendMessage(roomId, "I hit a snag generating a reply — try again in a moment.");
       } catch (_e) { /* fall-through */ }
