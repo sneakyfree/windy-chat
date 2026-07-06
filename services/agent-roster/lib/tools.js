@@ -23,33 +23,70 @@
  * The recipient sees the email coming from the operator's own address.
  */
 
-const TOOLS = [
-  {
-    type: 'function',
-    function: {
-      name: 'send_email',
-      description: "Send an email on the user's behalf. ONLY call this AFTER you have drafted the email as a chat reply and the user has explicitly confirmed (e.g. 'yes', 'send it', 'looks good'). Never call this on the first turn — always draft first.",
-      parameters: {
-        type: 'object',
-        properties: {
-          to: {
-            type: 'string',
-            description: "Recipient email address (single address).",
-          },
-          subject: {
-            type: 'string',
-            description: 'Email subject line; one short sentence.',
-          },
-          body: {
-            type: 'string',
-            description: 'Email body in plain text. Keep it warm and human.',
-          },
+const EMAIL_TOOL = {
+  type: 'function',
+  function: {
+    name: 'send_email',
+    description: "Send an email on the user's behalf. ONLY call this AFTER you have drafted the email as a chat reply and the user has explicitly confirmed (e.g. 'yes', 'send it', 'looks good'). Never call this on the first turn — always draft first.",
+    parameters: {
+      type: 'object',
+      properties: {
+        to: {
+          type: 'string',
+          description: "Recipient email address (single address).",
         },
-        required: ['to', 'subject', 'body'],
+        subject: {
+          type: 'string',
+          description: 'Email subject line; one short sentence.',
+        },
+        body: {
+          type: 'string',
+          description: 'Email body in plain text. Keep it warm and human.',
+        },
       },
+      required: ['to', 'subject', 'body'],
     },
   },
-];
+};
+
+// 2026-07-06 — metered web access through windy-search. Roster agents run
+// on Groq (no native search), so per Grant's architecture they take the
+// metered-backup path: each agent searches as ITSELF (per-passport EPT →
+// per-agent budget + integrity attribution). See lib/windy-search.js.
+const WEB_SEARCH_TOOL = {
+  type: 'function',
+  function: {
+    name: 'web_search',
+    description: 'Search the web for current information — news, weather, '
+      + 'prices, facts you are unsure about, or anything that may have '
+      + 'changed recently. Returns result titles, snippets, and URLs. '
+      + 'Answer the user in your own words from the snippets.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'The search query.' },
+      },
+      required: ['query'],
+    },
+  },
+};
+
+// Back-compat export (Day-5 shape) — the full registry.
+const TOOLS = [EMAIL_TOOL, WEB_SEARCH_TOOL];
+
+/**
+ * The tool list to offer the LLM for one agent, gated by capability:
+ *   canMail   — the agent/owner has a send-from mailbox address
+ *   canSearch — windy-search + eternitas platform env is configured
+ * Returns null when no tools are available (the LLM API rejects
+ * an empty tools array).
+ */
+function availableTools({ canMail, canSearch }) {
+  const list = [];
+  if (canMail) list.push(EMAIL_TOOL);
+  if (canSearch) list.push(WEB_SEARCH_TOOL);
+  return list.length ? list : null;
+}
 
 /**
  * send_email — calls Resend's API to relay an email. Returns either
@@ -112,7 +149,14 @@ async function executeTool(name, args, context) {
       agentName: context.agentName,
     });
   }
+  if (name === 'web_search') {
+    const { webSearch } = require('./windy-search');
+    return webSearch({
+      passport: context.passport,
+      query: args.query,
+    });
+  }
   return { ok: false, error: `Unknown tool: ${name}` };
 }
 
-module.exports = { TOOLS, executeTool };
+module.exports = { TOOLS, EMAIL_TOOL, WEB_SEARCH_TOOL, availableTools, executeTool };

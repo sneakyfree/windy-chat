@@ -44,7 +44,7 @@ async function callAnthropic(messages, systemPrompt) {
   return data.content?.[0]?.text || null;
 }
 
-async function callGroq(messages, systemPrompt, tools) {
+async function callGroq(messages, systemPrompt, tools, toolChoice) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return null;
   const body = {
@@ -57,7 +57,11 @@ async function callGroq(messages, systemPrompt, tools) {
   };
   if (tools && tools.length) {
     body.tools = tools;
-    body.tool_choice = 'auto';
+    // 'none' is used on the post-tool synthesis pass: the tool schema
+    // stays visible (which also keeps the Anthropic-skip guard engaged —
+    // role:'tool' messages are OpenAI-shaped and would 400 on Anthropic),
+    // but the model must answer in text instead of chaining another call.
+    body.tool_choice = toolChoice || 'auto';
   }
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -79,12 +83,19 @@ async function callGroq(messages, systemPrompt, tools) {
   return msg || null;
 }
 
-function buildSystemPrompt({ agentName, ownerDisplayName, hasTools }) {
+function buildSystemPrompt({ agentName, ownerDisplayName, hasTools, canMail, canSearch }) {
+  // Back-compat: callers that only know the old boolean get the mail
+  // guidance (the Day-5 behavior, where hasTools ⇔ mail was configured).
+  if (canMail === undefined && canSearch === undefined) {
+    canMail = !!hasTools;
+    canSearch = false;
+  }
   const base = `${DEFAULT_SYSTEM_PROMPT}
 
 Your name is ${agentName || 'your Windy Fly agent'}. The person messaging you is ${ownerDisplayName || 'your owner'}. You remember the conversation so far; refer back to earlier messages naturally when helpful.`;
-  if (!hasTools) return base;
-  return base + `
+  let out = base;
+  if (canMail) {
+    out += `
 
 You can send emails on behalf of the user via the send_email tool.
 ALWAYS follow this two-step pattern:
@@ -96,6 +107,20 @@ ALWAYS follow this two-step pattern:
 
 If the user gives you an incomplete request (no recipient, missing
 subject), ask for the missing pieces in chat — do not guess.`;
+  }
+  if (canSearch) {
+    out += `
+
+You can search the web via the web_search tool. Use it when the user
+asks about current events, weather, prices, opening hours, or any fact
+you are not certain of — do NOT guess at things that may have changed.
+No confirmation needed for searches; just search and then answer in
+plain, friendly English based on the results. Mention where the answer
+came from in passing (e.g. "according to the BBC") when it helps.
+If a search result includes a note addressed to you about the user's
+web-access allowance, gently pass that along in your own words.`;
+  }
+  return out;
 }
 
 /**
@@ -110,11 +135,13 @@ subject), ask for the missing pieces in chat — do not guess.`;
  * Returns the full LLM message: { role:'assistant', content, tool_calls? }.
  * The runner inspects tool_calls to decide whether to execute side-effects.
  */
-async function generateReply({ history, agentName, ownerDisplayName, tools }) {
+async function generateReply({ history, agentName, ownerDisplayName, tools, toolChoice, canMail, canSearch }) {
   const systemPrompt = buildSystemPrompt({
     agentName,
     ownerDisplayName,
     hasTools: !!(tools && tools.length),
+    canMail,
+    canSearch,
   });
 
   // Trim to last 10 turns for token budget.
@@ -136,7 +163,7 @@ async function generateReply({ history, agentName, ownerDisplayName, tools }) {
 
   // Groq with optional tools
   try {
-    const msg = await callGroq(trimmed, systemPrompt, tools);
+    const msg = await callGroq(trimmed, systemPrompt, tools, toolChoice);
     if (msg) {
       return { ...msg, provider: 'groq' };
     }
