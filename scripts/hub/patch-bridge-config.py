@@ -1,23 +1,16 @@
 #!/usr/bin/env python3
 """
-Hub Mode — patch a freshly-generated mautrix-telegram (bridgev2) config.yaml
-with Windy Chat's values. Run INSIDE a container that has PyYAML (the
-synapse image does):
+Hub Mode — patch a freshly-generated mautrix bridgev2 config.yaml with
+Windy Chat's values. Generic across networks (telegram/slack/whatsapp);
+network-specific credentials are applied only where a network needs them
+(telegram: api_id/api_hash — slack and whatsapp puppet with per-user
+logins and need no app credentials). Run INSIDE a container that has
+PyYAML (the synapse image does); enable-hub-bridge.sh drives it:
 
-  docker run --rm \
-    -v /opt/windy-chat-data/bridges/telegram:/bridge-data \
-    -v /opt/windy-chat/scripts/hub:/scripts:ro \
-    --env-file /opt/windy-chat/.env.production \
-    --entrypoint python matrixdotorg/synapse:latest \
-    /scripts/patch-telegram-config.py /bridge-data/config.yaml
+  patch-bridge-config.py <network> /bridge-data/config.yaml
 
-The config layout is OWNED by the bridge (it generates the example); this
-script only overwrites known key paths and LOUDLY reports anything it
-could not find so the operator finishes by hand instead of the bridge
-booting half-configured.
-
-Required env: TELEGRAM_API_ID, TELEGRAM_API_HASH,
-HUB_BRIDGE_TELEGRAM_PROVISIONING_SECRET, DOUBLEPUPPET_AS_TOKEN.
+Required env (all networks): HUB_BRIDGE_<NETWORK>_PROVISIONING_SECRET,
+DOUBLEPUPPET_AS_TOKEN. Telegram additionally: TELEGRAM_API_ID/API_HASH.
 """
 
 import os
@@ -51,13 +44,12 @@ def set_path(cfg, dotted, value, missing):
 
 
 def main():
-    path = sys.argv[1] if len(sys.argv) > 1 else "/bridge-data/config.yaml"
+    network = sys.argv[1] if len(sys.argv) > 1 else "telegram"
+    path = sys.argv[2] if len(sys.argv) > 2 else "/bridge-data/config.yaml"
     with open(path) as f:
         cfg = yaml.safe_load(f)
 
-    api_id = int(require_env("TELEGRAM_API_ID"))
-    api_hash = require_env("TELEGRAM_API_HASH")
-    prov_secret = require_env("HUB_BRIDGE_TELEGRAM_PROVISIONING_SECRET")
+    prov_secret = require_env(f"HUB_BRIDGE_{network.upper()}_PROVISIONING_SECRET")
     dp_token = require_env("DOUBLEPUPPET_AS_TOKEN")
     server_name = os.environ.get("SYNAPSE_SERVER_NAME", "chat.windychat.ai")
     admin_mxid = os.environ.get("HUB_ADMIN_MXID", "@grant.whitmer:" + server_name)
@@ -67,16 +59,17 @@ def main():
     set_path(cfg, "homeserver.address", "http://synapse:8008", missing)
     set_path(cfg, "homeserver.domain", server_name, missing)
     # The bridge's own HTTP listener — synapse + hub reach it by container DNS.
-    set_path(cfg, "appservice.address", "http://bridge-telegram:29317", missing)
+    set_path(cfg, "appservice.address", f"http://bridge-{network}:29317", missing)
     set_path(cfg, "appservice.hostname", "0.0.0.0", missing)
     set_path(cfg, "appservice.port", 29317, missing)
-    set_path(cfg, "network.api_id", api_id, missing)
-    set_path(cfg, "network.api_hash", api_hash, missing)
+    if network == "telegram":
+        set_path(cfg, "network.api_id", int(require_env("TELEGRAM_API_ID")), missing)
+        set_path(cfg, "network.api_hash", require_env("TELEGRAM_API_HASH"), missing)
     set_path(cfg, "database.type", "sqlite3-fk-wal", missing)
     set_path(
         cfg,
         "database.uri",
-        "file:/data/mautrix-telegram.db?_txlock=immediate",
+        f"file:/data/mautrix-{network}.db?_txlock=immediate",
         missing,
     )
     set_path(cfg, "provisioning.shared_secret", prov_secret, missing)

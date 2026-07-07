@@ -168,6 +168,17 @@ services:
       - /opt/windy-chat-data/bridges/telegram:/data
     restart: unless-stopped
 
+
+  bridge-slack:
+    volumes: !override
+      - /opt/windy-chat-data/bridges/slack:/data
+    restart: unless-stopped
+
+  bridge-whatsapp:
+    volumes: !override
+      - /opt/windy-chat-data/bridges/whatsapp:/data
+    restart: unless-stopped
+
   # ── Coturn — VoIP NAT traversal ────────────────────────────────
   # Host-network mode so Coturn can see real client source IPs (required
   # for STUN reflexive candidate discovery).
