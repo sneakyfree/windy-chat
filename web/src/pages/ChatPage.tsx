@@ -4,6 +4,9 @@ import { useVoiceInput } from '../hooks/useVoiceInput';
 import { useNotifications } from '../hooks/useNotifications';
 import CreateGroupModal from '../components/CreateGroupModal';
 import RoomHeader from '../components/RoomHeader';
+import PlatformBadge from '../components/PlatformBadge';
+import { classifyRoom, presentPlatforms, PLATFORM_META } from '../lib/provenance';
+import { getDefaultFilter, setDefaultFilter, type HubFilter } from '../lib/hub';
 import type { Room, MatrixEvent } from 'matrix-js-sdk';
 
 interface ChatPageProps {
@@ -24,6 +27,7 @@ interface ChatPageProps {
 // ── Room List Item ──
 function RoomItem({ room, selected, onClick }: { room: Room; selected: boolean; onClick: () => void }) {
   const isAgent = matrix.isAgentRoom(room);
+  const provenance = classifyRoom(room);
   const unread = matrix.getUnreadCount(room);
   const lastEvent = room.getLastActiveTimestamp();
   const timeStr = lastEvent ? new Date(lastEvent).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
@@ -56,6 +60,8 @@ function RoomItem({ room, selected, onClick }: { room: Room; selected: boolean; 
               AI Agent
             </span>
           )}
+          {/* Connected-platform chip (renders nothing for native/agent rooms) */}
+          <PlatformBadge platform={provenance} />
         </div>
         <p className="text-xs truncate mt-0.5" style={{ color: 'var(--text-secondary)' }}>
           {room.timeline?.length ? (room.timeline[room.timeline.length - 1] as MatrixEvent)?.getContent()?.body || '' : ''}
@@ -73,6 +79,24 @@ function RoomItem({ room, selected, onClick }: { room: Room; selected: boolean; 
         )}
       </div>
     </div>
+  );
+}
+
+// ── Hub filter chip ──
+function FilterChip({ label, active, color, onClick }: {
+  label: string; active: boolean; color?: string; onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="px-3 py-1.5 rounded-full text-xs font-medium shrink-0 transition-all"
+      style={{
+        background: active ? (color || 'var(--accent)') : 'var(--bg-tertiary)',
+        color: active ? 'white' : 'var(--text-secondary)',
+      }}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -163,6 +187,9 @@ export default function ChatPage({ userId, onEmailMessage, onNavigate, selectedR
   const [input, setInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [showGroupModal, setShowGroupModal] = useState(false);
+  // Hub lens: 'all' | 'windy' | a connected platform. Restored from the
+  // saved preference (account settings, mirrored locally) on mount.
+  const [platformFilter, setPlatformFilter] = useState<HubFilter>(() => getDefaultFilter());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const voice = useVoiceInput();
   const notifications = useNotifications();
@@ -275,9 +302,33 @@ export default function ChatPage({ userId, onEmailMessage, onNavigate, selectedR
     }
   }, [input, selectedRoomId, voice]);
 
+  // ── Hub lenses — one room set, filtered, never copied ──
+  // Chips only appear once at least one connected platform has rooms in
+  // the set; until then the list looks exactly as it always has.
+  const connectedPlatforms = presentPlatforms(rooms);
+  const showFilterChips = connectedPlatforms.length > 0;
+  // If the saved lens points at a platform with no rooms anymore
+  // (e.g. unlinked), fall back to All rather than showing emptiness.
+  const activeFilter: HubFilter =
+    platformFilter === 'all' || platformFilter === 'windy' || (connectedPlatforms as string[]).includes(platformFilter)
+      ? platformFilter
+      : 'all';
+
+  const selectFilter = (filter: HubFilter) => {
+    setPlatformFilter(filter);
+    setDefaultFilter(filter); // persists to account settings + local mirror
+  };
+
+  const lensedRooms = activeFilter === 'all'
+    ? rooms
+    : rooms.filter(r => {
+        const p = classifyRoom(r);
+        return activeFilter === 'windy' ? p === 'native' || p === 'agent' : p === activeFilter;
+      });
+
   const filteredRooms = searchQuery
-    ? rooms.filter(r => r.name?.toLowerCase().includes(searchQuery.toLowerCase()))
-    : rooms;
+    ? lensedRooms.filter(r => r.name?.toLowerCase().includes(searchQuery.toLowerCase()))
+    : lensedRooms;
 
   // Sort: agent rooms first, then by last activity
   const agentRooms = filteredRooms.filter(r => matrix.isAgentRoom(r));
@@ -304,6 +355,24 @@ export default function ChatPage({ userId, onEmailMessage, onNavigate, selectedR
           />
         </div>
 
+        {/* Hub lenses — All / Windy / one chip per connected platform.
+            Hidden entirely until the user has linked a platform. */}
+        {showFilterChips && (
+          <div className="px-4 pb-3 flex gap-1.5 overflow-x-auto">
+            <FilterChip label="All" active={activeFilter === 'all'} onClick={() => selectFilter('all')} />
+            <FilterChip label="Windy" active={activeFilter === 'windy'} onClick={() => selectFilter('windy')} />
+            {connectedPlatforms.map(p => (
+              <FilterChip
+                key={p}
+                label={PLATFORM_META[p]?.label || p}
+                color={PLATFORM_META[p]?.color}
+                active={activeFilter === p}
+                onClick={() => selectFilter(p)}
+              />
+            ))}
+          </div>
+        )}
+
         {/* New Chat / New Group Buttons */}
         <div className="px-4 pb-3 flex gap-2">
           <button
@@ -329,7 +398,23 @@ export default function ChatPage({ userId, onEmailMessage, onNavigate, selectedR
 
         {/* Room List */}
         <div className="flex-1 overflow-y-auto">
-          {sortedRooms.length === 0 ? (
+          {sortedRooms.length === 0 && rooms.length > 0 && activeFilter !== 'all' ? (
+            /* A lens is active and nothing matches — offer the way back
+               rather than the new-user welcome. */
+            <div className="text-center py-8 px-4">
+              <div className="text-3xl mb-3">🔍</div>
+              <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
+                No conversations here yet.
+              </p>
+              <button
+                onClick={() => selectFilter('all')}
+                className="px-4 py-2 rounded-xl text-sm font-medium"
+                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+              >
+                Show all chats
+              </button>
+            </div>
+          ) : sortedRooms.length === 0 ? (
             <div className="text-center py-8 px-4">
               <div className="text-4xl mb-3">🌪️</div>
               <h3 className="text-base font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Welcome to Windy Chat!</h3>
