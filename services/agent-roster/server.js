@@ -191,6 +191,19 @@ function reconcile() {
 
   let added = 0;
   if (!agents) return;
+
+  // Prune runners whose credentials row vanished (revocation cleanup
+  // deletes it). Without this a revoked agent's runner 401-loops against
+  // its deactivated Matrix account until the next service restart —
+  // seen live twice on 2026-07-06/07.
+  const liveIds = new Set(agents.map((a) => a.agent_matrix_id));
+  for (const [matrixId, runner] of roster) {
+    if (liveIds.has(matrixId)) continue;
+    try { runner.stop(); } catch (_e) { /* best-effort */ }
+    roster.delete(matrixId);
+    console.log(`[roster] pruned runner for ${matrixId} (credentials gone), total=${roster.size}`);
+  }
+
   for (const a of agents) {
     const ctx = ownerCtxByWindyId.get(a.owner_windy_id) || {};
     if (roster.has(a.agent_matrix_id)) {
