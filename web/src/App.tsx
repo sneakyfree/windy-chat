@@ -7,6 +7,7 @@ import SocialPage from './pages/SocialPage';
 import ContactsPage from './pages/ContactsPage';
 import DiscoverPage from './pages/DiscoverPage';
 import SettingsPage from './pages/SettingsPage';
+import PlatformsPage from './pages/PlatformsPage';
 import PrivacyPage from './pages/PrivacyPage';
 import TermsPage from './pages/TermsPage';
 import ProfilePage from './pages/ProfilePage';
@@ -17,7 +18,7 @@ import NotificationsPanel from './components/NotificationsPanel';
 import * as api from './lib/api';
 import { completeWindySignIn } from './lib/sso';
 
-type View = 'chat' | 'social' | 'contacts' | 'discover' | 'settings' | 'privacy' | 'terms' | 'profile';
+type View = 'chat' | 'social' | 'contacts' | 'discover' | 'settings' | 'platforms' | 'privacy' | 'terms' | 'profile';
 type AuthScreen = 'landing' | 'signin' | 'register';
 
 function NavButton({ icon, label, active, onClick, badge }: {
@@ -230,6 +231,7 @@ export default function App() {
         {view === 'discover' && <DiscoverPage onNavigateToChat={() => setView('chat')} />}
         {view === 'contacts' && <ContactsPage userId={auth.userId} onOpenChat={handleOpenChat} onNavigateToProfile={handleNavigateToProfile} />}
         {view === 'settings' && <SettingsPage userId={auth.userId} onLogout={logout} onNavigate={(v: string) => setView(v as View)} />}
+        {view === 'platforms' && <PlatformsPage onBack={() => setView('settings')} />}
         {view === 'profile' && <ProfilePage userId={profileUserId} selfUserId={auth.userId} onBack={() => setView('social')} onOpenChat={handleOpenChat} />}
         {view === 'privacy' && <PrivacyPage />}
         {view === 'terms' && <TermsPage />}

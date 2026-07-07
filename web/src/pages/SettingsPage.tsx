@@ -287,6 +287,23 @@ export default function SettingsPage({ userId, onLogout, onNavigate }: SettingsP
         </Row>
       </Section>
 
+      <Section title="Connected Platforms">
+        <Row label="Telegram, WhatsApp & more">
+          <button
+            type="button"
+            onClick={() => onNavigate?.('platforms')}
+            aria-label="Manage connected platforms"
+            className="text-xs px-3 py-1.5 rounded-lg font-medium transition-opacity hover:opacity-90"
+            style={{ background: 'var(--accent)', color: 'white' }}
+          >
+            Manage
+          </button>
+        </Row>
+        <div className="px-4 py-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+          Link your other chat apps to see all your conversations in one place.
+        </div>
+      </Section>
+
       <Section title="Connected Services">
         <Row label="Windy Word">
           <ConnectionStatus status={services.word} label="Windy Word" />
