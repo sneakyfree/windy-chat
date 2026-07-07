@@ -1,5 +1,7 @@
 #!/bin/bash
-# Windy Chat — Enable a Hub Mode bridge (telegram | slack | whatsapp).
+# Windy Chat — Enable a Hub Mode bridge (telegram | slack | whatsapp | discord).
+# Discord runs the LEGACY mautrix architecture: login is via DMing
+# @discordbot `login-qr` in chat, not the in-app wizard (see compose note).
 #
 # Mirrors scripts/enable-k9-appservice.sh (the proven appservice flow) for
 # mautrix bridgev2 bridges. Run ON THE PROD HOST from /opt/windy-chat
@@ -31,8 +33,8 @@ set -euo pipefail
 
 NETWORK="${1:-}"
 case "$NETWORK" in
-  telegram|slack|whatsapp) ;;
-  *) echo "usage: $0 telegram|slack|whatsapp" >&2; exit 1 ;;
+  telegram|slack|whatsapp|discord) ;;
+  *) echo "usage: $0 telegram|slack|whatsapp|discord" >&2; exit 1 ;;
 esac
 NETWORK_UPPER=$(echo "$NETWORK" | tr '[:lower:]' '[:upper:]')
 

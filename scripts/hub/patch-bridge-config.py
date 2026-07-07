@@ -62,6 +62,33 @@ def main():
     set_path(cfg, "appservice.address", f"http://bridge-{network}:29317", missing)
     set_path(cfg, "appservice.hostname", "0.0.0.0", missing)
     set_path(cfg, "appservice.port", 29317, missing)
+
+    if network == "discord":
+        # ⚠️ LEGACY (pre-bridgev2) config layout — different key homes.
+        set_path(cfg, "appservice.database.type", "sqlite3-fk-wal", missing)
+        set_path(cfg, "appservice.database.uri",
+                 "file:/data/mautrix-discord.db?_txlock=immediate", missing)
+        if isinstance(cfg.get("appservice", {}).get("provisioning"), dict):
+            cfg["appservice"]["provisioning"]["shared_secret"] = prov_secret
+        if isinstance(cfg.get("bridge"), dict):
+            cfg["bridge"]["permissions"] = {server_name: "user", admin_mxid: "admin"}
+            if isinstance(cfg["bridge"].get("encryption"), dict):
+                cfg["bridge"]["encryption"]["allow"] = True
+                cfg["bridge"]["encryption"]["default"] = True
+            # Legacy double-puppeting: login_shared_secret_map
+            cfg["bridge"]["login_shared_secret_map"] = {server_name: f"as_token:{dp_token}"}
+        else:
+            missing.append("bridge (legacy discord layout)")
+        with open(path, "w") as f:
+            yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False)
+        print(f"patched {path} (legacy discord layout)")
+        if missing:
+            print("\n⚠️  COULD NOT PATCH (finish by hand before starting the bridge):")
+            for m in missing:
+                print(f"   - {m}")
+            sys.exit(2)
+        return
+
     if network == "telegram":
         set_path(cfg, "network.api_id", int(require_env("TELEGRAM_API_ID")), missing)
         set_path(cfg, "network.api_hash", require_env("TELEGRAM_API_HASH"), missing)

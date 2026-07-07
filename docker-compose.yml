@@ -671,6 +671,33 @@ services:
         limits:
           memory: 512M
 
+
+  # ── Discord bridge (mautrix-discord, LEGACY architecture) — Hub Mode ──
+  # ⚠️ Pre-bridgev2: no generic provisioning API, so the in-app Connect
+  # wizard can't drive it — users sign in by DMing @discordbot `login-qr`
+  # in Windy Chat (QR posts as an image message). Migrates to the
+  # bridgev2 flow when upstream ships the rewrite. User-token puppeting
+  # is against Discord ToS (risk register: exec-guide-hub-mode §7).
+  bridge-discord:
+    image: dock.mau.dev/mautrix/discord:latest
+    container_name: windy-bridge-discord
+    profiles: ["hub"]
+    volumes:
+      - bridge_discord_data:/data
+    restart: unless-stopped
+    depends_on:
+      synapse:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
   # ── Rich Media (K4) — File upload, thumbnails, serving ──
   media:
     build:
@@ -802,3 +829,4 @@ volumes:
   bridge_telegram_data:
   bridge_slack_data:
   bridge_whatsapp_data:
+  bridge_discord_data:

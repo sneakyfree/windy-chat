@@ -179,6 +179,12 @@ services:
       - /opt/windy-chat-data/bridges/whatsapp:/data
     restart: unless-stopped
 
+
+  bridge-discord:
+    volumes: !override
+      - /opt/windy-chat-data/bridges/discord:/data
+    restart: unless-stopped
+
   # ── Coturn — VoIP NAT traversal ────────────────────────────────
   # Host-network mode so Coturn can see real client source IPs (required
   # for STUN reflexive candidate discovery).
