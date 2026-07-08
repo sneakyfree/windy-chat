@@ -30,9 +30,29 @@
 
 const express = require('express');
 const { asyncHandler } = require('../../shared/async-handler');
+const adminTelemetry = require('../../shared/admin-telemetry');
 
 const router = express.Router();
 const pushDb = require('../lib/db');
+
+// Fleet-activity beat (ADR-WA-001): every Matrix message that traverses the
+// push bus (native sends fan out here via Synapse's windy_push_bus module;
+// direct device pushes come through the same endpoint) emits one content-free
+// throughput event so the messaging core is visible on the super-admin
+// dashboard. Counts only — never title/body/deep_link. Fire-and-forget.
+function emitFanout(eventKind, { subscribersOnly, delivered, devices }) {
+  adminTelemetry.emit({
+    service: 'push-gateway',
+    event_type: 'chat.message_fanout',
+    actor_type: 'human',
+    metadata: {
+      event_kind: eventKind,
+      subscribers_only: !!subscribersOnly,
+      delivered: delivered || 0,
+      devices: devices || 0,
+    },
+  });
+}
 
 const PUSH_BUS_TOKEN = process.env.PUSH_BUS_TOKEN || '';
 
@@ -100,6 +120,7 @@ router.post('/notify', busAuthMiddleware, asyncHandler(async (req, res) => {
   // Mail/Clone/Fly/Code to consume these events lands here.
   if (subscribers_only === true) {
     console.log(`[notify] ${event_type} → ${recipient} (subscribers_only, device push skipped)`);
+    emitFanout(event_type, { subscribersOnly: true, delivered: 0, devices: 0 });
     return res.json({ delivered: 0, rejected: [], event_type, subscribers_only: true });
   }
 
@@ -145,6 +166,8 @@ router.post('/notify', busAuthMiddleware, asyncHandler(async (req, res) => {
   }
 
   console.log(`[notify] ${event_type} → ${recipient}: ${delivered}/${tokens.length} delivered`);
+
+  emitFanout(event_type, { subscribersOnly: false, delivered, devices: tokens.length });
 
   res.json({ delivered, rejected, event_type });
 }));
