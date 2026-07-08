@@ -71,11 +71,12 @@ async function send(pushkey, payload, { webpushOverride } = {}) {
     lastSendOk = true;
     return { ok: true, statusCode: result?.statusCode };
   } catch (err) {
-    lastSendOk = false;
     // 404 / 410 → endpoint is dead, caller should delete the subscription.
+    // Per-subscription, not a provider outage — /health must stay ok.
     if (err && (err.statusCode === 404 || err.statusCode === 410)) {
       return { ok: false, error: 'subscription_expired', expired: true, statusCode: err.statusCode };
     }
+    lastSendOk = false;
     return { ok: false, error: err.message || 'Web Push delivery failed' };
   }
 }

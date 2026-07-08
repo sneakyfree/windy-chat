@@ -18,6 +18,10 @@
 let provider = null;
 let lastSendOk = null;
 
+// APNs rejection reasons that mean "this device token is dead" (uninstall,
+// expired, or wrong-environment token) rather than a provider failure.
+const DEAD_TOKEN_REASONS = new Set(['BadDeviceToken', 'Unregistered', 'ExpiredToken']);
+
 function isConfigured() {
   return provider !== null;
 }
@@ -80,13 +84,15 @@ async function send(pushkey, payload, { apnOverride } = {}) {
     const result = await provider.send(note, pushkey);
     // apn returns { sent: [...], failed: [...] }
     if (result && Array.isArray(result.failed) && result.failed.length > 0) {
-      lastSendOk = false;
       const first = result.failed[0] || {};
-      return {
-        ok: false,
-        error: first.response?.reason || first.error || 'APNs delivery failed',
-        statusCode: first.status,
-      };
+      const reason = first.response?.reason || first.error || 'APNs delivery failed';
+      // Dead-token responses are per-device, not a provider outage — the
+      // caller deletes the token; /health must not report APNs as failed.
+      if (DEAD_TOKEN_REASONS.has(reason) || Number(first.status) === 410) {
+        return { ok: false, error: reason, expired: true, statusCode: first.status };
+      }
+      lastSendOk = false;
+      return { ok: false, error: reason, statusCode: first.status };
     }
     lastSendOk = true;
     const messageId = result?.sent?.[0]?.device || null;
