@@ -163,6 +163,30 @@ describe('Webhook: identity/created', { concurrency: false }, () => {
       '/api/v1/webhooks/identity/created', payload, { 'x-windy-signature': sig });
     assert.equal(status, 400);
   });
+
+  it('emits hatch.owner_chat_provisioned on provision and replay', async () => {
+    const adminTelemetry = require('../../shared/admin-telemetry');
+    const emitted = [];
+    const realEmit = adminTelemetry.emit;
+    adminTelemetry.emit = (ev) => { emitted.push(ev); return Promise.resolve(null); };
+    try {
+      const payload = {
+        windy_identity_id: 'id_webhook_funnel_001',
+        first_name: 'Fun',
+        last_name: 'Nel',
+      };
+      const sig = signHmac(JSON.stringify(payload), IDENTITY_SECRET);
+      await postJson('/api/v1/webhooks/identity/created', payload, { 'x-windy-signature': sig });
+      await postJson('/api/v1/webhooks/identity/created', payload, { 'x-windy-signature': sig });
+    } finally {
+      adminTelemetry.emit = realEmit;
+    }
+    const owner = emitted.filter((e) => e.event_type === 'hatch.owner_chat_provisioned');
+    assert.equal(owner.length, 2, 'one emit per webhook call');
+    assert.equal(owner[0].actor_id, 'id_webhook_funnel_001');
+    assert.equal(owner[0].metadata.already_existed, false);
+    assert.equal(owner[1].metadata.already_existed, true);
+  });
 });
 
 describe('Webhook: passport/revoked', { concurrency: false }, () => {

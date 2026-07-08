@@ -16,6 +16,7 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const { asyncHandler } = require('../../shared/async-handler');
 const { invalidateTrustCache } = require('../../shared/trust-client');
+const adminTelemetry = require('../../shared/admin-telemetry');
 const {
   deriveLocalpartForWindyId,
   mailAlignedLocalpart: sharedMailAlignedLocalpart,
@@ -223,6 +224,13 @@ router.post(
     const existing = onboardingDb.getProfileByWindyId.get(windy_identity_id);
     if (existing) {
       const state = onboardingDb.getOnboardingState.get(existing.chat_user_id);
+      adminTelemetry.emit({
+        service: 'chat-onboarding',
+        event_type: 'hatch.owner_chat_provisioned',
+        actor_type: 'human',
+        actor_id: windy_identity_id,
+        metadata: { already_existed: true, via: 'identity_webhook' },
+      });
       return res.status(200).json({
         matrix_user_id: state ? state.matrix_user_id : `@${existing.chat_user_id}:${SYNAPSE_SERVER_NAME}`,
         status: 'already_existed',
@@ -274,6 +282,18 @@ router.post(
     });
 
     console.log(`[webhooks] identity/created: ${windy_identity_id} → ${creds.matrixUserId}`);
+
+    // Hatch-funnel beat (ADR-WA-001 §3), mirroring provision.js: the
+    // human's chat identity exists. Most owners are provisioned through
+    // THIS eager webhook (signup → identity.created), not /provision —
+    // without this emit the funnel undercounts owners to near zero.
+    adminTelemetry.emit({
+      service: 'chat-onboarding',
+      event_type: 'hatch.owner_chat_provisioned',
+      actor_type: 'human',
+      actor_id: windy_identity_id,
+      metadata: { already_existed: false, via: 'identity_webhook' },
+    });
 
     // Post-provision hook — flush pending agent DM welcomes. If this owner
     // had agents hatch before they existed in Chat, their rooms + seeded
