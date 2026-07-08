@@ -296,6 +296,15 @@ async function sendFCM(pushkey, payload) {
     console.log(`📱 FCM sent to ${pushkey.slice(0, 12)}...`);
     return { success: true, messageId: result.messageId };
   }
+  if (result.expired) {
+    console.log(`📱 FCM token dead (${result.error}), removing ${pushkey.slice(0, 12)}...`);
+    try {
+      pushDb.db.prepare('DELETE FROM push_tokens WHERE pushkey = ?').run(pushkey);
+    } catch (dbErr) {
+      console.error('Failed to delete dead FCM token:', dbErr.message);
+    }
+    return { success: false, error: 'token_expired' };
+  }
   console.error('FCM send error:', result.error);
   return { success: false, error: result.error || 'FCM delivery failed' };
 }
@@ -316,6 +325,15 @@ async function sendAPNs(pushkey, payload) {
   if (result.ok) {
     console.log(`🍎 APNs sent to ${pushkey.slice(0, 12)}...`);
     return { success: true, messageId: result.messageId };
+  }
+  if (result.expired) {
+    console.log(`🍎 APNs device token dead (${result.error}), removing ${pushkey.slice(0, 12)}...`);
+    try {
+      pushDb.db.prepare('DELETE FROM push_tokens WHERE pushkey = ?').run(pushkey);
+    } catch (dbErr) {
+      console.error('Failed to delete dead APNs token:', dbErr.message);
+    }
+    return { success: false, error: 'token_expired' };
   }
   console.error('APNs send error:', result.error);
   return { success: false, error: result.error || 'APNs delivery failed' };

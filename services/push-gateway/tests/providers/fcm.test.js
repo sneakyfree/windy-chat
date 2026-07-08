@@ -127,6 +127,28 @@ describe('lib/providers/fcm', () => {
       expect(fcm.status()).toBe('failed');
     });
 
+    it('marks token-not-registered as expired WITHOUT flipping status to failed', async () => {
+      process.env.FIREBASE_SERVICE_ACCOUNT = FAKE_SA_PATH;
+      const fcm = require('../../lib/providers/fcm');
+      const adminMock = makeAdminMock({
+        sendImpl: async () => {
+          const err = new Error('Requested entity was not found.');
+          err.code = 'messaging/registration-token-not-registered';
+          throw err;
+        },
+      });
+      fcm.init({ adminOverride: adminMock });
+
+      const result = await fcm.send('dead-token', { title: 't', body: 'b' }, {
+        adminOverride: adminMock,
+      });
+      expect(result.ok).toBe(false);
+      expect(result.expired).toBe(true);
+      expect(result.error).toBe('messaging/registration-token-not-registered');
+      // A stale registration token is not a provider outage.
+      expect(fcm.status()).toBe('ok');
+    });
+
     it('flips status back to "ok" on a subsequent successful send', async () => {
       process.env.FIREBASE_SERVICE_ACCOUNT = FAKE_SA_PATH;
       const fcm = require('../../lib/providers/fcm');

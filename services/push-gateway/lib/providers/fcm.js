@@ -108,6 +108,13 @@ async function send(pushkey, payload, { adminOverride, channelId } = {}) {
     lastSendOk = true;
     return { ok: true, messageId };
   } catch (err) {
+    // Dead-token errors are per-device, not a provider outage — the caller
+    // deletes the token; /health must not report FCM as failed.
+    const code = err?.errorInfo?.code || err?.code;
+    if (code === 'messaging/registration-token-not-registered'
+      || code === 'messaging/invalid-registration-token') {
+      return { ok: false, error: code, expired: true };
+    }
     lastSendOk = false;
     return { ok: false, error: err.message || 'FCM delivery failed' };
   }

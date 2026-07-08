@@ -135,21 +135,58 @@ describe('lib/providers/apns', () => {
       expect(note.priority).toBe(10);
     });
 
-    it('reports failure when apn returns a non-empty failed array', async () => {
+    it('marks dead-token reasons as expired WITHOUT flipping status to failed', async () => {
       setApnsEnv();
       const apns = require('../../lib/providers/apns');
       const apnMock = makeApnMock({
         sendImpl: async () => ({
           sent: [],
-          failed: [{ device: 'bad', status: 410, response: { reason: 'BadDeviceToken' } }],
+          failed: [{ device: 'bad', status: 400, response: { reason: 'BadDeviceToken' } }],
         }),
       });
       apns.init({ apnOverride: apnMock });
 
       const result = await apns.send('bad', { title: 't', body: 'b' }, { apnOverride: apnMock });
       expect(result.ok).toBe(false);
+      expect(result.expired).toBe(true);
       expect(result.error).toBe('BadDeviceToken');
-      expect(result.statusCode).toBe(410);
+      expect(result.statusCode).toBe(400);
+      // A stale device token is not a provider outage.
+      expect(apns.status()).toBe('ok');
+    });
+
+    it('treats HTTP 410 (Unregistered) as expired regardless of reason', async () => {
+      setApnsEnv();
+      const apns = require('../../lib/providers/apns');
+      const apnMock = makeApnMock({
+        sendImpl: async () => ({
+          sent: [],
+          failed: [{ device: 'gone', status: 410, response: { reason: 'Unregistered' } }],
+        }),
+      });
+      apns.init({ apnOverride: apnMock });
+
+      const result = await apns.send('gone', { title: 't', body: 'b' }, { apnOverride: apnMock });
+      expect(result.expired).toBe(true);
+      expect(apns.status()).toBe('ok');
+    });
+
+    it('reports failure (status "failed") on non-token delivery errors', async () => {
+      setApnsEnv();
+      const apns = require('../../lib/providers/apns');
+      const apnMock = makeApnMock({
+        sendImpl: async () => ({
+          sent: [],
+          failed: [{ device: 'd', status: 500, response: { reason: 'InternalServerError' } }],
+        }),
+      });
+      apns.init({ apnOverride: apnMock });
+
+      const result = await apns.send('d', { title: 't', body: 'b' }, { apnOverride: apnMock });
+      expect(result.ok).toBe(false);
+      expect(result.expired).toBeUndefined();
+      expect(result.error).toBe('InternalServerError');
+      expect(result.statusCode).toBe(500);
       expect(apns.status()).toBe('failed');
     });
 

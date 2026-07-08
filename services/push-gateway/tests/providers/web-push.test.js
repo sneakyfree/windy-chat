@@ -112,6 +112,8 @@ describe('lib/providers/web-push', () => {
       expect(result.expired).toBe(true);
       expect(result.statusCode).toBe(410);
       expect(result.error).toBe('subscription_expired');
+      // A dead subscription is not a provider outage.
+      expect(wp.status()).toBe('ok');
     });
 
     it('returns { expired: true } on 404 Not Found', async () => {
@@ -126,6 +128,7 @@ describe('lib/providers/web-push', () => {
       });
       expect(result.expired).toBe(true);
       expect(result.statusCode).toBe(404);
+      expect(wp.status()).toBe('ok');
     });
 
     it('flips status to "failed" on non-expired error', async () => {
