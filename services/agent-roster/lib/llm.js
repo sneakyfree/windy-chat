@@ -61,6 +61,68 @@ async function callAnthropic(messages, systemPrompt) {
 // limits + audit attribution on Mind's side).
 const MIND_SURFACE = process.env.MIND_CHAT_SURFACE || 'midwife';
 
+/**
+ * Some models (seen live 2026-07-08: gemini-2.5-flash via Mind) sometimes
+ * emit their tool call as pseudo-markup INSIDE content instead of the
+ * structured tool_calls array — e.g.
+ *   <function(web_search){"query": "tips for keeping roses healthy"}</function>
+ * Without interception the runner's plain-text path posts that markup
+ * verbatim into grandma's DM and the tool never runs.
+ *
+ * Salvage: extract the intended call into a real tool_calls entry and
+ * strip the markup from content. If the markup is unparseable, scrub it
+ * and answer with an honest "hiccup — ask me again" instead of gibberish.
+ */
+const TOOL_MARKUP_RE = /<\/?function[\s=(>]|<\/?tool_call>/;
+const FUNCTION_LEAK_RE = /<function[\s=(]*([a-zA-Z0-9_]+)[)>]*\s*(\{[\s\S]*?\})\s*(?:<\/function>|$)/;
+const TOOL_CALL_LEAK_RE = /<tool_call>\s*(\{[\s\S]*?\})\s*(?:<\/tool_call>|$)/;
+const SCRUBBED_FALLBACK = "I hit a little snag using one of my tools just now — could you ask me that one more time?";
+
+function salvageLeakedToolCalls(msg) {
+  if (!msg || (Array.isArray(msg.tool_calls) && msg.tool_calls.length)) return msg;
+  const content = msg.content;
+  if (typeof content !== 'string' || !TOOL_MARKUP_RE.test(content)) return msg;
+
+  let name = null;
+  let argsStr = null;
+  let matched = null;
+  let m = content.match(FUNCTION_LEAK_RE);
+  if (m) {
+    [matched, name, argsStr] = m;
+  } else {
+    m = content.match(TOOL_CALL_LEAK_RE);
+    if (m) {
+      matched = m[0];
+      try {
+        const parsed = JSON.parse(m[1]);
+        name = parsed.name || parsed.function || null;
+        argsStr = JSON.stringify(parsed.arguments ?? parsed.parameters ?? {});
+      } catch { /* fall through to scrub */ }
+    }
+  }
+
+  let argsValid = false;
+  if (name && argsStr) {
+    try { JSON.parse(argsStr); argsValid = true; } catch { /* scrub */ }
+  }
+
+  if (argsValid) {
+    const remainder = content.replace(matched, '').trim();
+    console.warn(`[llm] salvaged leaked tool markup → ${name}`);
+    return {
+      ...msg,
+      content: remainder,
+      tool_calls: [{
+        id: `salvaged-${Date.now()}`,
+        type: 'function',
+        function: { name, arguments: argsStr },
+      }],
+    };
+  }
+  console.warn('[llm] scrubbed unparseable leaked tool markup');
+  return { ...msg, content: SCRUBBED_FALLBACK };
+}
+
 async function callMind(messages, systemPrompt, tools, toolChoice, ept) {
   if (!ept || process.env.ROSTER_MIND_DISABLE === '1') return null;
   const base = (process.env.MIND_API_URL || 'https://api.windymind.ai').replace(/\/$/, '');
@@ -99,7 +161,7 @@ async function callMind(messages, systemPrompt, tools, toolChoice, ept) {
     tokens_in: data.usage?.prompt_tokens ?? null,
     tokens_out: data.usage?.completion_tokens ?? null,
   };
-  return msg;
+  return salvageLeakedToolCalls(msg);
 }
 
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
@@ -153,7 +215,7 @@ async function callGroq(messages, systemPrompt, tools, toolChoice, model) {
     tokens_in: data.usage?.prompt_tokens ?? null,
     tokens_out: data.usage?.completion_tokens ?? null,
   };
-  return msg;
+  return salvageLeakedToolCalls(msg);
 }
 
 function buildSystemPrompt({ agentName, ownerDisplayName, hasTools, canMail, canSearch }) {
@@ -310,4 +372,4 @@ async function generateReply({ history, agentName, ownerDisplayName, tools, tool
   };
 }
 
-module.exports = { generateReply, DEFAULT_SYSTEM_PROMPT };
+module.exports = { generateReply, DEFAULT_SYSTEM_PROMPT, salvageLeakedToolCalls };
