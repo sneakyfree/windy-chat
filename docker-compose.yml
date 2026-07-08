@@ -293,6 +293,11 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@windychat.ai}
+      # Windy Admin messaging-core telemetry (ADR-WA-001). notify.js emits a
+      # content-free chat.message_fanout per push-bus event; inert unless both
+      # are set. Same platform-scoped write token the roster emitter uses.
+      WINDY_ADMIN_INGEST_URL: ${WINDY_ADMIN_INGEST_URL:-}
+      WINDY_ADMIN_INGEST_TOKEN: ${WINDY_ADMIN_INGEST_TOKEN:-}
     depends_on:
       synapse:
         condition: service_healthy
