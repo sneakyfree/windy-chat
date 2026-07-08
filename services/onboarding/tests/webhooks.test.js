@@ -267,6 +267,135 @@ describe('Webhook: passport/revoked', { concurrency: false }, () => {
     assert.equal(seen[0].auth, 'Bearer webhook-test-admin-token');
   });
 
+  it('posts a farewell notice into the agent rooms BEFORE deactivating', async () => {
+    // Silent-ghost regression (grandma-lifecycle stress 2026-07-08): a
+    // revoked agent's DM must get a retirement notice, not go dark.
+    const identityPayload = {
+      windy_identity_id: 'id_webhook_revoke_farewell',
+      first_name: 'Fare',
+      last_name: 'Well',
+      passport_id: 'ET-REVOKE-FAREWELL',
+    };
+    const isig = signHmac(JSON.stringify(identityPayload), IDENTITY_SECRET);
+    const prov = await postJson(
+      '/api/v1/webhooks/identity/created', identityPayload, { 'x-windy-signature': isig });
+    assert.equal(prov.status, 200);
+    const matrixUserId = prov.body.matrix_user_id;
+
+    const calls = [];
+    const realFetch = global.fetch;
+    global.fetch = (url, opts = {}) => {
+      const u = String(url);
+      if (u.includes('/_synapse/admin/v1/users/') && u.endsWith('/login')) {
+        calls.push('login-as');
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ access_token: 'syt_test_agent_token' }) });
+      }
+      if (u.includes('/_synapse/admin/v1/users/') && u.endsWith('/joined_rooms')) {
+        calls.push('joined_rooms');
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ joined_rooms: ['!dm1:test', '!dm2:test'] }) });
+      }
+      if (u.includes('/_matrix/client/v3/rooms/') && u.includes('/send/m.room.message/')) {
+        calls.push('farewell-send');
+        assert.equal(opts.headers.Authorization, 'Bearer syt_test_agent_token', 'farewell posts AS the agent');
+        const body = JSON.parse(opts.body);
+        assert.equal(body.msgtype, 'm.notice');
+        assert.match(body.body, /retired/i);
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}), text: async () => '' });
+      }
+      if (u.includes('/_synapse/admin/v1/deactivate/')) {
+        calls.push('deactivate');
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}), text: async () => '' });
+      }
+      return realFetch(url, opts);
+    };
+    try {
+      const revPayload = { passport: 'ET-REVOKE-FAREWELL' };
+      const rsig = signHmac(JSON.stringify(revPayload), ETERNITAS_SECRET);
+      const { status, body } = await postJson(
+        '/api/v1/webhooks/passport/revoked', revPayload, { 'x-eternitas-signature': rsig });
+      assert.equal(status, 200);
+      assert.equal(body.status, 'deactivated');
+      assert.equal(body.matrix_user_id, matrixUserId);
+      assert.equal(body.farewells_posted, 2);
+    } finally {
+      global.fetch = realFetch;
+    }
+    assert.deepEqual(calls, ['login-as', 'joined_rooms', 'farewell-send', 'farewell-send', 'deactivate'],
+      'farewells post before deactivation');
+  });
+
+  it('deletes the roster credentials row so the runner gets pruned', async () => {
+    // Live 2026-07-08: revocation deactivated the Matrix account but left
+    // the agent_credentials row → the roster runner 401-looped forever.
+    const identityPayload = {
+      windy_identity_id: 'id_webhook_revoke_creds',
+      first_name: 'Cred',
+      last_name: 'Prune',
+      passport_id: 'ET-REVOKE-CREDS',
+    };
+    const isig = signHmac(JSON.stringify(identityPayload), IDENTITY_SECRET);
+    const prov = await postJson(
+      '/api/v1/webhooks/identity/created', identityPayload, { 'x-windy-signature': isig });
+    assert.equal(prov.status, 200);
+
+    onboardingDb.upsertAgentCredentials.run({
+      agent_matrix_id: '@agent_et-revoke-creds:test',
+      owner_windy_id: 'id_webhook_revoke_creds',
+      passport_number: 'ET-REVOKE-CREDS',
+      agent_name: 'Cred Prune Agent',
+      access_token: 'syt_dead_token',
+      hatched_at: new Date().toISOString(),
+      welcomed_at: null,
+      created_at: new Date().toISOString(),
+    });
+
+    const revPayload = { passport: 'ET-REVOKE-CREDS' };
+    const rsig = signHmac(JSON.stringify(revPayload), ETERNITAS_SECRET);
+    const { status } = await postJson(
+      '/api/v1/webhooks/passport/revoked', revPayload, { 'x-eternitas-signature': rsig });
+    assert.equal(status, 200);
+
+    const row = onboardingDb.db.prepare(
+      'SELECT * FROM agent_credentials WHERE passport_number = ?').get('ET-REVOKE-CREDS');
+    assert.equal(row, undefined, 'credentials row deleted on revocation');
+  });
+
+  it('farewell failure never blocks the revocation itself', async () => {
+    const identityPayload = {
+      windy_identity_id: 'id_webhook_revoke_fwfail',
+      first_name: 'Fw',
+      last_name: 'Fail',
+      passport_id: 'ET-REVOKE-FWFAIL',
+    };
+    const isig = signHmac(JSON.stringify(identityPayload), IDENTITY_SECRET);
+    const prov = await postJson(
+      '/api/v1/webhooks/identity/created', identityPayload, { 'x-windy-signature': isig });
+    assert.equal(prov.status, 200);
+
+    const realFetch = global.fetch;
+    global.fetch = (url, opts = {}) => {
+      const u = String(url);
+      if (u.includes('/_synapse/admin/v1/users/') && u.endsWith('/login')) {
+        return Promise.reject(new Error('synapse down'));
+      }
+      if (u.includes('/_synapse/admin/v1/deactivate/')) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}), text: async () => '' });
+      }
+      return realFetch(url, opts);
+    };
+    try {
+      const revPayload = { passport: 'ET-REVOKE-FWFAIL' };
+      const rsig = signHmac(JSON.stringify(revPayload), ETERNITAS_SECRET);
+      const { status, body } = await postJson(
+        '/api/v1/webhooks/passport/revoked', revPayload, { 'x-eternitas-signature': rsig });
+      assert.equal(status, 200);
+      assert.equal(body.status, 'deactivated');
+      assert.equal(body.farewells_posted, 0);
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
   it('flushes the trust cache for the revoked passport', async () => {
     // Provision first so the revoke handler finds a matrix_user_id
     const identityPayload = {
