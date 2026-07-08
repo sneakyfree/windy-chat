@@ -388,12 +388,17 @@ router.post(
       console.warn(`[webhooks] passport/revoked: Synapse deactivate failed for ${state.matrix_user_id}`);
     }
 
+    // Delete the roster credentials row so the agent-roster reconciler
+    // prunes the runner (otherwise it 401-loops against the deactivated
+    // account until the next service restart).
+    const credentialsDeleted = onboardingDb.deleteAgentCredentialsByPassport.run(passport).changes;
+
     // Flush the shared trust cache so the just-revoked passport can't pass
     // another gate check within the 5-min cache window. Safe to call even
     // when no entry exists.
     const trustCacheFlushed = await invalidateTrustCache(passport);
 
-    console.log(`[webhooks] passport/revoked: ${passport} → deactivated ${state.matrix_user_id} (farewells=${farewellsPosted}, trust_cache_flushed=${trustCacheFlushed})`);
+    console.log(`[webhooks] passport/revoked: ${passport} → deactivated ${state.matrix_user_id} (farewells=${farewellsPosted}, credentials_deleted=${credentialsDeleted}, trust_cache_flushed=${trustCacheFlushed})`);
 
     return res.status(200).json({
       status: 'deactivated',
@@ -461,6 +466,12 @@ router.post(
         if (!deactivated) {
           console.warn(`[webhooks] eternitas ${event}: Synapse deactivate failed for ${matrixUserId}`);
         }
+      }
+      // Roster cleanup regardless of whether chat had a Matrix account —
+      // the reconciler prunes the runner once this row is gone.
+      const credentialsDeleted = onboardingDb.deleteAgentCredentialsByPassport.run(passport).changes;
+      if (credentialsDeleted) {
+        console.log(`[webhooks] eternitas ${event}: pruned ${credentialsDeleted} roster credentials row(s) for ${passport}`);
       }
     }
 

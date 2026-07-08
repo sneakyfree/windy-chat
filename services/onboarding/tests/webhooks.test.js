@@ -300,6 +300,42 @@ describe('Webhook: passport/revoked', { concurrency: false }, () => {
       'farewells post before deactivation');
   });
 
+  it('deletes the roster credentials row so the runner gets pruned', async () => {
+    // Live 2026-07-08: revocation deactivated the Matrix account but left
+    // the agent_credentials row → the roster runner 401-looped forever.
+    const identityPayload = {
+      windy_identity_id: 'id_webhook_revoke_creds',
+      first_name: 'Cred',
+      last_name: 'Prune',
+      passport_id: 'ET-REVOKE-CREDS',
+    };
+    const isig = signHmac(JSON.stringify(identityPayload), IDENTITY_SECRET);
+    const prov = await postJson(
+      '/api/v1/webhooks/identity/created', identityPayload, { 'x-windy-signature': isig });
+    assert.equal(prov.status, 200);
+
+    onboardingDb.upsertAgentCredentials.run({
+      agent_matrix_id: '@agent_et-revoke-creds:test',
+      owner_windy_id: 'id_webhook_revoke_creds',
+      passport_number: 'ET-REVOKE-CREDS',
+      agent_name: 'Cred Prune Agent',
+      access_token: 'syt_dead_token',
+      hatched_at: new Date().toISOString(),
+      welcomed_at: null,
+      created_at: new Date().toISOString(),
+    });
+
+    const revPayload = { passport: 'ET-REVOKE-CREDS' };
+    const rsig = signHmac(JSON.stringify(revPayload), ETERNITAS_SECRET);
+    const { status } = await postJson(
+      '/api/v1/webhooks/passport/revoked', revPayload, { 'x-eternitas-signature': rsig });
+    assert.equal(status, 200);
+
+    const row = onboardingDb.db.prepare(
+      'SELECT * FROM agent_credentials WHERE passport_number = ?').get('ET-REVOKE-CREDS');
+    assert.equal(row, undefined, 'credentials row deleted on revocation');
+  });
+
   it('farewell failure never blocks the revocation itself', async () => {
     const identityPayload = {
       windy_identity_id: 'id_webhook_revoke_fwfail',

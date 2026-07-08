@@ -226,6 +226,13 @@ const getPendingAgentsForOwner = db.prepare(`
 const markAgentWelcomed = db.prepare(
   'UPDATE agent_credentials SET welcomed_at = ? WHERE agent_matrix_id = ?'
 );
+// Revocation cleanup — the agent-roster reconciler prunes a runner when
+// its credentials row vanishes; this statement is what makes that happen.
+// Without it a revoked agent's runner 401-loops against its deactivated
+// Matrix account forever (seen live 2026-07-08 on ET26-DZ2B-PYJB).
+const deleteAgentCredentialsByPassport = db.prepare(
+  'DELETE FROM agent_credentials WHERE passport_number = ?'
+);
 
 module.exports = {
   db,
@@ -254,4 +261,5 @@ module.exports = {
   upsertAgentCredentials,
   getPendingAgentsForOwner,
   markAgentWelcomed,
+  deleteAgentCredentialsByPassport,
 };
