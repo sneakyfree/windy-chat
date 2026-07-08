@@ -40,18 +40,27 @@ const pushDb = require('../lib/db');
 // direct device pushes come through the same endpoint) emits one content-free
 // throughput event so the messaging core is visible on the super-admin
 // dashboard. Counts only — never title/body/deep_link. Fire-and-forget.
-function emitFanout(eventKind, { subscribersOnly, delivered, devices }) {
-  adminTelemetry.emit({
+// Build the fanout envelope. Split out so tests can assert the ingest
+// contract (actor_id is REQUIRED for human/agent actors — omitting it 422s).
+function buildFanoutEnvelope(eventKind, recipientId, { subscribersOnly, delivered, devices }) {
+  return {
     service: 'push-gateway',
     event_type: 'chat.message_fanout',
+    // The recipient's windy_identity_id is the actor (matches the onboarding
+    // emitter). Required by the ingest whenever actor_type is human/agent.
     actor_type: 'human',
+    actor_id: recipientId,
     metadata: {
       event_kind: eventKind,
       subscribers_only: !!subscribersOnly,
       delivered: delivered || 0,
       devices: devices || 0,
     },
-  });
+  };
+}
+
+function emitFanout(eventKind, recipientId, opts) {
+  adminTelemetry.emit(buildFanoutEnvelope(eventKind, recipientId, opts));
 }
 
 const PUSH_BUS_TOKEN = process.env.PUSH_BUS_TOKEN || '';
@@ -120,7 +129,7 @@ router.post('/notify', busAuthMiddleware, asyncHandler(async (req, res) => {
   // Mail/Clone/Fly/Code to consume these events lands here.
   if (subscribers_only === true) {
     console.log(`[notify] ${event_type} → ${recipient} (subscribers_only, device push skipped)`);
-    emitFanout(event_type, { subscribersOnly: true, delivered: 0, devices: 0 });
+    emitFanout(event_type, recipient, { subscribersOnly: true, delivered: 0, devices: 0 });
     return res.json({ delivered: 0, rejected: [], event_type, subscribers_only: true });
   }
 
@@ -167,10 +176,11 @@ router.post('/notify', busAuthMiddleware, asyncHandler(async (req, res) => {
 
   console.log(`[notify] ${event_type} → ${recipient}: ${delivered}/${tokens.length} delivered`);
 
-  emitFanout(event_type, { subscribersOnly: false, delivered, devices: tokens.length });
+  emitFanout(event_type, recipient, { subscribersOnly: false, delivered, devices: tokens.length });
 
   res.json({ delivered, rejected, event_type });
 }));
 
 module.exports = router;
 module.exports.buildAgentHatchedPayload = buildAgentHatchedPayload;
+module.exports.buildFanoutEnvelope = buildFanoutEnvelope;
