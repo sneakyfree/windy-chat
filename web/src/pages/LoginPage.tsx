@@ -24,15 +24,22 @@ export default function LoginPage({ onLogin, mode, onToggleMode, onBack, initial
     setLoading(true);
     try {
       if (mode === 'register') {
-        // Register new account via account-server
+        // Register new account via account-server. The endpoint's required
+        // field is `name` — sending only `display_name` fails validation with
+        // "name Required", so email sign-up never completed from the web app.
         const regRes = await fetch(`${env.accountServerUrl}/api/v1/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, display_name: displayName }),
+          body: JSON.stringify({ email, password, name: displayName, display_name: displayName }),
         });
         if (!regRes.ok) {
           const data = await regRes.json().catch(() => ({}));
-          throw new Error(data.error || `Registration failed (${regRes.status})`);
+          // Prefer the field-level detail over the generic "Validation failed"
+          // so the message a new user sees is actionable, not dev jargon.
+          const detail = Array.isArray(data.details) && data.details[0]
+            ? `${data.details[0].field}: ${data.details[0].message}`
+            : null;
+          throw new Error(data.error && detail ? `${data.error} — ${detail}` : (data.error || detail || `Registration failed (${regRes.status})`));
         }
         const regData = await regRes.json();
         await onLogin(regData.token || regData.jwt || regData.access_token);
