@@ -301,10 +301,70 @@ router.post(
   }),
 );
 
+// Farewell text posted into the agent's rooms just before deactivation.
+// Without it, revocation leaves the owner messaging a silent ghost — the
+// DM simply never answers again with no explanation (grandma-lifecycle
+// stress finding, 2026-07-08). Warm, jargon-free, and honest.
+const RETIREMENT_FAREWELL =
+  "This agent has been retired and can't reply anymore. Your conversation " +
+  'history stays right here. You can hatch a new agent anytime from your ' +
+  'Windy account.';
+
+/**
+ * Post a retirement notice into every room the agent is joined to, AS the
+ * agent, right before deactivation. Uses the Synapse admin login-as API to
+ * mint a token; deactivation immediately afterwards invalidates it.
+ * Best-effort: any failure is logged and returns the count posted so far —
+ * a missing farewell must never block the revocation itself.
+ */
+async function postRetirementFarewell(matrixUserId) {
+  if (!SYNAPSE_ADMIN_TOKEN) return 0;
+  const adminHeaders = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${SYNAPSE_ADMIN_TOKEN}`,
+  };
+  let posted = 0;
+  try {
+    const loginRes = await fetch(
+      `${SYNAPSE_ADMIN_URL}/v1/users/${encodeURIComponent(matrixUserId)}/login`,
+      { method: 'POST', headers: adminHeaders, body: JSON.stringify({}), signal: AbortSignal.timeout(10000) },
+    );
+    if (!loginRes.ok) return 0;
+    const agentToken = (await loginRes.json()).access_token;
+    if (!agentToken) return 0;
+
+    const roomsRes = await fetch(
+      `${SYNAPSE_ADMIN_URL}/v1/users/${encodeURIComponent(matrixUserId)}/joined_rooms`,
+      { headers: adminHeaders, signal: AbortSignal.timeout(10000) },
+    );
+    if (!roomsRes.ok) return 0;
+    // Agents live in their owner DM plus at most a handful of rooms; the
+    // slice is a runaway guard, not a policy.
+    const rooms = ((await roomsRes.json()).joined_rooms || []).slice(0, 20);
+    for (const roomId of rooms) {
+      const txn = `retire${Date.now()}_${posted}`;
+      const res = await fetch(
+        `${SYNAPSE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txn}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${agentToken}` },
+          body: JSON.stringify({ msgtype: 'm.notice', body: RETIREMENT_FAREWELL }),
+          signal: AbortSignal.timeout(10000),
+        },
+      );
+      if (res.ok) posted += 1;
+    }
+  } catch (err) {
+    console.warn(`[webhooks] retirement farewell failed for ${matrixUserId}: ${err.message}`);
+  }
+  return posted;
+}
+
 // ── POST /api/v1/webhooks/passport/revoked ──
 //
-// Called by Eternitas when a passport is revoked. Deactivates the Matrix
-// account (erase=false so rooms remain for audit).
+// Called by Eternitas when a passport is revoked. Posts a farewell notice
+// into the agent's rooms, then deactivates the Matrix account
+// (erase=false so rooms remain for audit).
 
 router.post(
   '/passport/revoked',
@@ -321,6 +381,8 @@ router.post(
       return res.status(404).json({ error: 'Passport not found', passport });
     }
 
+    const farewellsPosted = await postRetirementFarewell(state.matrix_user_id);
+
     const ok = await deactivateMatrixAccount(state.matrix_user_id);
     if (!ok) {
       console.warn(`[webhooks] passport/revoked: Synapse deactivate failed for ${state.matrix_user_id}`);
@@ -331,12 +393,13 @@ router.post(
     // when no entry exists.
     const trustCacheFlushed = await invalidateTrustCache(passport);
 
-    console.log(`[webhooks] passport/revoked: ${passport} → deactivated ${state.matrix_user_id} (trust_cache_flushed=${trustCacheFlushed})`);
+    console.log(`[webhooks] passport/revoked: ${passport} → deactivated ${state.matrix_user_id} (farewells=${farewellsPosted}, trust_cache_flushed=${trustCacheFlushed})`);
 
     return res.status(200).json({
       status: 'deactivated',
       matrix_user_id: state.matrix_user_id,
       passport,
+      farewells_posted: farewellsPosted,
       trust_cache_flushed: trustCacheFlushed,
     });
   }),
@@ -387,11 +450,13 @@ router.post(
       event.startsWith('passport.revoked') || event.startsWith('passport.suspended');
     let deactivated = false;
     let matrixUserId = null;
+    let farewellsPosted = 0;
     if (isRevocation) {
       let state = onboardingDb.getOnboardingStateByPassport.get(passport);
       if (!state) state = onboardingDb.getOnboardingState.get(`bot_${passport}`);
       if (state && state.matrix_user_id) {
         matrixUserId = state.matrix_user_id;
+        farewellsPosted = await postRetirementFarewell(matrixUserId);
         deactivated = await deactivateMatrixAccount(matrixUserId);
         if (!deactivated) {
           console.warn(`[webhooks] eternitas ${event}: Synapse deactivate failed for ${matrixUserId}`);
@@ -403,7 +468,7 @@ router.post(
     // profile within the 5-min cache window (safe even when no entry exists).
     const trustCacheFlushed = await invalidateTrustCache(passport);
     console.log(
-      `[webhooks] eternitas ${event}: ${passport} (deactivated=${deactivated} matrix=${matrixUserId} cache_flushed=${trustCacheFlushed})`,
+      `[webhooks] eternitas ${event}: ${passport} (deactivated=${deactivated} matrix=${matrixUserId} farewells=${farewellsPosted} cache_flushed=${trustCacheFlushed})`,
     );
 
     return res.status(200).json({
@@ -412,6 +477,7 @@ router.post(
       passport,
       deactivated,
       matrix_user_id: matrixUserId,
+      farewells_posted: farewellsPosted,
       trust_cache_flushed: trustCacheFlushed,
     });
   }),
