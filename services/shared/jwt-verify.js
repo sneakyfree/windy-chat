@@ -3,6 +3,11 @@ const jwksClient = require('jwks-rsa');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const {
+  ensureTokenActive,
+  TokenRevokedError,
+  RevocationUnavailableError,
+} = require('./token-revocation');
 
 /**
  * Resolve JWT secret:
@@ -90,8 +95,23 @@ async function verifyToken(token) {
   if (decoded.header.alg === 'RS256') {
     try {
       const publicKey = await getSigningKey(decoded.header);
-      return jwt.verify(token, publicKey, { algorithms: ['RS256'] });
+      const claims = jwt.verify(token, publicKey, { algorithms: ['RS256'] });
+      // Signature validity isn't enough: a token blacklisted at logout
+      // keeps a valid signature for its full 15-min TTL. Ask the
+      // account-server's blacklist (cached per token, fail-closed on
+      // outage in production). Only the RS256 path — HS256 dev tokens
+      // aren't account-server-minted and would always 401 there.
+      await ensureTokenActive(token);
+      return claims;
     } catch (jwksErr) {
+      // Revocation verdicts must not fall through to the HS256 dev path —
+      // that fall-through is exactly the hole pair.js had.
+      if (
+        jwksErr instanceof TokenRevokedError ||
+        jwksErr instanceof RevocationUnavailableError
+      ) {
+        throw jwksErr;
+      }
       // Production fails CLOSED: never fall back to the shared HS256 secret
       // when JWKS is unreachable. Dev/test may fall back so local flows work
       // without a running account-server.
@@ -138,6 +158,14 @@ function createAuthMiddleware(options = {}) {
       next();
     } catch (err) {
       if (optional) return next();
+      if (err instanceof RevocationUnavailableError) {
+        // Authority outage past the stale allowance — a service issue,
+        // not a client auth failure.
+        return res.status(503).json({ error: 'Identity service unavailable — retry shortly' });
+      }
+      if (err instanceof TokenRevokedError) {
+        return res.status(401).json({ error: 'Token revoked' });
+      }
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
   };
