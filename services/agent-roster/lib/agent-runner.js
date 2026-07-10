@@ -39,6 +39,8 @@ const VERIFIED_QUOTA_MULTIPLIER = Math.max(
 const INITIAL_SYNC_AGE_SECS = 30;
 const SYNC_TIMEOUT_MS = 30000;
 const BACKOFF_MAX_MS = 60000;
+// [I1 Phase 1b] How long a held "reply send to confirm" draft stays valid.
+const PENDING_SEND_TTL_MS = 15 * 60 * 1000;
 
 function newTxnId() {
   return `windy-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -80,6 +82,14 @@ class AgentRunner {
     this.repliesSent = 0;
     this.toolCallsExecuted = 0;
     this._loopPromise = null;
+    // [I1 Phase 1b] Self-building send_email recipient allow-list. Addresses
+    // the owner has confirmed a send to (this process lifetime) go immediately;
+    // any NEW address is HELD until the owner replies "send". In-memory by
+    // design — the set is a friction-reducer, not the security boundary (the
+    // confirm is). Worst case after a restart: the owner re-confirms a known
+    // address once. `pendingSend` holds at most one draft at a time.
+    this.knownRecipients = new Set();
+    this.pendingSend = null;  // { to, subject, body, roomId, ts }
   }
 
   /** Update owner context (mailAddress + displayName) — called by the
@@ -103,6 +113,65 @@ class AgentRunner {
       }
     }
     return null;
+  }
+
+  /** [I1 Phase 1b] Normalise a send_email `to` (single or comma-list) into a
+   *  lowercased address array. */
+  _recipientsOf(to) {
+    if (!to || typeof to !== 'string') return [];
+    return to.split(',').map(r => r.trim().toLowerCase()).filter(Boolean);
+  }
+
+  /** [I1 Phase 1b] Does this owner message confirm a held send? Strict, so it
+   *  never swallows a real request (e.g. "send it to my doctor"). */
+  _isConfirmWord(body) {
+    return /^\s*(send|send it|yes,?\s*send(\s*it)?|confirm)\s*[.!]?\s*$/i.test(body || '');
+  }
+
+  /** [I1 Phase 1b] Hold this send for owner confirmation iff it targets any
+   *  address the owner hasn't confirmed before. */
+  _shouldHoldSend(args) {
+    const recips = this._recipientsOf(args?.to);
+    return recips.length > 0 && recips.some(r => !this.knownRecipients.has(r));
+  }
+
+  /** Send context (from-address + display) — the operator's own windymail
+   *  address if they have one, else the agent's own mailbox. */
+  _resolveSendContext() {
+    const ownerMail = this.ownerContext?.mailAddress || null;
+    const sendFromAddress = ownerMail || this.agentMailAddress;
+    const sendFromDisplay = ownerMail ? (this.ownerContext?.displayName || null) : this.agentName;
+    return {
+      ownerMailAddress: sendFromAddress,
+      ownerDisplayName: sendFromDisplay,
+      agentName: this.agentName,
+      passport: this._passport(),
+    };
+  }
+
+  /** [I1 Phase 1b] Execute a send the owner just confirmed: consume quota,
+   *  send, remember the recipient(s), report. */
+  async _executeConfirmedSend(roomId, held) {
+    const mailGate = consumeMail(this.ownerWindyId);
+    if (!mailGate.allowed) {
+      await this._sendMessage(roomId, quotaMessage('mail', mailGate.resetInHours));
+      return;
+    }
+    const ctx = this._resolveSendContext();
+    this.toolCallsExecuted += 1;
+    const out = await executeTool('send_email',
+      { to: held.to, subject: held.subject, body: held.body }, ctx);
+    adminTelemetry.emit({
+      service: 'agent-roster', event_type: 'roster.tool_call', actor_type: 'agent',
+      actor_id: ctx.passport, session_id: roomId,
+      metadata: { tool: 'send_email', ok: !!out.ok, confirmed: true },
+    });
+    if (out.ok) {
+      for (const r of this._recipientsOf(held.to)) this.knownRecipients.add(r);
+      await this._sendMessage(roomId, `Sent ✓ — from ${out.from} to ${held.to}.`);
+    } else {
+      await this._sendMessage(roomId, out.error || 'Sorry — the send failed. Want to try again?');
+    }
   }
 
   start() {
@@ -370,6 +439,24 @@ class AgentRunner {
     console.log(`[runner ${this.matrixUserId}] msg from ${event.sender} in ${roomId}: ${body.slice(0, 80)}`);
     this.lastEventAt = new Date().toISOString();
 
+    // [I1 Phase 1b] Held-send confirmation. If we're holding a draft to a NEW
+    // recipient and the owner replies "send", dispatch it now — the confirm is
+    // its own turn and only the owner (gate above) can reach here, so an
+    // injected instruction that queued the draft can't complete the send. Any
+    // other message supersedes the pending draft.
+    if (this.pendingSend && this.pendingSend.roomId === roomId) {
+      if (Date.now() - this.pendingSend.ts > PENDING_SEND_TTL_MS) {
+        this.pendingSend = null;
+      } else if (this._isConfirmWord(body)) {
+        const held = this.pendingSend;
+        this.pendingSend = null;
+        await this._executeConfirmedSend(roomId, held);
+        return;
+      } else {
+        this.pendingSend = null;
+      }
+    }
+
     // One-soul yield: if the real Windy Fly holds the matrix claim,
     // the midwife stays silent — the permanent brain answers.
     if (await this._realFlyActive()) {
@@ -506,6 +593,23 @@ class AgentRunner {
           // other future tools may add their own. Each quota is daily
           // and per-owner.
           if (name === 'send_email') {
+            // [I1 Phase 1b] Hold sends to any NEW recipient for the owner's
+            // explicit confirmation; addresses the owner has confirmed before
+            // send immediately. Enforced here in code (not the prompt), so an
+            // injected instruction that makes the model call send_email to a
+            // new attacker address only queues a draft the owner must approve —
+            // it never sends on its own. No quota consumed on a held draft.
+            if (this._shouldHoldSend(args)) {
+              const unknowns = this._recipientsOf(args.to).filter(r => !this.knownRecipients.has(r));
+              this.pendingSend = { to: args.to, subject: args.subject, body: args.body, roomId, ts: Date.now() };
+              await this._sendMessage(roomId, `📧 Ready to send to ${unknowns.join(', ')}. Reply **send** to confirm — I only send to a new address once you say so.`);
+              adminTelemetry.emit({
+                service: 'agent-roster', event_type: 'roster.tool_call', actor_type: 'agent',
+                actor_id: passport, session_id: roomId,
+                metadata: { tool: 'send_email', ok: false, held: true },
+              });
+              continue;
+            }
             const mailGate = consumeMail(this.ownerWindyId);
             if (!mailGate.allowed) {
               await this._sendMessage(roomId, quotaMessage('mail', mailGate.resetInHours));
