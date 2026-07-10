@@ -555,6 +555,13 @@ router.get('/agent-room', (req, res) => {
     return res.status(400).json({ error: 'ownerId query param required' });
   }
 
+  // [C2] Only the owner (or a trusted service) may read an agent↔owner room
+  // mapping — it was returnable to ANY authenticated user for any (agentId, ownerId).
+  const isService = req.user && req.user.role === 'service';
+  if (!isService && (!req.user || req.user.windy_identity_id !== ownerId)) {
+    return res.status(403).json({ error: 'Not authorized for this owner' });
+  }
+
   const room = onboardingDb.getAgentRoom.get(agentId, ownerId);
   if (!room) {
     return res.status(404).json({ error: 'No DM room found between agent and owner' });

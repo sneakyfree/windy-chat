@@ -332,7 +332,9 @@ class AgentRunner {
     const ageSecs = (Date.now() - (event.origin_server_ts || 0)) / 1000;
     if (ageSecs > INITIAL_SYNC_AGE_SECS) return;
 
-    console.log(`[runner ${this.matrixUserId}] msg from ${event.sender} in ${roomId}: ${body.slice(0, 80)}`);
+    // [D1] Never log message content — private DM/room bodies must not reach
+    // service logs / aggregation. Log metadata only.
+    console.log(`[runner ${this.matrixUserId}] msg from ${event.sender} in ${roomId} (${body.length} chars)`);
     this.lastEventAt = new Date().toISOString();
 
     // One-soul yield: if the real Windy Fly holds the matrix claim,
