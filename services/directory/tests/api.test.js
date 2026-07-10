@@ -141,6 +141,17 @@ describe('POST /api/v1/chat/directory/register', () => {
       });
     expect([200, 201]).toContain(res.status);
   });
+
+  it('[A7] binds the entry to the caller, ignoring a spoofed body userId', async () => {
+    // token sub is 'test-user-001'; a body userId naming someone else must NOT win.
+    const token = makeToken();
+    const res = await request(app)
+      .post('/api/v1/chat/directory/register')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ userId: 'victim-user-999', displayName: 'Spoof' });
+    expect([200, 201]).toContain(res.status);
+    expect(res.body.userId).toBe('test-user-001');
+  });
 });
 
 // ─── 404 ──────────────────────────────────────────────────────

@@ -180,7 +180,12 @@ router.post('/lookup', lookupLimiter, (req, res) => {
 
 router.post('/register-hash', (req, res) => {
   try {
-    const { userId, displayName, avatarUrl, identifierHash, identifiers } = req.body;
+    const { userId: bodyUserId, displayName, avatarUrl, identifierHash, identifiers } = req.body;
+
+    // [A7] Bind the hash-directory entry to the authenticated caller — a body
+    // userId let anyone overwrite another user's hash-directory record.
+    const isService = req.user && req.user.role === 'service';
+    const userId = isService ? bodyUserId : (req.user && req.user.sub);
 
     if (!userId || !isValidUserId(userId)) {
       return res.status(400).json({ error: 'userId is required, alphanumeric + hyphens/underscores, max 255 chars' });

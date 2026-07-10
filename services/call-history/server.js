@@ -72,6 +72,13 @@ app.post('/api/v1/calls/log', auth, asyncHandler(async (req, res) => {
     }
   }
 
+  // [B7] The logger must be a party to the call — otherwise anyone could inject
+  // fabricated records into any user's private call history. Checked after field
+  // validation (so a malformed request still gets its 400); service tokens exempt.
+  if (req.user.role !== 'service' && caller_id !== req.user.sub && callee_id !== req.user.sub) {
+    return res.status(403).json({ error: 'Not authorized to log this call' });
+  }
+
   const callId = uuidv4();
   callDb.insertCall.run({
     id: callId,

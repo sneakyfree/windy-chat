@@ -115,7 +115,14 @@ function checkInviteLimit(userId) {
 
 router.post('/register', (req, res) => {
   try {
-    const { userId, displayName, email, phone, languages, avatarUrl, searchable } = req.body;
+    const { userId: bodyUserId, displayName, email, phone, languages, avatarUrl, searchable } = req.body;
+
+    // [A7] Bind the directory entry to the authenticated caller. INSERT OR REPLACE
+    // on a body-supplied userId let anyone overwrite any user's directory profile;
+    // a regular user may only register THEMSELVES. A trusted service token may
+    // still register on a user's behalf.
+    const isService = req.user && req.user.role === 'service';
+    const userId = isService ? bodyUserId : (req.user && req.user.sub);
 
     if (!userId || !isValidUserId(userId)) {
       return res.status(400).json({ error: 'userId is required, alphanumeric + hyphens/underscores, max 255 chars' });
@@ -266,7 +273,12 @@ router.get('/search', searchLimiter, (req, res) => {
 
 router.post('/invite', inviteLimiter, asyncHandler(async (req, res) => {
   try {
-    const { fromUserId, fromDisplayName, type, identifier } = req.body;
+    const { fromUserId: bodyFromUserId, fromDisplayName, type, identifier } = req.body;
+
+    // [A7] The inviter is the authenticated caller — a body-supplied fromUserId
+    // let anyone send invites / burn another user's daily invite quota.
+    const isService = req.user && req.user.role === 'service';
+    const fromUserId = isService ? bodyFromUserId : (req.user && req.user.sub);
 
     if (!fromUserId || !isValidUserId(fromUserId)) {
       return res.status(400).json({ error: 'fromUserId is required, alphanumeric + hyphens/underscores, max 255 chars' });
