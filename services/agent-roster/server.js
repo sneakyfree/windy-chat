@@ -223,6 +223,7 @@ function reconcile() {
       accessToken: a.access_token,
       agentName: a.agent_name,
       ownerWindyId: a.owner_windy_id,
+      ownerMatrixId: ctx.matrixId,  // [I1] owner-only gate + owner-invite-only auto-join
       homeserver: HOMESERVER,
       ownerContext: {
         displayName: ctx.displayName,
