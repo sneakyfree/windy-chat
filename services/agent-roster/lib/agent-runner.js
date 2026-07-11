@@ -45,11 +45,17 @@ function newTxnId() {
 }
 
 class AgentRunner {
-  constructor({ matrixUserId, accessToken, agentName, ownerWindyId, homeserver, ownerContext, agentMailAddress }) {
+  constructor({ matrixUserId, accessToken, agentName, ownerWindyId, ownerMatrixId, homeserver, ownerContext, agentMailAddress }) {
     this.matrixUserId = matrixUserId;
     this.accessToken = accessToken;
     this.agentName = agentName;
     this.ownerWindyId = ownerWindyId;
+    // [I1] The owner's Matrix id (@localpart:server), resolved by the roster
+    // from user_profiles. The personal agent acts ONLY on its owner's
+    // messages and only auto-joins rooms the owner invited it to. May be null
+    // in rare pre-provision states — the gates fail SAFE toward the prior
+    // behaviour so the owner is never locked out (see _handleMessage / _syncOnce).
+    this.ownerMatrixId = ownerMatrixId || null;
     // ownerContext is { mailAddress, displayName } — provided by the
     // roster so the agent can act ON BEHALF OF the operator (send mail
     // from their address, address them by name in replies). May be
@@ -80,6 +86,23 @@ class AgentRunner {
    *  roster on reconcile so newly-activated mailboxes light up live. */
   updateOwnerContext(ctx) {
     this.ownerContext = { ...this.ownerContext, ...ctx };
+  }
+
+  /** [I1] Who invited this agent to a room, from the stripped invite state in
+   *  a /sync `rooms.invite` entry. Returns the inviter's Matrix id (the sender
+   *  of our own membership=invite event) or null when it can't be determined. */
+  _inviteSender(inviteRoom) {
+    const events = inviteRoom?.invite_state?.events || [];
+    for (const ev of events) {
+      if (
+        ev.type === 'm.room.member' &&
+        ev.state_key === this.matrixUserId &&
+        ev.content?.membership === 'invite'
+      ) {
+        return ev.sender || null;
+      }
+    }
+    return null;
   }
 
   start() {
@@ -325,6 +348,18 @@ class AgentRunner {
 
   async _handleMessage(roomId, event) {
     if (event.sender === this.matrixUserId) return;
+    // [I1] Owner-only gate. Previously the runner replied — with send_email +
+    // web_search tool authority — to ANY non-self sender, so a stranger who
+    // got the agent into a room could drive it: send mail FROM the owner's
+    // verified windymail.ai address to an attacker-chosen recipient
+    // (spoofing/phishing) and burn the owner's quota. A personal agent takes
+    // instructions from its person, full stop. Fail SAFE: if the owner's
+    // Matrix id couldn't be resolved (rare pre-provision state) we fall back
+    // to the prior behaviour rather than going silent — never lock the owner out.
+    if (this.ownerMatrixId && event.sender !== this.ownerMatrixId) {
+      console.log(`[runner ${this.matrixUserId}] ignoring non-owner sender ${event.sender} in ${roomId}`);
+      return;
+    }
     const body = event.content?.body;
     if (!body || typeof body !== 'string') return;
     // Ignore old events on first cold start so we don't reply to a week
@@ -588,8 +623,19 @@ class AgentRunner {
 
     // Auto-join invite rooms so the agent can be added to new DM rooms
     // post-hatch (e.g., the owner re-invites it after a leave).
+    // [I1] Only auto-join rooms the OWNER invited us to. A stranger inviting
+    // the agent (then messaging it) was the entry point for the spoofing/
+    // injection finding; combined with the owner-only gate in _handleMessage
+    // this keeps the agent out of stranger rooms entirely. Fail SAFE: if the
+    // inviter can't be determined or the owner id is unknown, join anyway so a
+    // legitimate owner re-invite is never missed.
     const inviteRooms = data.rooms?.invite || {};
     for (const roomId of Object.keys(inviteRooms)) {
+      const inviter = this._inviteSender(inviteRooms[roomId]);
+      if (this.ownerMatrixId && inviter && inviter !== this.ownerMatrixId) {
+        console.log(`[runner ${this.matrixUserId}] declining invite to ${roomId} from non-owner ${inviter}`);
+        continue;
+      }
       try {
         await this._request(`/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/join`, {
           method: 'POST',
