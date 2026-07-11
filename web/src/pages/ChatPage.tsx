@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import * as matrix from '../lib/matrix';
 import { useVoiceInput } from '../hooks/useVoiceInput';
 import { useNotifications } from '../hooks/useNotifications';
@@ -152,11 +154,13 @@ function MessageBubble({ event, isOwn, onEmail }: { event: MatrixEvent; isOwn: b
           <div className="flex items-center gap-1.5 mb-1">
             {isAgent && <span className="text-xs">🪰</span>}
             <span className="text-xs font-medium" style={{ color: isAgent ? 'var(--accent)' : 'var(--text-secondary)' }}>
-              {sender?.split(':')[0]?.replace('@', '') || 'Unknown'}
+              {event.sender?.rawDisplayName || sender?.split(':')[0]?.replace('@', '') || 'Unknown'}
             </span>
           </div>
         )}
-        <p className="whitespace-pre-wrap break-words">{body}</p>
+        <div className="markdown-body break-words">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
+        </div>
         <div className={`flex items-center gap-1 text-[10px] mt-1 ${isOwn ? 'justify-end' : ''}`}
              style={{ color: isOwn ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)' }}>
           <span>{time}</span>
