@@ -21,20 +21,20 @@ import { completeWindySignIn } from './lib/sso';
 type View = 'chat' | 'social' | 'contacts' | 'discover' | 'settings' | 'platforms' | 'privacy' | 'terms' | 'profile';
 type AuthScreen = 'landing' | 'signin' | 'register';
 
-function NavButton({ icon, label, active, onClick, badge }: {
-  icon: string; label: string; active: boolean; onClick: () => void; badge?: number;
+function NavButton({ icon, label, active, onClick, badge, compact }: {
+  icon: string; label: string; active: boolean; onClick: () => void; badge?: number; compact?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
-      className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all relative"
+      className={`flex flex-col items-center gap-0.5 py-1.5 rounded-xl transition-all relative ${compact ? 'flex-1 min-w-0 px-0.5' : 'px-3'}`}
       style={{
         color: active ? 'var(--accent)' : 'var(--text-secondary)',
         background: active ? 'rgba(124,92,255,0.1)' : 'transparent',
       }}
     >
       <span className="text-lg leading-none">{icon}</span>
-      <span className="text-[10px] font-medium">{label}</span>
+      <span className={`font-medium ${compact ? 'text-[9px] truncate max-w-full' : 'text-[10px]'}`}>{label}</span>
       {badge != null && badge > 0 && (
         <span className="absolute -top-0.5 right-1 w-4 h-4 rounded-full text-[9px] flex items-center justify-center text-white"
               style={{ background: 'var(--danger)' }}>
@@ -237,17 +237,18 @@ export default function App() {
         {view === 'terms' && <TermsPage />}
       </main>
 
-      {/* Mobile Bottom Tabs */}
-      <nav className="flex md:hidden items-center justify-around py-2 border-t"
+      {/* Mobile Bottom Tabs — 8 items share the row equally (flex-1) so the bar
+          never overflows narrow phones; overflow-hidden is a hard backstop. */}
+      <nav className="flex md:hidden items-center justify-around w-full overflow-hidden py-2 border-t"
            style={{ borderColor: 'var(--bg-tertiary)', background: 'var(--bg-secondary)' }}>
-        <NavButton icon="💬" label="Chat" active={view === 'chat'} onClick={() => setView('chat')} />
-        <NavButton icon="📝" label="Social" active={view === 'social'} onClick={() => setView('social')} />
-        <NavButton icon="🪰" label="Discover" active={view === 'discover'} onClick={() => setView('discover')} />
-        <NavButton icon="👥" label="Contacts" active={view === 'contacts'} onClick={() => setView('contacts')} />
-        <NavButton icon="✉️" label="Mail" active={mailOpen} onClick={() => { setMailCompose(null); setMailOpen(true); }} />
-        <NavButton icon="🔔" label="Alerts" active={notificationsOpen} onClick={() => setNotificationsOpen(true)} badge={unreadNotifications || undefined} />
-        <NavButton icon="👤" label="Profile" active={view === 'profile' && profileUserId === auth.userId} onClick={() => handleNavigateToProfile(auth.userId)} />
-        <NavButton icon="⚙️" label="Settings" active={view === 'settings'} onClick={() => setView('settings')} />
+        <NavButton compact icon="💬" label="Chat" active={view === 'chat'} onClick={() => setView('chat')} />
+        <NavButton compact icon="📝" label="Social" active={view === 'social'} onClick={() => setView('social')} />
+        <NavButton compact icon="🪰" label="Discover" active={view === 'discover'} onClick={() => setView('discover')} />
+        <NavButton compact icon="👥" label="Contacts" active={view === 'contacts'} onClick={() => setView('contacts')} />
+        <NavButton compact icon="✉️" label="Mail" active={mailOpen} onClick={() => { setMailCompose(null); setMailOpen(true); }} />
+        <NavButton compact icon="🔔" label="Alerts" active={notificationsOpen} onClick={() => setNotificationsOpen(true)} badge={unreadNotifications || undefined} />
+        <NavButton compact icon="👤" label="Profile" active={view === 'profile' && profileUserId === auth.userId} onClick={() => handleNavigateToProfile(auth.userId)} />
+        <NavButton compact icon="⚙️" label="Settings" active={view === 'settings'} onClick={() => setView('settings')} />
       </nav>
 
       {/* Mail slide-over panel */}
