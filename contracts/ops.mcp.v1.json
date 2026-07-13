@@ -1,0 +1,35 @@
+{
+  "contract": "ops.mcp.v1",
+  "doctrine": "ADR-060 v1.0",
+  "product": "windy-chat",
+  "class": "cloud",
+  "mcp_protocol": "2025-06-18",
+  "$comment": "Windy Chat ops surface — Class C, and the most instructive retrofit yet. Chat is a MULTI-SERVICE CONSTELLATION: ~13 Node services (directory, media, hub, backup, call-history, onboarding, push-gateway, social, translation) behind nginx path-routing at chat.windychat.ai, over a Synapse (Matrix) homeserver. FINDING: each service has its own /health + /version, but the nginx table routes them NOWHERE externally — only /_matrix/*, /_synapse/client/*, and /api/v1/{service}/* functional paths are exposed. So externally there is NO fleet-health aggregator and NO reachable per-service health. This is the biggest structural ops gap in the fleet. The HEADLINE punch-list item — a fleet-health aggregator endpoint that fans out across all services — is the new multi-service pattern (see docs/MULTI-SERVICE-OPS.md). Until it exists, this manifest honestly binds only what IS externally reachable: Synapse core liveness (Chat's heart).",
+  "baseline_mapping": {
+    "get_health": { "status": "implemented", "maps_to": "GET /_matrix/client/versions", "note": "Synapse homeserver liveness ONLY — the constellation's heart. A real Chat get_health needs the AGGREGATOR (see gap below)." },
+    "get_status": { "status": "gap", "note": "per-service /version exist but are NOT nginx-routed externally; the aggregator should report every service's version." },
+    "get_capabilities": { "status": "gap", "note": "which services + bridges are up — this IS the aggregator's job." },
+    "get_config": { "status": "gap" },
+    "get_logs": { "status": "gap", "note": "content-free only; NEVER expose message bodies (privacy hard line)." },
+    "run_selftest": { "status": "gap", "note": "canary: send a message through Synapse + confirm a bridge delivers it." },
+    "reconnect": { "status": "gap", "note": "per-service; the aggregator could expose per-service reconnect." },
+    "restart_app": { "status": "gap", "note": "out-of-band (docker compose per service); ops plane outside the patient." },
+    "enter_safe_mode": { "status": "unsupported" },
+    "exit_safe_mode": { "status": "unsupported" },
+    "set_setting": { "status": "gap" },
+    "check_for_update": { "status": "gap", "note": "wire to the Steamroller fleet version manifest (L2)." },
+    "apply_update": { "status": "gap", "note": "SSH-free health-gated redeploy — per service; §7." },
+    "reset_to_defaults": { "status": "unsupported", "note": "NEVER — Synapse holds real rooms + message history." }
+  },
+  "$headline_gap": "THE fleet-health aggregator: one endpoint (e.g. GET /api/v1/ops/health) that fans out to every service's internal /health + Synapse, returns the constellation status {service: up|down|degraded, version}, and is nginx-routed externally + EPT-gated. This becomes get_health/get_status/get_capabilities at once. It is the FIRST thing to build for Chat and the template for every future multi-service Windy platform (see docs/MULTI-SERVICE-OPS.md).",
+  "tools": [
+    {
+      "name": "get_health",
+      "tier": "auto_allow",
+      "baseline_status": "implemented",
+      "description": "Check whether Windy Chat's core is alive — the Synapse (Matrix) homeserver that carries every message and room. A 200 here means the heart is beating; if this fails, chat is fully down. NOTE: this checks only the homeserver core, not the ~13 surrounding services — a full constellation health view needs the ops aggregator (not yet built).",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "transport": { "method": "GET", "path": "/_matrix/client/versions" }
+    }
+  ]
+}
