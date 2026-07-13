@@ -4,32 +4,68 @@
   "product": "windy-chat",
   "class": "cloud",
   "mcp_protocol": "2025-06-18",
-  "$comment": "Windy Chat ops surface — Class C, and the most instructive retrofit yet. Chat is a MULTI-SERVICE CONSTELLATION: ~13 Node services (directory, media, hub, backup, call-history, onboarding, push-gateway, social, translation) behind nginx path-routing at chat.windychat.ai, over a Synapse (Matrix) homeserver. FINDING: each service has its own /health + /version, but the nginx table routes them NOWHERE externally — only /_matrix/*, /_synapse/client/*, and /api/v1/{service}/* functional paths are exposed. So externally there is NO fleet-health aggregator and NO reachable per-service health. This is the biggest structural ops gap in the fleet. The HEADLINE punch-list item — a fleet-health aggregator endpoint that fans out across all services — is the new multi-service pattern (see docs/MULTI-SERVICE-OPS.md). Until it exists, this manifest honestly binds only what IS externally reachable: Synapse core liveness (Chat's heart).",
+  "$comment": "Windy Chat ops surface — Class C, multi-service constellation: ~11 services (onboarding, directory, push-gateway, backup, social, translation, agent-roster, media, call-history, hub) behind nginx path-routing at chat.windychat.ai, over a Synapse (Matrix) homeserver. Rev 2026-07-13: the FLEET-HEALTH AGGREGATOR is now real — windy-chat #143 shipped GET /api/v1/ops/health (auth: EPT or account JWT; whitelist-scrubbed; fans out to every service's internal /health + /version plus Synapse). It satisfies get_health + get_status + get_capabilities at once, per the multi-service pattern (windy-contracts docs/MULTI-SERVICE-OPS.md) that this retrofit originated. DEPLOY STATUS: merged to main; LIVE only after the Grant-gated prod deploy (onboarding rebuild + live nginx /api/v1/ops/ route + WINDY_OPS_FLEET env pinned to the live service set). Until that deploy lands, treat these three tools as staged — verify with a live probe before relying on them mid-incident.",
   "baseline_mapping": {
-    "get_health": { "status": "implemented", "maps_to": "GET /_matrix/client/versions", "note": "Synapse homeserver liveness ONLY — the constellation's heart. A real Chat get_health needs the AGGREGATOR (see gap below)." },
-    "get_status": { "status": "gap", "note": "per-service /version exist but are NOT nginx-routed externally; the aggregator should report every service's version." },
-    "get_capabilities": { "status": "gap", "note": "which services + bridges are up — this IS the aggregator's job." },
+    "get_health": { "status": "implemented", "maps_to": "GET /api/v1/ops/health", "note": "The fleet-health aggregator (windy-chat #143): overall ok/degraded/down (Synapse down ⇒ down) + per-service status. Prod deploy Grant-gated." },
+    "get_status": { "status": "implemented", "maps_to": "GET /api/v1/ops/health", "note": "Same aggregator — every service's version + commit sha (did the deploy reach all of them?). Prod deploy Grant-gated." },
+    "get_capabilities": { "status": "implemented", "maps_to": "GET /api/v1/ops/health", "note": "Same aggregator — which services are actually up = which capabilities work right now. Prod deploy Grant-gated." },
     "get_config": { "status": "gap" },
     "get_logs": { "status": "gap", "note": "content-free only; NEVER expose message bodies (privacy hard line)." },
     "run_selftest": { "status": "gap", "note": "canary: send a message through Synapse + confirm a bridge delivers it." },
-    "reconnect": { "status": "gap", "note": "per-service; the aggregator could expose per-service reconnect." },
+    "reconnect": { "status": "gap", "note": "per-service; the aggregator's read view now shows WHICH service needs it — namespaced reconnect.<service> knobs are the natural next mutation pass." },
     "restart_app": { "status": "gap", "note": "out-of-band (docker compose per service); ops plane outside the patient." },
     "enter_safe_mode": { "status": "unsupported" },
     "exit_safe_mode": { "status": "unsupported" },
     "set_setting": { "status": "gap" },
-    "check_for_update": { "status": "gap", "note": "wire to the Steamroller fleet version manifest (L2)." },
+    "check_for_update": { "status": "gap", "note": "wire to the Steamroller fleet version manifest (admin /v1/fleet-versions is live)." },
     "apply_update": { "status": "gap", "note": "SSH-free health-gated redeploy — per service; §7." },
     "reset_to_defaults": { "status": "unsupported", "note": "NEVER — Synapse holds real rooms + message history." }
   },
-  "$headline_gap": "THE fleet-health aggregator: one endpoint (e.g. GET /api/v1/ops/health) that fans out to every service's internal /health + Synapse, returns the constellation status {service: up|down|degraded, version}, and is nginx-routed externally + EPT-gated. This becomes get_health/get_status/get_capabilities at once. It is the FIRST thing to build for Chat and the template for every future multi-service Windy platform (see docs/MULTI-SERVICE-OPS.md).",
+  "$headline_gap": "CLOSED 2026-07-13 (windy-chat #143): the fleet-health aggregator exists — GET /api/v1/ops/health, EPT/JWT-gated, whitelist-scrubbed, per-service fan-out. Remaining headline work: the Grant-gated prod deploy that makes it reachable, then the mutation knobs the read view unlocks (per-service reconnect/restart, get_logs, run_selftest, SSH-free apply_update).",
   "tools": [
     {
       "name": "get_health",
       "tier": "auto_allow",
       "baseline_status": "implemented",
-      "description": "Check whether Windy Chat's core is alive — the Synapse (Matrix) homeserver that carries every message and room. A 200 here means the heart is beating; if this fails, chat is fully down. NOTE: this checks only the homeserver core, not the ~13 surrounding services — a full constellation health view needs the ops aggregator (not yet built).",
+      "description": "The FIRST call when anything seems wrong with Windy Chat. One read returns the health of the WHOLE constellation: the Synapse homeserver that carries every message (if it's down, chat is down) plus every surrounding service — onboarding, directory, push, backup, social, translation, agent-roster, media, call-history, hub. Overall status is ok, degraded (some piece is down), or down (the homeserver heart itself is unreachable), with a per-service breakdown so you can see exactly WHICH piece failed instead of guessing.",
       "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
-      "transport": { "method": "GET", "path": "/_matrix/client/versions" }
+      "returns": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "description": "ok | degraded | down for the whole constellation" },
+          "summary": { "type": "object", "description": "counts: total / up / degraded / down" },
+          "services": { "type": "object", "description": "per-service {status, version, commit, uptime, dependencies, duration_ms, error?}" }
+        }
+      },
+      "transport": { "method": "GET", "path": "/api/v1/ops/health" }
+    },
+    {
+      "name": "get_status",
+      "tier": "auto_allow",
+      "baseline_status": "implemented",
+      "description": "Read Windy Chat's deployment identity across the whole fleet in one call: every service's package version and git commit sha. Use this to answer 'did the fix that was supposed to deploy actually reach ALL the services, or is one still running the old build?' — the classic multi-service deploy question.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "services": { "type": "object", "description": "per-service {version, commit, environment, uptime}" }
+        }
+      },
+      "transport": { "method": "GET", "path": "/api/v1/ops/health" }
+    },
+    {
+      "name": "get_capabilities",
+      "tier": "auto_allow",
+      "baseline_status": "implemented",
+      "description": "Probe which Windy Chat capabilities are actually working right now, rather than assuming. Each service that reports 'up' means its feature area works: media = photo/file sharing, push-gateway = notifications, hub = the Telegram/WhatsApp/Slack/Discord bridges, call-history = call logs, directory = finding contacts, agent-roster = your agents answering in chat, backup = encrypted backups, social = the social feed, translation = message translation. A service that is down means that capability is unavailable — everything else keeps working.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "services": { "type": "object", "description": "per-service {status} — up means the capability is available" }
+        }
+      },
+      "transport": { "method": "GET", "path": "/api/v1/ops/health" }
     }
   ]
 }
