@@ -20,6 +20,7 @@ const provisionRoutes = require('./routes/provision');
 const agentProvisionRoutes = require('./routes/agent-provision');
 const roomsRoutes = require('./routes/rooms');
 const webhookRoutes = require('./routes/webhooks');
+const opsRoutes = require('./routes/ops');
 const { createCorsMiddleware } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
 const { createVersionHandler } = require('../shared/version');
@@ -92,6 +93,9 @@ app.use('/api/v1/webhooks', webhookRoutes);
 
 // ── Agent provisioning (service-to-service, own auth) — must be before /api/v1/onboarding catch-all ──
 app.use('/api/v1/onboarding/agent', agentProvisionRoutes);
+
+// ── Ops fleet-health aggregator (ADR-060; own auth: EPT or account JWT) ──
+app.use('/api/v1/ops', opsRoutes);
 
 // ── Auth-protected routes ──
 // The K2.1 OTP verify path (/api/v1/chat/verify — Twilio/SendGrid) was
