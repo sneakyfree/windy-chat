@@ -1,0 +1,27 @@
+# windy-chat ops-hook — the doctor that is NOT in the patient (ADR-060 §3.6).
+# Runs OUTSIDE the windy-chat compose project so it can restart a
+# dead/wedged sibling service (per-service reconnect). NEVER touches synapse.
+#
+# Install (Grant-gated; see deploy/ops-hook/README.md):
+#   sudo mkdir -p /opt/windy-chat-ops-hook
+#   sudo cp deploy/ops-hook/hook.py /opt/windy-chat-ops-hook/
+#   sudo install -m 0600 deploy/ops-hook/ops-hook.env.example /etc/windy-chat-ops-hook.env
+#   sudo nano /etc/windy-chat-ops-hook.env      # set OPS_HOOK_TOKEN
+#   sudo cp deploy/ops-hook/windy-chat-ops-hook.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now windy-chat-ops-hook
+
+[Unit]
+Description=windy-chat ops-hook (ADR-060 out-of-patient per-service reconnect)
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/windy-chat-ops-hook/hook.py
+EnvironmentFile=/etc/windy-chat-ops-hook.env
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target
