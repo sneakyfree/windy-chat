@@ -34,11 +34,11 @@
     },
     "reconnect": {
       "status": "gap",
-      "note": "per-service; the aggregator's read view now shows WHICH service needs it — namespaced reconnect.<service> knobs are the natural next mutation pass."
+      "note": "STAGED 2026-07-13: the ops-hook per-service restart (deploy/ops-hook, windy-contracts #33 v2.1) restarts ONE allowlisted sibling service (POST /hook/restart-service) — the per-service reconnect the aggregator's read view informs. Synapse EXCLUDED (P0 kernel). Live after the Grant-gated install; then bind namespaced reconnect.<service> + re-weave."
     },
     "restart_app": {
       "status": "gap",
-      "note": "out-of-band (docker compose per service); ops plane outside the patient."
+      "note": "STAGED 2026-07-13: per-service restart via the ops-hook (deploy/ops-hook); see reconnect. Whole-service redeploy is out of scope (multi-service, per-service images)."
     },
     "enter_safe_mode": {
       "status": "unsupported"
