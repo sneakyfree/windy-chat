@@ -47,6 +47,33 @@ const router = express.Router();
 
 const PROBE_TIMEOUT_MS = Number(process.env.WINDY_OPS_PROBE_TIMEOUT_MS || 2500);
 
+// Steamroller (ADR-060 §5) — check_for_update resolves this deployment's
+// version against admin's fleet-version manifest.
+const CHAT_VERSION = require('../package.json').version;
+const FLEET_VERSIONS_URL = process.env.FLEET_VERSIONS_URL || 'https://admin.windyword.ai/v1/fleet-versions';
+const FLEET_PRODUCT = process.env.FLEET_PRODUCT || 'windy-chat';
+const FLEET_CHANNEL = process.env.FLEET_CHANNEL || 'stable';
+
+function _semverTuple(v) {
+  return String(v).replace(/-/g, '.').split('.').map((p) => (/^\d+$/.test(p) ? [0, parseInt(p, 10)] : [1, p]));
+}
+function _semverLess(a, b) {
+  const ta = _semverTuple(a), tb = _semverTuple(b);
+  for (let i = 0; i < Math.max(ta.length, tb.length); i++) {
+    const x = ta[i] || [0, 0], y = tb[i] || [0, 0];
+    if (x[0] !== y[0]) return x[0] < y[0];
+    if (x[1] !== y[1]) return x[1] < y[1];
+  }
+  return false;
+}
+function _compareVersion(installed, current, minimum) {
+  try {
+    if (minimum && _semverLess(installed, minimum)) return 'must-update';
+    if (_semverLess(installed, current)) return 'update-available';
+    return 'current';
+  } catch { return 'unknown'; }
+}
+
 const AUTH_REMEDIATION =
   'Send `Authorization: Bearer <token>` — an Eternitas passport (EPT) for ' +
   'agents, or a Windy account JWT (account.windyword.ai) for humans and ' +
@@ -256,6 +283,34 @@ router.get('/health', opsAuth, asyncHandler(async (req, res) => {
     summary,
     services,
   });
+}));
+
+// ── check_for_update (Steamroller, ADR-060 §5) ──
+// Resolves the onboarding service's version against admin's fleet-version
+// manifest. Read-only; apply_update (per-service redeploy) is separate.
+router.get('/check-update', opsAuth, asyncHandler(async (req, res) => {
+  const result = { service: FLEET_PRODUCT, installed: CHAT_VERSION, status: 'unknown' };
+  let manifest;
+  try {
+    const r = await fetch(FLEET_VERSIONS_URL, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+    if (r.status !== 200) { result.detail = `fleet manifest http ${r.status}`; return res.json(result); }
+    manifest = await r.json();
+  } catch (err) {
+    result.detail = `fleet manifest unreachable: ${err.name || err.message}`;
+    return res.json(result);
+  }
+  const chan = manifest && manifest.products
+    && manifest.products[FLEET_PRODUCT]
+    && manifest.products[FLEET_PRODUCT].channels
+    && manifest.products[FLEET_PRODUCT].channels[FLEET_CHANNEL];
+  if (!chan || !chan.current) { result.detail = 'no fleet-version entry for this product/channel'; return res.json(result); }
+  const status = _compareVersion(CHAT_VERSION, chan.current, chan.minimum);
+  Object.assign(result, { status, current: chan.current, minimum: chan.minimum || null,
+    kind: chan.kind || null, source: chan.source || null, notes: chan.notes || null });
+  if (status === 'update-available' || status === 'must-update') {
+    result.remediation = `redeploy the affected Windy Chat service (Grant-gated) to move from ${CHAT_VERSION} to ${chan.current}`;
+  }
+  res.json(result);
 }));
 
 module.exports = router;
