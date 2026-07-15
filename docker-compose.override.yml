@@ -1,0 +1,9 @@
+services:
+  synapse:
+    environment:
+      - PYTHONPATH=/data/modules
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+  agent-roster:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
