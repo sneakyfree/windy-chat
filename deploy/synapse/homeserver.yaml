@@ -60,6 +60,7 @@ url_preview_ip_range_blacklist:
 # custom auth module (windy_registration.py).
 enable_registration: false
 enable_registration_without_verification: false
+registration_shared_secret: "${SYNAPSE_REGISTRATION_SECRET}"
 
 # ── Custom Auth Module (Windy Pro Account Integration) ──
 # Second module (windy_push_bus) is an additive new-event subscriber that
@@ -84,7 +85,6 @@ modules:
 federation_domain_whitelist: []
 allow_public_rooms_over_federation: false
 allow_public_rooms_without_auth: false
-restrict_public_rooms_to_local_users: true
 
 # ── Signing Keys ──
 signing_key_path: "/data/chat.windychat.ai.signing.key"
@@ -182,8 +182,7 @@ push:
 # K9 Translation appservice — auto-translates messages in rooms.
 # Requires: TRANSLATION_AS_TOKEN and TRANSLATION_HS_TOKEN env vars set.
 # Enable via: ./scripts/enable-k9-appservice.sh
-app_service_config_files:
-  - /data/appservices/translation-registration.yaml
+app_service_config_files: []
 
 # ── Server Notices ──
 server_notices:
