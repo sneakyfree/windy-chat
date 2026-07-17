@@ -831,6 +831,53 @@ router.post('/unified-login', asyncHandler(async (req, res) => {
     // Matrix session (or a stale one from a prior login).
     const state = onboardingDb.getOnboardingState.get(existing.chat_user_id);
     const matrixUserId = state ? state.matrix_user_id : `@${existing.chat_user_id}:${SYNAPSE_SERVER_NAME}`;
+
+    // Self-heal UUID display names (chat stress pass 2026-07-16): profiles
+    // provisioned before the account-server JWT carried a display_name claim
+    // stored the raw identity id as display_name — so the welcome modal, the
+    // social feed, and the agent's greeting all rendered a UUID. If the token
+    // now carries a real name and the stored one is the UUID (or empty),
+    // upgrade the profile row + the Matrix displayname in place. The
+    // localpart is immutable by design — only the display layer heals.
+    const claimName =
+      user.display_name &&
+      user.display_name !== user.sub &&
+      user.display_name !== windyIdentityId
+        ? stripHtml(user.display_name).trim()
+        : null;
+    const storedNameIsUuidish =
+      !existing.display_name ||
+      existing.display_name === windyIdentityId ||
+      existing.display_name === user.sub ||
+      existing.display_name === existing.chat_user_id;
+    if (claimName && storedNameIsUuidish) {
+      try {
+        onboardingDb.updateProfileByWindyId.run({
+          display_name: claimName,
+          avatar_url: null,
+          bio: null,
+          languages: null,
+          primary_language: null,
+          windy_identity_id: windyIdentityId,
+        });
+        existing.display_name = claimName;
+        if (SYNAPSE_ADMIN_TOKEN) {
+          await fetch(`${SYNAPSE_ADMIN_URL}/v2/users/${encodeURIComponent(matrixUserId)}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${SYNAPSE_ADMIN_TOKEN}`,
+            },
+            body: JSON.stringify({ displayname: claimName }),
+            signal: AbortSignal.timeout(10000),
+          }).catch((err) => console.warn(`[unified-login] displayname heal failed for ${matrixUserId}: ${err.message}`));
+        }
+        console.log(`[unified-login] Healed UUID display name → "${claimName}" for ${matrixUserId}`);
+      } catch (err) {
+        console.warn(`[unified-login] display-name self-heal failed: ${err.message}`);
+      }
+    }
+
     const fresh = await mintFreshSession(matrixUserId);
     return res.json({
       matrix_user_id: matrixUserId,
