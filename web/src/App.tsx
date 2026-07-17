@@ -162,6 +162,11 @@ export default function App() {
     const params = new URLSearchParams(hash.slice(1));
     const token = params.get('token');
     if (!token) return;
+    // The dashboard handoff also mints a short-lived single-use refresh
+    // token (account-server /auth/handoff) so a tile-entered session can
+    // silently refresh instead of dying at the 15-minute access-token
+    // expiry the way fragment-only sessions used to.
+    const refreshToken = params.get('refreshToken');
     // Always strip the fragment first, even if already logged in —
     // otherwise an in-app navigation to a fragment-bearing URL leaves
     // the JWT visible in the address bar indefinitely.
@@ -172,9 +177,16 @@ export default function App() {
     // chat-app a longer-lived auth window for backend microservice
     // calls (directory / social / etc) before the Pro JWT's 15-min TTL
     // forces re-auth.
-    handleLogin(token).catch((err) => {
-      console.warn('SSO handoff failed; falling back to login screen', err);
-    });
+    handleLogin(token, refreshToken)
+      .then(() => {
+        // Rotate the fragment refresh token right away: it was minted
+        // short-lived (it rode in a URL), and one /auth/refresh swaps it
+        // for a standard 30-day rotating token that never touched a URL.
+        if (refreshToken) return api.refreshAccessToken().then(() => undefined);
+      })
+      .catch((err) => {
+        console.warn('SSO handoff failed; falling back to login screen', err);
+      });
   }, [handleLogin]);
 
   // "Sign in with Windy" OAuth callback (authorization-code + PKCE).
