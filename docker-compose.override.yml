@@ -7,3 +7,21 @@ services:
   agent-roster:
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  # Prod wiring for the Kit 0 VPS (srv1299061): this host runs
+  # base+override (NOT docker-compose.prod.yml), so the prod-only push
+  # wiring lives here. These blocks were hand-added on the box during the
+  # 2026-07-15 migration stress pass and then nearly lost to a
+  # `git reset --hard` on 2026-07-16 — upstreamed so the box state is
+  # reproducible. Harmless in dev: the secrets dir is optional-empty and
+  # PUSH_BUS_TOKEN defaults to unset.
+  push-gateway:
+    volumes:
+      - /opt/windy-chat/secrets:/secrets:ro
+    environment:
+      PUSH_BUS_TOKEN: ${PUSH_BUS_TOKEN:-}
+
+  onboarding:
+    environment:
+      PUSH_BUS_URL: http://push-gateway:8103
+      PUSH_BUS_TOKEN: ${PUSH_BUS_TOKEN:-}
