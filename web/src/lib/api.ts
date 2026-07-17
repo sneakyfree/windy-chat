@@ -30,6 +30,31 @@ export function getRefreshToken(): string | null {
   return localStorage.getItem('windy_refresh');
 }
 
+/**
+ * Mint a fresh {token, refreshToken} pair for handing this session off to a
+ * sibling app (e.g. the mail panel iframe). The minted refresh token is
+ * short-lived and single-use on the server side, so it's safe to ride a URL
+ * fragment; the receiving app rotates it into a normal 30-day token on
+ * arrival. Returns null on any failure so callers can fall back to passing
+ * the raw access token (the pre-handoff behavior).
+ */
+export async function mintHandoff(): Promise<{ token: string; refreshToken?: string } | null> {
+  const jwt = getToken();
+  if (!jwt) return null;
+  try {
+    const res = await fetch(`${env.accountServerUrl}/api/v1/auth/handoff`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.token) return null;
+    return { token: data.token, refreshToken: data.refreshToken };
+  } catch {
+    return null;
+  }
+}
+
 /** Seconds until the stored access token expires (negative = already expired). */
 export function tokenSecondsLeft(): number | null {
   const jwt = getToken();

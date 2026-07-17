@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { env } from '../env';
+import { mintHandoff } from '../lib/api';
 
 interface MailPanelProps {
   open: boolean;
@@ -43,6 +44,27 @@ export default function MailPanel({ open, onClose, compose }: MailPanelProps) {
     error: null,
   });
   const [connecting, setConnecting] = useState(false);
+  // Minted handoff fragment (`token=…&refreshToken=…`) for the mail iframe.
+  // Null until the mint resolves; empty string if the mint failed (fall back
+  // to the raw session JWT so a dead mint never blocks the panel).
+  const [handoffFrag, setHandoffFrag] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) { setHandoffFrag(null); return; }
+    let alive = true;
+    mintHandoff().then((pair) => {
+      if (!alive) return;
+      if (pair?.token) {
+        setHandoffFrag(
+          'token=' + encodeURIComponent(pair.token)
+          + (pair.refreshToken ? '&refreshToken=' + encodeURIComponent(pair.refreshToken) : ''),
+        );
+      } else {
+        setHandoffFrag('');
+      }
+    });
+    return () => { alive = false; };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -122,7 +144,6 @@ export default function MailPanel({ open, onClose, compose }: MailPanelProps) {
 
   if (!open) return null;
 
-  const jwt = localStorage.getItem('windy_jwt') || '';
   let iframeSrc = env.windyMailUrl;
   const params = new URLSearchParams();
   if (compose) {
@@ -133,8 +154,16 @@ export default function MailPanel({ open, onClose, compose }: MailPanelProps) {
   if (params.toString()) iframeSrc += '?' + params.toString();
   // SSO handoff — pattern from the chat app's #token= fragment. windymail.ai
   // strips the fragment from history on arrival. Fragments are browser-local
-  // (never sent to servers).
-  if (jwt) iframeSrc += '#token=' + encodeURIComponent(jwt);
+  // (never sent to servers). Prefer the minted handoff pair (access +
+  // single-use refresh token) so the mail session survives past the 15-min
+  // access-token expiry; fall back to the raw session JWT if the mint
+  // hasn't resolved / failed (the pre-handoff behavior).
+  if (handoffFrag) {
+    iframeSrc += '#' + handoffFrag;
+  } else {
+    const jwt = localStorage.getItem('windy_jwt') || '';
+    if (jwt) iframeSrc += '#token=' + encodeURIComponent(jwt);
+  }
   const openExternal = () => window.open(iframeSrc, '_blank', 'noopener,noreferrer');
 
   return (
@@ -208,12 +237,16 @@ export default function MailPanel({ open, onClose, compose }: MailPanelProps) {
                 </button>
               </div>
             )}
-            <iframe
-              src={iframeSrc}
-              className="flex-1 w-full border-0"
-              title="Windy Mail"
-              allow="clipboard-write"
-            />
+            {/* Hold the iframe until the handoff mint settles so it loads
+                once with the right fragment instead of reloading mid-open. */}
+            {handoffFrag !== null && (
+              <iframe
+                src={iframeSrc}
+                className="flex-1 w-full border-0"
+                title="Windy Mail"
+                allow="clipboard-write"
+              />
+            )}
           </>
         )}
       </div>
