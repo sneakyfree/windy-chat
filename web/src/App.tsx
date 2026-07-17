@@ -49,6 +49,15 @@ export default function App() {
   const { auth, login, logout } = useAuth();
   const [view, setView] = useState<View>('chat');
   const [authScreen, setAuthScreen] = useState<AuthScreen>('landing');
+  // /privacy and /terms are real URLs (the landing footer links to them and
+  // people paste them cold), but this SPA routes by view state — so those
+  // links used to land on the landing page. Honor the path on boot, logged
+  // in or not.
+  const [publicLegal, setPublicLegal] = useState<'privacy' | 'terms' | null>(() =>
+    window.location.pathname === '/privacy' ? 'privacy'
+      : window.location.pathname === '/terms' ? 'terms'
+        : null,
+  );
   const [ssoError, setSsoError] = useState('');
   const [showWelcome, setShowWelcome] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
@@ -106,8 +115,8 @@ export default function App() {
     setView('chat');
   }, []);
 
-  const handleLogin = useCallback(async (jwt: string) => {
-    const state = await login(jwt);
+  const handleLogin = useCallback(async (jwt: string, refreshToken?: string | null) => {
+    const state = await login(jwt, refreshToken);
     // Show welcome for new users (no previous session)
     if (state.isLoggedIn && !localStorage.getItem('windy_chat_onboarded')) {
       setShowWelcome(true);
@@ -184,6 +193,25 @@ export default function App() {
         setAuthScreen('signin');
       });
   }, [handleLogin]);
+
+  // ── Public legal pages (/privacy, /terms) — no auth required ──
+  if (publicLegal) {
+    const LegalPage = publicLegal === 'privacy' ? PrivacyPage : TermsPage;
+    return (
+      <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }}>
+        <div className="max-w-3xl mx-auto p-4">
+          <button
+            onClick={() => { setPublicLegal(null); window.history.replaceState(null, '', '/'); }}
+            className="text-sm my-4 flex items-center gap-1"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            ← Back to Windy Chat
+          </button>
+          <LegalPage />
+        </div>
+      </div>
+    );
+  }
 
   // ── Unauthenticated: Landing → SignIn/Register ──
   if (!auth.isLoggedIn) {

@@ -67,10 +67,20 @@ export default function MailPanel({ open, onClose, compose }: MailPanelProps) {
       .then(data => {
         const mail = data?.products?.windy_mail;
         const provisioned = mail?.status === 'active';
-        // Pro's ecosystem-status returns the mailbox under `address`; the
-        // product_accounts row also has it as `external_id`. Read both
-        // for resilience across Pro versions.
-        const address = mail?.address || mail?.external_id || null;
+        // Whose mailbox do we show? The iframe SSO carries the USER's JWT, so
+        // the webmail opens the USER's inbox — but hatch-era product_accounts
+        // rows store the AGENT's mailbox as address/external_id (Category 2,
+        // bot-held). Showing that here labeled "Your mailbox" was an identity
+        // conflation (chat stress pass 2026-07-16). Prefer the account's own
+        // @windymail.ai address from the JWT; fall back to the product row.
+        let jwtMailAddress: string | null = null;
+        try {
+          const payload = JSON.parse(atob((token as string).split('.')[1]));
+          if (typeof payload.email === 'string' && payload.email.endsWith('@windymail.ai')) {
+            jwtMailAddress = payload.email;
+          }
+        } catch { /* non-fatal */ }
+        const address = jwtMailAddress || mail?.address || mail?.external_id || null;
         setState({
           loading: false,
           provisioned,
