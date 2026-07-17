@@ -83,6 +83,9 @@ function initStorage() {
   if (WINDY_CLOUD_URL) {
     storageMode = 'windy-cloud';
     console.log(`☁️  Backup storage: Windy Cloud API (${WINDY_CLOUD_URL})`);
+    if (!WINDY_CLOUD_SERVICE_TOKEN) {
+      console.warn('⚠️  WINDY_CLOUD_URL is set but WINDY_CLOUD_SERVICE_TOKEN is missing — cloud uploads will fail until it is provisioned');
+    }
     return;
   }
 
@@ -106,33 +109,73 @@ function initStorage() {
 }
 
 // ── Windy Cloud API helpers ──
+// The cloud kernel's archive contract (windy-cloud api/app/routes/archive.py
+// + auth/webhook.py): uploads are POST /api/v1/archive/chat authenticated by
+// X-Service-Token, multipart form with `file` + `metadata` (JSON string) +
+// `filename` + `windy_identity_id` — required for service-token callers; the
+// kernel files the object under <identity>/windy_chat/chat_backup/<filename>.
+// Retrieval and deletion are USER-authenticated (Bearer JWT verified against
+// the same JWKS the kernel trusts), so those calls forward the requesting
+// user's own token: GET /api/v1/archive/retrieve/windy_chat/<filename> and
+// DELETE /api/v1/storage/files/<file_id>.
 const http = require('http');
 const https = require('https');
 
-function cloudRequest(method, path, body) {
+const WINDY_CLOUD_SERVICE_TOKEN =
+  process.env.WINDY_CLOUD_SERVICE_TOKEN || process.env.WINDY_CLOUD_TOKEN || '';
+const CLOUD_PRODUCT = 'windy_chat';
+// Mirror K8.1.3's keep-last-7 on the kernel side: the kernel prunes the
+// oldest chat_backup objects beyond this count per identity, which covers
+// callers that can't perform an authenticated remote delete.
+const CLOUD_RETENTION_COUNT = 7;
+
+// The kernel sanitizes path separators out of filenames, so flatten our
+// backup path the same way for upload AND retrieval.
+function cloudFilenameFor(storagePath) {
+  return storagePath.split('/').filter(Boolean).join('_');
+}
+
+function buildMultipart(fields, file) {
+  const boundary = '----WindyBackup' + crypto.randomBytes(12).toString('hex');
+  const parts = [];
+  for (const [name, value] of Object.entries(fields)) {
+    parts.push(Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`
+    ));
+  }
+  parts.push(Buffer.from(
+    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${file.filename}"\r\n` +
+    `Content-Type: ${file.contentType}\r\n\r\n`
+  ));
+  parts.push(file.data, Buffer.from(`\r\n--${boundary}--\r\n`));
+  return {
+    body: Buffer.concat(parts),
+    contentType: `multipart/form-data; boundary=${boundary}`,
+  };
+}
+
+function cloudRequest({ method, path: requestPath, headers = {}, body = null }) {
   return new Promise((resolve, reject) => {
-    const url = new URL(path, WINDY_CLOUD_URL);
+    const url = new URL(requestPath, WINDY_CLOUD_URL);
     const httpModule = url.protocol === 'https:' ? https : http;
     const opts = {
       method,
       hostname: url.hostname,
       port: url.port,
       path: url.pathname + url.search,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.CHAT_API_TOKEN || ''}`,
-      },
+      headers: { ...headers },
       timeout: 30000,
     };
-    if (body) opts.headers['Content-Length'] = Buffer.byteLength(body);
+    if (body) opts.headers['Content-Length'] = body.length;
     const req = httpModule.request(opts, (res) => {
-      let data = '';
-      res.on('data', (c) => data += c);
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
       res.on('end', () => {
-        let parsed;
-        try { parsed = JSON.parse(data); } catch { parsed = data; }
-        if (res.statusCode >= 200 && res.statusCode < 300) resolve(parsed);
-        else reject(new Error(`Windy Cloud ${method} ${path}: ${res.statusCode}`));
+        const data = Buffer.concat(chunks);
+        if (res.statusCode >= 200 && res.statusCode < 300) resolve(data);
+        else reject(new Error(
+          `Windy Cloud ${method} ${url.pathname}: ${res.statusCode} ${data.toString('utf8').slice(0, 200)}`
+        ));
       });
     });
     req.on('error', reject);
@@ -142,15 +185,49 @@ function cloudRequest(method, path, body) {
   });
 }
 
-async function uploadToStorage(path, data, metadata) {
+// Extract a forwardable end-user JWT from the incoming request. The legacy
+// static CHAT_API_TOKEN is not a kernel-valid credential — return null so
+// cloud calls that need a user token fail with a clear error instead.
+function bearerFrom(req) {
+  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (!token || (process.env.CHAT_API_TOKEN && token === process.env.CHAT_API_TOKEN)) return null;
+  return token;
+}
+
+async function uploadToStorage(path, data, metadata, cloud = {}) {
   if (storageMode === 'windy-cloud') {
-    await cloudRequest('POST', '/api/v1/archive/code-settings', JSON.stringify({
-      type: 'chat-backup',
-      path,
-      data: data.toString('base64'),
-      metadata,
-    }));
-    return;
+    if (!WINDY_CLOUD_SERVICE_TOKEN) {
+      throw new Error('WINDY_CLOUD_SERVICE_TOKEN is not configured — cannot upload to Windy Cloud');
+    }
+    if (!cloud.identityId) {
+      throw new Error('windy_identity_id is required for Windy Cloud backup uploads');
+    }
+    const filename = cloudFilenameFor(path);
+    const multipart = buildMultipart(
+      {
+        windy_identity_id: cloud.identityId,
+        filename,
+        metadata: JSON.stringify({
+          encrypted: true,
+          retention_count: CLOUD_RETENTION_COUNT,
+          source: 'windy-chat',
+          ...metadata,
+        }),
+      },
+      { filename, contentType: 'application/octet-stream', data },
+    );
+    const raw = await cloudRequest({
+      method: 'POST',
+      path: '/api/v1/archive/chat',
+      headers: {
+        'X-Service-Token': WINDY_CLOUD_SERVICE_TOKEN,
+        'Content-Type': multipart.contentType,
+      },
+      body: multipart.body,
+    });
+    let parsed = {};
+    try { parsed = JSON.parse(raw.toString('utf8')); } catch { /* tolerate empty body */ }
+    return { file_id: parsed.file_id, key: parsed.key };
   }
   if (storageMode === 'r2-direct' && s3Client) {
     const { PutObjectCommand } = require('@aws-sdk/client-s3');
@@ -161,15 +238,22 @@ async function uploadToStorage(path, data, metadata) {
       ContentType: 'application/octet-stream',
       Metadata: metadata,
     }));
-    return;
+    return null;
   }
   console.log(`☁️  [STUB] Backup stored: ${path} (${formatSize(data.length)})`);
+  return null;
 }
 
-async function downloadFromStorage(path) {
+async function downloadFromStorage(path, cloud = {}) {
   if (storageMode === 'windy-cloud') {
-    const result = await cloudRequest('GET', `/api/v1/archive/code-settings?type=chat-backup&path=${encodeURIComponent(path)}`);
-    return Buffer.from(result.data, 'base64');
+    if (!cloud.bearer) {
+      throw new Error('Cloud restore requires the requesting user\'s own token');
+    }
+    return await cloudRequest({
+      method: 'GET',
+      path: `/api/v1/archive/retrieve/${CLOUD_PRODUCT}/${encodeURIComponent(cloudFilenameFor(path))}`,
+      headers: { 'Authorization': `Bearer ${cloud.bearer}` },
+    });
   }
   if (storageMode === 'r2-direct' && s3Client) {
     const { GetObjectCommand } = require('@aws-sdk/client-s3');
@@ -182,9 +266,19 @@ async function downloadFromStorage(path) {
   return null;
 }
 
-async function deleteFromStorage(path) {
+async function deleteFromStorage(path, cloud = {}) {
   if (storageMode === 'windy-cloud') {
-    await cloudRequest('DELETE', `/api/v1/archive/code-settings?type=chat-backup&path=${encodeURIComponent(path)}`);
+    if (cloud.bearer && cloud.fileId) {
+      await cloudRequest({
+        method: 'DELETE',
+        path: `/api/v1/storage/files/${encodeURIComponent(cloud.fileId)}`,
+        headers: { 'Authorization': `Bearer ${cloud.bearer}` },
+      });
+    } else {
+      // No forwardable user token or no kernel file id — the kernel's
+      // retention_count prunes surplus backups server-side.
+      console.log(`☁️  Skipped remote delete (kernel retention handles pruning): ${path}`);
+    }
     return;
   }
   if (storageMode === 'r2-direct' && s3Client) {
@@ -279,33 +373,47 @@ app.post('/api/v1/chat/backup/create', authMiddleware, asyncHandler(async (req, 
       return res.status(400).json({ error: 'metadata must be an object' });
     }
 
+    // The cloud kernel requires the owner's windy_identity_id on every
+    // service-token upload — it decides whose storage the backup lands in.
+    const windyIdentityId = req.user.windy_identity_id || null;
+    if (storageMode === 'windy-cloud' && !windyIdentityId) {
+      return res.status(400).json({ error: 'Cloud backup requires a Windy account token (missing windy_identity_id)' });
+    }
+
     const backupId = uuidv4();
     const timestamp = new Date().toISOString();
     const path = `backups/${userId}/${timestamp.replace(/[:.]/g, '-')}.enc`;
 
-    await uploadToStorage(path, Buffer.from(encryptedData, 'base64'), {
+    const cloudFile = await uploadToStorage(path, Buffer.from(encryptedData, 'base64'), {
       'x-windy-user': userId,
       'x-windy-backup-id': backupId,
-    });
+    }, { identityId: windyIdentityId });
 
-    // Register backup in SQLite
+    // Register backup in SQLite. The kernel-assigned file id rides in the
+    // row metadata (_cloud) so later delete calls can target it.
     backupDb.insertBackup.run({
       id: backupId,
       user_id: userId,
-      windy_identity_id: req.user.windy_identity_id || null,
+      windy_identity_id: windyIdentityId,
       timestamp,
       size: dataSize,
       path,
-      metadata: JSON.stringify(metadata || {}),
+      metadata: JSON.stringify({
+        ...(metadata || {}),
+        ...(cloudFile && cloudFile.file_id ? { _cloud: cloudFile } : {}),
+      }),
     });
 
     // K8.1.3: Keep last 7 daily backups — prune oldest
     const backupCount = backupDb.countUserBackups.get(userId).cnt;
     if (backupCount > 7) {
+      const bearer = bearerFrom(req);
       const pruned = backupDb.getOldestBackups.all(userId, 7);
       for (const old of pruned) {
         try {
-          await deleteFromStorage(old.path);
+          let oldCloudId = null;
+          try { oldCloudId = (JSON.parse(old.metadata || '{}')._cloud || {}).file_id || null; } catch { /* legacy rows */ }
+          await deleteFromStorage(old.path, { bearer, fileId: oldCloudId });
           console.log(`🗑️  Deleted pruned backup: ${old.path}`);
         } catch (err) {
           console.error(`🗑️  Failed to delete pruned backup: ${old.path}`, err.message);
@@ -350,7 +458,8 @@ app.get('/api/v1/chat/backup/list', authMiddleware, (req, res) => {
         timestamp: b.timestamp,
         size: b.size,
         sizeFormatted: formatSize(b.size),
-        metadata: b.metadata,
+        // _cloud carries kernel-internal file ids — not part of the client contract
+        metadata: (({ _cloud, ...rest }) => rest)(b.metadata || {}),
       })),
       count: backups.length,
       maxBackups: 7,
@@ -382,7 +491,14 @@ app.post('/api/v1/chat/backup/restore', authMiddleware, asyncHandler(async (req,
       return res.status(404).json({ error: 'Backup not found' });
     }
 
-    const rawData = await downloadFromStorage(backup.path);
+    // The kernel's retrieve endpoint is user-authenticated — forward the
+    // requesting user's own token (the kernel trusts the same JWKS).
+    const bearer = bearerFrom(req);
+    if (storageMode === 'windy-cloud' && !bearer) {
+      return res.status(400).json({ error: 'Cloud restore requires your own login token' });
+    }
+
+    const rawData = await downloadFromStorage(backup.path, { bearer });
     const encryptedData = rawData ? rawData.toString('base64') : null;
 
     res.json({
@@ -421,7 +537,10 @@ app.delete('/api/v1/chat/backup/delete', authMiddleware, asyncHandler(async (req
     backupDb.deleteBackup.run(userId, backupId);
 
     try {
-      await deleteFromStorage(removed.path);
+      await deleteFromStorage(removed.path, {
+        bearer: bearerFrom(req),
+        fileId: ((removed.metadata || {})._cloud || {}).file_id || null,
+      });
       console.log(`🗑️  Deleted backup: ${removed.path}`);
     } catch (err) {
       console.error(`🗑️  Failed to delete backup: ${removed.path}`, err.message);
@@ -536,4 +655,10 @@ if (require.main === module) {
   setInterval(runScheduledBackups, SCHEDULE_CHECK_INTERVAL);
 }
 
-module.exports = { app, encryptBackup, decryptBackup };
+module.exports = {
+  app,
+  encryptBackup,
+  decryptBackup,
+  // exposed for contract tests
+  _cloudInternals: { buildMultipart, cloudFilenameFor },
+};

@@ -341,6 +341,10 @@ services:
       WINDY_ACCOUNT_SERVER_URL: ${WINDY_ACCOUNT_SERVER_URL:-https://account.windyword.ai}
       CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
       WINDY_CLOUD_URL: ${WINDY_CLOUD_URL:-}
+      # Cloud kernel service token (X-Service-Token on archive uploads) —
+      # same value as the kernel's SERVICE_TOKEN / account-server's
+      # WINDY_CLOUD_SERVICE_TOKEN. Without it cloud backups fail closed.
+      WINDY_CLOUD_SERVICE_TOKEN: ${WINDY_CLOUD_SERVICE_TOKEN:-}
       R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
       R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
