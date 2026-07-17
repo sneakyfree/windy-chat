@@ -3,7 +3,7 @@ import { env } from '../env';
 import { beginWindySignIn } from '../lib/sso';
 
 interface LoginPageProps {
-  onLogin: (jwt: string) => Promise<void>;
+  onLogin: (jwt: string, refreshToken?: string | null) => Promise<void>;
   mode: 'signin' | 'register';
   onToggleMode: () => void;
   onBack: () => void;
@@ -16,11 +16,13 @@ export default function LoginPage({ onLogin, mode, onToggleMode, onBack, initial
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState(initialError || '');
+  const [needsVerification, setNeedsVerification] = useState(false);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
+    setNeedsVerification(false);
     setLoading(true);
     try {
       if (mode === 'register') {
@@ -42,7 +44,7 @@ export default function LoginPage({ onLogin, mode, onToggleMode, onBack, initial
           throw new Error(data.error && detail ? `${data.error} — ${detail}` : (data.error || detail || `Registration failed (${regRes.status})`));
         }
         const regData = await regRes.json();
-        await onLogin(regData.token || regData.jwt || regData.access_token);
+        await onLogin(regData.token || regData.jwt || regData.access_token, regData.refreshToken || regData.refresh_token || null);
       } else {
         // Sign in via account-server
         const res = await fetch(`${env.accountServerUrl}/api/v1/auth/login`, {
@@ -52,10 +54,17 @@ export default function LoginPage({ onLogin, mode, onToggleMode, onBack, initial
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
+          // Unverified-email 403: without guidance this is a dead end — the
+          // login page has no resend control. Point at the Windy Word app,
+          // which owns the verify + resend flow.
+          if (res.status === 403 && /verify/i.test(data.error || '')) {
+            setNeedsVerification(true);
+            throw new Error(data.error || 'Please verify your email before logging in.');
+          }
           throw new Error(data.error || `Login failed (${res.status})`);
         }
         const data = await res.json();
-        await onLogin(data.token || data.jwt || data.access_token);
+        await onLogin(data.token || data.jwt || data.access_token, data.refreshToken || data.refresh_token || null);
       }
     } catch (err: any) {
       setError(err.message);
@@ -158,6 +167,21 @@ export default function LoginPage({ onLogin, mode, onToggleMode, onBack, initial
           {error && (
             <div className="text-sm px-3 py-2 rounded-lg" style={{ color: 'var(--danger)', background: 'rgba(248,113,113,0.1)' }}>
               {error}
+              {needsVerification && (
+                <div className="mt-2" style={{ color: 'var(--text-secondary)' }}>
+                  Check your inbox for the verification email. Need a new one?{' '}
+                  <a
+                    href="https://app.windyword.ai"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                    style={{ color: 'var(--accent)' }}
+                  >
+                    Verify at app.windyword.ai
+                  </a>
+                  {' '}— sign in there and it walks you through it.
+                </div>
+              )}
             </div>
           )}
 

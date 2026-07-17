@@ -11,8 +11,66 @@ export function setToken(token: string) {
 
 export function clearToken() {
   localStorage.removeItem('windy_jwt');
+  localStorage.removeItem('windy_refresh');
   localStorage.removeItem('matrix_access_token');
   localStorage.removeItem('matrix_user_id');
+}
+
+// ── Silent access-token refresh ──
+// The account-server access token lives 15 minutes; without a refresh the
+// social feed / alerts / mail panel silently 401 mid-session (the Matrix
+// session keeps working, which makes the breakage look random). Mirrors the
+// windy-pro web fix (#247): store the rotating refresh token, mint a fresh
+// JWT before expiry.
+
+export function setRefreshToken(t: string) {
+  localStorage.setItem('windy_refresh', t);
+}
+export function getRefreshToken(): string | null {
+  return localStorage.getItem('windy_refresh');
+}
+
+/** Seconds until the stored access token expires (negative = already expired). */
+export function tokenSecondsLeft(): number | null {
+  const jwt = getToken();
+  if (!jwt) return null;
+  try {
+    const payload = JSON.parse(atob(jwt.split('.')[1]));
+    if (!payload.exp) return null;
+    return Math.floor(payload.exp - Date.now() / 1000);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Exchange the stored refresh token for a fresh access token. Returns the
+ * new JWT, or null when there is no refresh token / it was rejected (in
+ * which case the stale state is left alone — the UI decides what to do).
+ */
+export async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return null;
+  try {
+    const res = await fetch(`${env.accountServerUrl}/api/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!res.ok) {
+      // Rotated-away or revoked refresh token — drop it so we stop retrying.
+      if (res.status === 401 || res.status === 403) localStorage.removeItem('windy_refresh');
+      return null;
+    }
+    const data = await res.json();
+    const jwt = data.token || data.access_token;
+    if (!jwt) return null;
+    setToken(jwt);
+    if (data.refreshToken || data.refresh_token) setRefreshToken(data.refreshToken || data.refresh_token);
+    return jwt;
+  } catch {
+    return null;
+  }
 }
 
 async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {

@@ -1,5 +1,5 @@
 /** Authentication state management */
-import { setToken, clearToken, unifiedLogin } from './api';
+import { setToken, setRefreshToken, clearToken, unifiedLogin } from './api';
 import { initClient, saveSession, clearSession, startSync } from './matrix';
 
 export interface AuthState {
@@ -47,8 +47,11 @@ export function getAuthState(): AuthState {
   }
 }
 
-export async function login(jwt: string): Promise<AuthState> {
+export async function login(jwt: string, refreshToken?: string | null): Promise<AuthState> {
   setToken(jwt);
+  // Persist the rotating refresh token so useAuth's silent-refresh loop can
+  // keep the 15-minute access token alive for the whole session (#247 parity).
+  if (refreshToken) setRefreshToken(refreshToken);
 
   try {
     const result = await unifiedLogin(jwt);

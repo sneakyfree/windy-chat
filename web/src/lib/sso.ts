@@ -10,6 +10,7 @@
  * chat backend accepts everywhere a Pro JWT is accepted).
  */
 import { env } from '../env';
+import { setRefreshToken } from './api';
 
 const STORAGE_KEY = 'windy_sso_pkce';
 const CLIENT_ID = 'windy-chat'; // registered by the account-server ecosystem seed
@@ -92,5 +93,9 @@ export async function completeWindySignIn(): Promise<string | null> {
   if (!res.ok || !data.access_token) {
     throw new Error(data.error_description || data.error || `Sign-in failed (${res.status}).`);
   }
+  // Persist the rotating refresh token so the silent-refresh loop keeps the
+  // 15-minute access token alive (OAuth refresh tokens share the same
+  // refresh_tokens table as /auth/refresh consumes).
+  if (data.refresh_token) setRefreshToken(data.refresh_token as string);
   return data.access_token as string;
 }
