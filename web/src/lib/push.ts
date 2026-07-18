@@ -32,7 +32,9 @@ export type PushStatus =
 
 const PUSH_BASE = `${env.matrixUrl}/api/v1/chat/push`;
 const APP_ID = 'ai.windychat.web';
-const ENABLED_FLAG = 'windy_push_enabled';
+// Exported so logout() can clear the previous user's push preference.
+export const PUSH_ENABLED_FLAG = 'windy_push_enabled';
+const ENABLED_FLAG = PUSH_ENABLED_FLAG;
 
 function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
   const padding = '='.repeat((4 - (base64.length % 4)) % 4);

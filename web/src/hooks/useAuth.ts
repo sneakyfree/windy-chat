@@ -41,8 +41,10 @@ export function useAuth() {
     return state;
   }, []);
 
-  const logout = useCallback(() => {
-    doLogout();
+  const logout = useCallback(async () => {
+    // doLogout revokes the Matrix + account-server sessions (best-effort)
+    // before clearing local state — it never throws.
+    await doLogout();
     setAuth({ isLoggedIn: false, userId: null, displayName: null, chatUserId: null, matrixUserId: null });
   }, []);
 
