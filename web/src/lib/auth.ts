@@ -1,6 +1,8 @@
 /** Authentication state management */
-import { setToken, setRefreshToken, clearToken, unifiedLogin } from './api';
-import { initClient, saveSession, clearSession, startSync } from './matrix';
+import { setToken, setRefreshToken, clearToken, unifiedLogin, revokeAccountSession } from './api';
+import { initClient, saveSession, clearSession, startSync, revokeMatrixSession, deleteCryptoStores } from './matrix';
+import { PUSH_ENABLED_FLAG } from './push';
+import { FILTER_STORAGE_KEY as HUB_FILTER_KEY } from './hub';
 
 export interface AuthState {
   isLoggedIn: boolean;
@@ -78,8 +80,38 @@ export async function login(jwt: string, refreshToken?: string | null): Promise<
   }
 }
 
-export function logout() {
+/**
+ * Complete logout. Session-hygiene fix: "sign out" used to be client-only —
+ * both the Windy refresh token and the Matrix access token stayed VALID
+ * server-side, and stale per-user keys survived in localStorage. Server-side
+ * revokes run FIRST (while the tokens are still stored), then everything
+ * local is cleared. Both revokes are best-effort so a dead network can never
+ * trap the user in a session.
+ */
+export async function logout(): Promise<void> {
+  // 1. Server-side revokes, while the tokens are still present.
+  //    - Synapse invalidates the Matrix access token (/logout)
+  //    - account-server deletes ALL refresh tokens + blacklists the JWT
+  await Promise.all([revokeMatrixSession(), revokeAccountSession()]);
+
+  // 2. Local clears (clearSession also stops the Matrix client).
   clearToken();
   clearSession();
   localStorage.removeItem('windy_display_name');
+  localStorage.removeItem('windy_chat_onboarded');
+  localStorage.removeItem(PUSH_ENABLED_FLAG);
+  localStorage.removeItem(HUB_FILTER_KEY);
+
+  // 3. Sweep matrix-js-sdk residue — e.g. mxjssdk_memory_filter_FILTER_SYNC_@…
+  //    embeds the previous user's Matrix ID. Iterate backwards: removal
+  //    reindexes localStorage.
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const key = localStorage.key(i);
+    if (key && (key.startsWith('mxjssdk_') || key.startsWith('mx_'))) {
+      localStorage.removeItem(key);
+    }
+  }
+
+  // 4. Drop the E2E crypto stores so keys don't persist across users.
+  deleteCryptoStores();
 }

@@ -190,7 +190,8 @@ export function connectionIsHealthy(conn: HubConnection): boolean {
 export type HubFilter = 'all' | 'windy' | Provenance;
 
 export const HUB_ACCOUNT_DATA_TYPE = 'com.windychat.hub';
-const FILTER_STORAGE_KEY = 'windy_hub_default_filter';
+// Exported so logout() can clear the previous user's view preference.
+export const FILTER_STORAGE_KEY = 'windy_hub_default_filter';
 
 export function getDefaultFilter(): HubFilter {
   try {

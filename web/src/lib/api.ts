@@ -55,6 +55,25 @@ export async function mintHandoff(): Promise<{ token: string; refreshToken?: str
   }
 }
 
+/**
+ * Server-side session revoke (account-server /auth/logout): deletes ALL of
+ * the user's refresh tokens and blacklists the current access token. Without
+ * this, "sign out" was client-only and the previous user's windy_refresh
+ * kept minting fresh JWTs. Best-effort — local logout proceeds regardless.
+ */
+export async function revokeAccountSession(): Promise<void> {
+  const jwt = getToken();
+  if (!jwt) return;
+  try {
+    await fetch(`${env.accountServerUrl}/api/v1/auth/logout`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+  } catch (err) {
+    console.warn('[api] account-server logout failed (continuing):', err);
+  }
+}
+
 /** Seconds until the stored access token expires (negative = already expired). */
 export function tokenSecondsLeft(): number | null {
   const jwt = getToken();

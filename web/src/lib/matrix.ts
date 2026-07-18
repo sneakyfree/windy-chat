@@ -74,9 +74,50 @@ export async function startSync() {
 
 export function stopSync() {
   if (client) {
-    try { client.setPresence({ presence: 'offline' }); } catch { /* ignore */ }
+    // setPresence returns a promise; after a server-side logout the token is
+    // already revoked, so swallow the rejection too (not just sync throws).
+    try { client.setPresence({ presence: 'offline' }).catch(() => {}); } catch { /* ignore */ }
     client.stopClient();
   }
+}
+
+/**
+ * Invalidate the Matrix access token server-side (POST /_matrix/client/v3/logout)
+ * so Synapse kills the session — previously "sign out" left the token valid.
+ * Prefers the live client (logout(true) stops sync first to avoid invalid-token
+ * errors); falls back to a raw fetch when only the stored token remains.
+ * Best-effort — local cleanup proceeds regardless.
+ */
+export async function revokeMatrixSession(): Promise<void> {
+  try {
+    if (client) {
+      await client.logout(true);
+      return;
+    }
+    const accessToken = localStorage.getItem('matrix_access_token');
+    if (accessToken) {
+      await fetch(`${env.matrixUrl}/_matrix/client/v3/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    }
+  } catch (err) {
+    console.warn('[matrix] server-side logout failed (continuing):', err);
+  }
+}
+
+/**
+ * Delete the rust-crypto IndexedDB stores so the previous user's E2E keys
+ * don't survive logout. The DB names are matrix-js-sdk's RUST_SDK_STORE_PREFIX
+ * ("matrix-js-sdk") + the rust-crypto suffixes — the exact pair
+ * MatrixClient.clearStores() deletes. Fire-and-forget.
+ */
+export function deleteCryptoStores(): void {
+  try {
+    for (const db of ['matrix-js-sdk::matrix-sdk-crypto', 'matrix-js-sdk::matrix-sdk-crypto-meta']) {
+      indexedDB.deleteDatabase(db);
+    }
+  } catch { /* best-effort */ }
 }
 
 export function isLoggedIn(): boolean {
