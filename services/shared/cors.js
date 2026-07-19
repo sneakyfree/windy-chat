@@ -39,6 +39,9 @@ const DEFAULT_ORIGINS = [
   'https://windyword.ai',
   'https://www.windyword.ai',
   'https://account.windyword.ai',
+  // app.windyword.ai is the hub SPA (CF Pages windypro-webapp); it XHRs the
+  // windy.panel.v1 control-panel API on chat.windychat.ai cross-origin.
+  'https://app.windyword.ai',
   'https://mail.windymail.ai',
   'https://windyclone.ai',
   'https://windyfly.ai',

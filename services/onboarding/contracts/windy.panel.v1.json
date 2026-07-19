@@ -1,0 +1,33 @@
+{
+  "contract": "windy.panel.v1",
+  "description": "Owner-facing control panel for the Type-B cloud agent: sliders + personality history. Normative human-readable source: DASHBOARD_API_CONTRACT.md (2026-07-18). Sibling in spirit to account-server's windy.fleet.v1.",
+  "base_url": "https://chat.windychat.ai/api/v1/agent/panel",
+  "auth": {
+    "scheme": "Bearer",
+    "token": "account-server RS256 JWT (JWKS at account.windyword.ai/.well-known/jwks.json)",
+    "ownership": "agent resolved by claims.windy_identity_id (fallback sub) == agent_credentials.owner_windy_id; no agent id in the URL",
+    "no_agent": { "status": 404, "body": { "error": "no_agent", "hint": "not_provisioned" } },
+    "rate_limit": "60/min per identity"
+  },
+  "capabilities": ["sliders", "personality.history", "identity"],
+  "sliders": {
+    "supported": ["personality", "humor", "warmth", "formality", "verbosity", "proactivity", "creativity", "response_length"],
+    "range": "integer 0-10",
+    "default": 5,
+    "storage": "only non-default values are stored; missing key = default midwife behavior",
+    "application": {
+      "creativity": "temperature = value / 10",
+      "response_length": "max_tokens = 250 + value * 375",
+      "others": "static tone-directive block appended to the midwife system prompt (thresholds >7 / <3, mirroring windy-agent personality/engine.py)"
+    }
+  },
+  "endpoints": [
+    { "method": "GET", "path": "/summary", "returns": "{contract, kind:'cloud', capabilities[], agent{agent_matrix_id, agent_name, passport_number, hatched_at, status:'alive'|'sleeping'|'unknown', last_event_at, replies_sent}, personality{sliders, preset}}" },
+    { "method": "GET", "path": "/sliders", "returns": "{sliders:{<name>:int}} — all supported sliders, defaults filled in" },
+    { "method": "GET", "path": "/sliders/info", "returns": "{sliders:{<name>:{label, description, impact_low, impact_high, value, cost_per_point}}}" },
+    { "method": "PUT", "path": "/sliders/:name", "body": "{value:int, updated_by?:'owner'|'preset:<name>'}", "returns": "{success:true}", "errors": "400 on unknown name or out-of-range (never 500)" },
+    { "method": "GET", "path": "/personality/history?limit=20", "returns": "{history:[{id, key, soul_id, old_value, new_value, changed_by, created_at}]}" },
+    { "method": "*", "path": "anything else from the gateway surface", "returns": "501 {error:'not_supported', capability}" }
+  ],
+  "conventions": "JSON, snake_case, errors {error:string} (+capability on 501, +hint where useful). Liveness is data (agent.status), never an error — sliders read/write even while the runner sleeps."
+}

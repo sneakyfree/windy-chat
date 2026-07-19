@@ -23,6 +23,7 @@
  */
 
 const { generateReply } = require('./llm');
+const { getSliders } = require('./settings');
 const { availableTools, executeTool } = require('./tools');
 const windySearch = require('./windy-search');
 const { consumeMessage, consumeMail, quotaMessage } = require('./quota');
@@ -342,7 +343,7 @@ class AgentRunner {
    * budget notice_to_user rides inside the tool content; the search
    * prompt section tells the model to relay it gently.
    */
-  async _synthesizeToolReply({ history, call, toolResult, canMail, canSearch, ept }) {
+  async _synthesizeToolReply({ history, call, toolResult, canMail, canSearch, ept, sliders }) {
     const followUp = [
       ...history,
       { role: 'assistant', content: null, tool_calls: [call] },
@@ -364,6 +365,7 @@ class AgentRunner {
         canMail,
         canSearch,
         ept,
+        sliders,
       });
       if (synth.content && synth.content.trim()) return synth.content;
     } catch (err) {
@@ -544,6 +546,10 @@ class AgentRunner {
         }
       }
 
+      // windy.panel.v1: the owner's slider settings, read fresh each message
+      // so a control-panel change applies to the very next reply.
+      const sliders = getSliders(this.matrixUserId);
+
       const llmStartedAt = Date.now();
       const result = await generateReply({
         history,
@@ -553,6 +559,7 @@ class AgentRunner {
         canMail,
         canSearch,
         ept: agentEpt,
+        sliders,
       });
       adminTelemetry.emit({
         service: 'agent-roster',
@@ -644,7 +651,7 @@ class AgentRunner {
           if (out.ok && name === 'web_search') {
             const answer = await this._synthesizeToolReply({
               history, call: { ...call, function: { name, arguments: call.function?.arguments } },
-              toolResult: out, canMail, canSearch, ept: agentEpt,
+              toolResult: out, canMail, canSearch, ept: agentEpt, sliders,
             });
             await this._sendMessage(roomId, answer);
           } else if (out.ok) {
