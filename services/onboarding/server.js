@@ -146,9 +146,13 @@ app.delete('/api/v1/onboarding/account', authMiddleware, async (req, res) => {
     const userId = req.user.sub;
     const windyId = req.user.windy_identity_id || userId;
 
-    // 1. Find the user's profile and onboarding state
+    // 1. Find the user's profile and onboarding state.
+    // onboarding_state is keyed by windy_user_id = the chat LOCALPART
+    // (chat_user_id), NOT the windy_identity_id. Keying by windyId here always
+    // returned undefined, so the Matrix account was never deactivated and the
+    // state row never deleted on account-delete (GDPR/data-retention leak).
     const profile = onboardingDb.getProfileByWindyId.get(windyId);
-    const state = onboardingDb.getOnboardingState.get(windyId);
+    const state = profile ? onboardingDb.getOnboardingState.get(profile.chat_user_id) : null;
 
     // 2. Deactivate Matrix account if provisioned
     let matrixDeactivated = false;
@@ -187,8 +191,8 @@ app.delete('/api/v1/onboarding/account', authMiddleware, async (req, res) => {
       onboardingDb.deleteProfile.run(profile.chat_user_id);
       onboardingDb.deleteDisplayNameByUserId.run(profile.chat_user_id);
     }
-    if (state) {
-      onboardingDb.deleteOnboardingState.run(windyId);
+    if (state && profile) {
+      onboardingDb.deleteOnboardingState.run(profile.chat_user_id);
     }
 
     // 4. Fire webhook to notify other services
