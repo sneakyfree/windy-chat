@@ -82,6 +82,22 @@ CREATE TABLE IF NOT EXISTS agent_credentials (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_credentials_owner ON agent_credentials(owner_windy_id);
 CREATE INDEX IF NOT EXISTS idx_agent_credentials_pending ON agent_credentials(owner_windy_id, welcomed_at);
+
+CREATE TABLE IF NOT EXISTS agent_settings (
+  agent_matrix_id TEXT PRIMARY KEY REFERENCES agent_credentials(agent_matrix_id),
+  sliders_json    TEXT NOT NULL DEFAULT '{}',
+  updated_at      TEXT NOT NULL,
+  updated_by      TEXT NOT NULL DEFAULT 'owner'
+);
+
+CREATE TABLE IF NOT EXISTS agent_settings_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_matrix_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  old_value TEXT, new_value TEXT,
+  changed_by TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_settings_history_agent ON agent_settings_history(agent_matrix_id, id);
 `);
 
 // Personal-profile fields added 2026-05-20 so users can edit their bio and
@@ -234,6 +250,28 @@ const deleteAgentCredentialsByPassport = db.prepare(
   'DELETE FROM agent_credentials WHERE passport_number = ?'
 );
 
+// windy.panel.v1 — owner-editable agent settings (sliders). Written ONLY by
+// routes/panel.js; agent-roster reads the table via its read-only handle at
+// prompt-assembly. One agent per identity today, so the newest hatch wins
+// when looking up by owner (multi-agent goes to /agents/:id in v2).
+const getAgentByOwnerWindyId = db.prepare(
+  'SELECT * FROM agent_credentials WHERE owner_windy_id = ? ORDER BY hatched_at DESC LIMIT 1'
+);
+const getAgentSettings = db.prepare(
+  'SELECT * FROM agent_settings WHERE agent_matrix_id = ?'
+);
+const upsertAgentSettings = db.prepare(`
+  INSERT OR REPLACE INTO agent_settings (agent_matrix_id, sliders_json, updated_at, updated_by)
+  VALUES (@agent_matrix_id, @sliders_json, @updated_at, @updated_by)
+`);
+const insertAgentSettingsHistory = db.prepare(`
+  INSERT INTO agent_settings_history (agent_matrix_id, key, old_value, new_value, changed_by, created_at)
+  VALUES (@agent_matrix_id, @key, @old_value, @new_value, @changed_by, @created_at)
+`);
+const getAgentSettingsHistory = db.prepare(
+  'SELECT * FROM agent_settings_history WHERE agent_matrix_id = ? ORDER BY id DESC LIMIT ?'
+);
+
 module.exports = {
   db,
   getDisplayName,
@@ -262,4 +300,9 @@ module.exports = {
   getPendingAgentsForOwner,
   markAgentWelcomed,
   deleteAgentCredentialsByPassport,
+  getAgentByOwnerWindyId,
+  getAgentSettings,
+  upsertAgentSettings,
+  insertAgentSettingsHistory,
+  getAgentSettingsHistory,
 };

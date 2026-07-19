@@ -21,6 +21,7 @@ const agentProvisionRoutes = require('./routes/agent-provision');
 const roomsRoutes = require('./routes/rooms');
 const webhookRoutes = require('./routes/webhooks');
 const opsRoutes = require('./routes/ops');
+const panelRoutes = require('./routes/panel');
 const { createCorsMiddleware } = require('../shared/cors');
 const { createHealthHandler } = require('../shared/health');
 const { createVersionHandler } = require('../shared/version');
@@ -110,6 +111,11 @@ app.use('/api/v1/onboarding', authMiddleware, provisionRoutes);
 
 // ── Room management (group creation, invites) ──
 app.use('/api/v1/rooms', authMiddleware, roomsRoutes);
+
+// ── windy.panel.v1 — the owner's agent control panel (hub + mobile) ──
+// Sliders + personality history for the Type-B cloud agent. Auth is the
+// account-server JWT; the route resolves the agent by the identity claim.
+app.use('/api/v1/agent/panel', authMiddleware, panelRoutes);
 
 // ── Agent room lookup shortcut (also available via /api/v1/chat/provision/agent-room) ──
 const onboardingDb = require('./lib/db');

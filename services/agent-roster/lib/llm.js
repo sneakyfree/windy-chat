@@ -15,12 +15,19 @@
 
 const DEFAULT_SYSTEM_PROMPT = `You are a personal AI agent for a Windy ecosystem user. You're chatting with them in their private Matrix room. They're not technical — they're a grandma, a busy professional, anyone — so reply in plain English without jargon. Keep replies short (1-3 sentences) unless they explicitly ask for more detail. Be warm and helpful. If they ask you to do something you can't yet (send mail, schedule, search), say "I'm still learning that — for now I can chat and help you think things through" rather than apologizing repeatedly.`;
 
-async function callAnthropic(messages, systemPrompt) {
+async function callAnthropic(messages, systemPrompt, gen = {}) {
   // sk-ant-api03 keys only — never sk-ant-oat01 OAuth tokens. OAuth at
   // multi-user scale is a Claude Code ToS violation per the lockbox memo.
   // Per-user BYOM keys land here when wired (Day 5+).
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey || !apiKey.startsWith('sk-ant-api')) return null;
+  const body = {
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: gen.maxTokens || 512,
+    system: systemPrompt,
+    messages,
+  };
+  if (gen.temperature !== undefined) body.temperature = gen.temperature;
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -28,12 +35,7 @@ async function callAnthropic(messages, systemPrompt) {
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
     },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 512,
-      system: systemPrompt,
-      messages,
-    }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(20000),
   });
   if (!res.ok) {
@@ -123,17 +125,18 @@ function salvageLeakedToolCalls(msg) {
   return { ...msg, content: SCRUBBED_FALLBACK };
 }
 
-async function callMind(messages, systemPrompt, tools, toolChoice, ept) {
+async function callMind(messages, systemPrompt, tools, toolChoice, ept, gen = {}) {
   if (!ept || process.env.ROSTER_MIND_DISABLE === '1') return null;
   const base = (process.env.MIND_API_URL || 'https://api.windymind.ai').replace(/\/$/, '');
   const body = {
     surface: MIND_SURFACE,
-    max_tokens: 512,
+    max_tokens: gen.maxTokens || 512,
     messages: [
       { role: 'system', content: systemPrompt },
       ...messages,
     ],
   };
+  if (gen.temperature !== undefined) body.temperature = gen.temperature;
   if (tools && tools.length) {
     body.tools = tools;
     body.tool_choice = toolChoice || 'auto';
@@ -171,17 +174,18 @@ const GROQ_MODEL = 'llama-3.3-70b-versatile';
 // untouched quota. Weaker answers beat a dead chat for the rest of the day.
 const GROQ_FALLBACK_MODEL = 'llama-3.1-8b-instant';
 
-async function callGroq(messages, systemPrompt, tools, toolChoice, model) {
+async function callGroq(messages, systemPrompt, tools, toolChoice, model, gen = {}) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return null;
   const body = {
     model: model || GROQ_MODEL,
-    max_tokens: 512,
+    max_tokens: gen.maxTokens || 512,
     messages: [
       { role: 'system', content: systemPrompt },
       ...messages,
     ],
   };
+  if (gen.temperature !== undefined) body.temperature = gen.temperature;
   if (tools && tools.length) {
     body.tools = tools;
     // 'none' is used on the post-tool synthesis pass: the tool schema
@@ -218,7 +222,81 @@ async function callGroq(messages, systemPrompt, tools, toolChoice, model) {
   return salvageLeakedToolCalls(msg);
 }
 
-function buildSystemPrompt({ agentName, ownerDisplayName, hasTools, canMail, canSearch }) {
+/**
+ * windy.panel.v1 tone directives — the owner's slider settings applied as a
+ * DUMB lookup table (keep-hands-dumb: no engine, no second personality
+ * system). Thresholds + wording mirror windy-agent personality/engine.py
+ * for the supported names; sliders at their default (5, or simply absent)
+ * inject nothing, so an untouched panel = today's exact midwife voice.
+ * creativity/response_length are params, not prose — see sliderGenParams.
+ */
+function buildToneDirectives(sliders = {}) {
+  const s = (name) => (Number.isInteger(sliders[name]) ? sliders[name] : 5);
+  const directives = [];
+
+  const personality = s('personality');
+  if (personality > 7) {
+    directives.push('Let your warmth and character show — be human-like, full of personality.');
+  } else if (personality < 3) {
+    directives.push('Keep responses plain and businesslike. Minimal flair or character.');
+  }
+
+  const humor = s('humor');
+  if (humor > 7) {
+    directives.push("Be witty and crack jokes when appropriate. Riff on the user's humor style. Keep it fun — you're part comedian.");
+  } else if (humor < 3) {
+    directives.push('No jokes or wordplay — keep it straight and to the point.');
+  }
+
+  const warmth = s('warmth');
+  if (warmth > 7) {
+    directives.push('Be warm, caring, and empathetic — like a close friend.');
+  } else if (warmth < 3) {
+    directives.push('Stay clinical and detached. Facts only.');
+  }
+
+  const formality = s('formality');
+  if (formality > 7) {
+    directives.push('Be formal and professional in your communication.');
+  } else if (formality < 3) {
+    directives.push('Be very casual and relaxed in your communication.');
+  }
+
+  const verbosity = s('verbosity');
+  if (verbosity > 7) {
+    directives.push('Provide detailed, thorough responses.');
+  } else if (verbosity < 3) {
+    directives.push('Keep responses very brief and to the point.');
+  }
+
+  const proactivity = s('proactivity');
+  if (proactivity > 7) {
+    directives.push('Actively suggest ideas and anticipate needs.');
+  } else if (proactivity < 3) {
+    directives.push('Only respond to what is directly asked.');
+  }
+
+  if (!directives.length) return '';
+  return `\n\n## Tone (set by your owner's control panel)\n${directives.map((d) => `- ${d}`).join('\n')}`;
+}
+
+/**
+ * Map the two parameter sliders to generation params. Absent keys change
+ * nothing (512-token cap, provider-default temperature — today's behavior).
+ */
+function sliderGenParams(sliders = {}) {
+  const gen = {};
+  if (Number.isInteger(sliders.creativity)) {
+    gen.temperature = sliders.creativity / 10;
+  }
+  if (Number.isInteger(sliders.response_length)) {
+    // Same curve as the gateway: 0 → 250 tokens, 10 → 4000.
+    gen.maxTokens = 250 + sliders.response_length * 375;
+  }
+  return gen;
+}
+
+function buildSystemPrompt({ agentName, ownerDisplayName, hasTools, canMail, canSearch, sliders }) {
   // Back-compat: callers that only know the old boolean get the mail
   // guidance (the Day-5 behavior, where hasTools ⇔ mail was configured).
   if (canMail === undefined && canSearch === undefined) {
@@ -255,6 +333,7 @@ came from in passing (e.g. "according to the BBC") when it helps.
 If a search result includes a note addressed to you about the user's
 web-access allowance, gently pass that along in your own words.`;
   }
+  out += buildToneDirectives(sliders);
   return out;
 }
 
@@ -270,14 +349,16 @@ web-access allowance, gently pass that along in your own words.`;
  * Returns the full LLM message: { role:'assistant', content, tool_calls? }.
  * The runner inspects tool_calls to decide whether to execute side-effects.
  */
-async function generateReply({ history, agentName, ownerDisplayName, tools, toolChoice, canMail, canSearch, ept }) {
+async function generateReply({ history, agentName, ownerDisplayName, tools, toolChoice, canMail, canSearch, ept, sliders }) {
   const systemPrompt = buildSystemPrompt({
     agentName,
     ownerDisplayName,
     hasTools: !!(tools && tools.length),
     canMail,
     canSearch,
+    sliders,
   });
+  const gen = sliderGenParams(sliders);
 
   // Trim to last 10 turns for token budget.
   const trimmed = history.slice(-10);
@@ -286,7 +367,7 @@ async function generateReply({ history, agentName, ownerDisplayName, tools, tool
   // midwife's model. Any failure falls through to the direct chain
   // below unchanged; availability first.
   try {
-    const msg = await callMind(trimmed, systemPrompt, tools, toolChoice, ept);
+    const msg = await callMind(trimmed, systemPrompt, tools, toolChoice, ept, gen);
     if (msg) {
       return { ...msg, provider: 'mind' };
     }
@@ -299,7 +380,7 @@ async function generateReply({ history, agentName, ownerDisplayName, tools, tool
   // tool-calling lands when sk-ant-api03 keys land.)
   if (!tools || !tools.length) {
     try {
-      const reply = await callAnthropic(trimmed, systemPrompt);
+      const reply = await callAnthropic(trimmed, systemPrompt, gen);
       if (reply) {
         return {
           role: 'assistant',
@@ -316,7 +397,7 @@ async function generateReply({ history, agentName, ownerDisplayName, tools, tool
 
   // Groq with optional tools
   try {
-    const msg = await callGroq(trimmed, systemPrompt, tools, toolChoice);
+    const msg = await callGroq(trimmed, systemPrompt, tools, toolChoice, undefined, gen);
     if (msg) {
       return { ...msg, provider: 'groq' };
     }
@@ -329,13 +410,13 @@ async function generateReply({ history, agentName, ownerDisplayName, tools, tool
     // answer text-only. A knowledge-only answer beats a dead chat.
     if (tools && tools.length && msg.includes('tool_use_failed')) {
       try {
-        const retry = await callGroq(trimmed, systemPrompt, tools, toolChoice);
+        const retry = await callGroq(trimmed, systemPrompt, tools, toolChoice, undefined, gen);
         if (retry) return { ...retry, provider: 'groq' };
       } catch (err2) {
         console.warn(`[llm] groq tool retry failed: ${err2.message}`);
       }
       try {
-        const textOnly = await callGroq(trimmed, systemPrompt, null);
+        const textOnly = await callGroq(trimmed, systemPrompt, null, undefined, undefined, gen);
         if (textOnly) return { ...textOnly, provider: 'groq-notools' };
       } catch (err3) {
         console.warn(`[llm] groq no-tools fallback failed: ${err3.message}`);
@@ -345,12 +426,12 @@ async function generateReply({ history, agentName, ownerDisplayName, tools, tool
     // quota — availability first.
     if (msg.includes('groq 429')) {
       try {
-        const alt = await callGroq(trimmed, systemPrompt, tools, toolChoice, GROQ_FALLBACK_MODEL);
+        const alt = await callGroq(trimmed, systemPrompt, tools, toolChoice, GROQ_FALLBACK_MODEL, gen);
         if (alt) return { ...alt, provider: `groq:${GROQ_FALLBACK_MODEL}` };
       } catch (err4) {
         console.warn(`[llm] groq fallback model failed: ${err4.message}`);
         try {
-          const altPlain = await callGroq(trimmed, systemPrompt, null, undefined, GROQ_FALLBACK_MODEL);
+          const altPlain = await callGroq(trimmed, systemPrompt, null, undefined, GROQ_FALLBACK_MODEL, gen);
           if (altPlain) return { ...altPlain, provider: `groq:${GROQ_FALLBACK_MODEL}-notools` };
         } catch (err5) {
           console.warn(`[llm] groq fallback no-tools failed: ${err5.message}`);
@@ -372,4 +453,10 @@ async function generateReply({ history, agentName, ownerDisplayName, tools, tool
   };
 }
 
-module.exports = { generateReply, DEFAULT_SYSTEM_PROMPT, salvageLeakedToolCalls };
+module.exports = {
+  generateReply,
+  DEFAULT_SYSTEM_PROMPT,
+  salvageLeakedToolCalls,
+  buildToneDirectives,
+  sliderGenParams,
+};

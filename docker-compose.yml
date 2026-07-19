@@ -173,7 +173,7 @@ services:
         BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
     container_name: windy-onboarding
     ports:
-      - "8101:8101"
+      - "127.0.0.1:8101:8101"
     volumes:
       - onboarding_data:/app/service/data
     environment:
@@ -191,6 +191,9 @@ services:
       # Onboarding has its own emitter token, distinct from the roster's.
       WINDY_ADMIN_INGEST_URL: ${WINDY_ADMIN_INGEST_URL:-}
       WINDY_ADMIN_INGEST_TOKEN: ${WINDY_ADMIN_INGEST_TOKEN_ONBOARDING:-}
+      # windy.panel.v1: /summary asks agent-roster for runner liveness (S2S,
+      # same compose network, 800ms budget — failure just reads "unknown").
+      AGENT_ROSTER_URL: http://agent-roster:8106
     depends_on:
       synapse:
         condition: service_healthy
@@ -223,7 +226,7 @@ services:
         BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
     container_name: windy-directory
     ports:
-      - "8102:8102"
+      - "127.0.0.1:8102:8102"
     volumes:
       - directory_data:/app/service/data
     environment:
@@ -267,7 +270,7 @@ services:
         BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
     container_name: windy-push-gateway
     ports:
-      - "8103:8103"
+      - "127.0.0.1:8103:8103"
     volumes:
       - push_gateway_data:/app/service/data
     environment:
@@ -328,7 +331,7 @@ services:
         BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
     container_name: windy-backup
     ports:
-      - "8104:8104"
+      - "127.0.0.1:8104:8104"
     volumes:
       - backup_data:/app/service/data
     environment:
@@ -380,7 +383,7 @@ services:
         BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
     container_name: windy-social
     ports:
-      - "8105:8105"
+      - "127.0.0.1:8105:8105"
     volumes:
       - social_data:/app/service/data
     environment:
@@ -423,7 +426,7 @@ services:
       dockerfile: translation/Dockerfile
     container_name: windy-translation
     ports:
-      - "8106:8106"
+      - "127.0.0.1:8106:8106"
     volumes:
       - translation_data:/app/service/data
     environment:
@@ -469,7 +472,7 @@ services:
         BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
     container_name: windy-agent-roster
     ports:
-      - "8106:8106"
+      - "127.0.0.1:8106:8106"
     volumes:
       # Mount onboarding_data read-only so the roster can see
       # agent_credentials without risking schema writes from outside the
@@ -564,7 +567,7 @@ services:
         BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
     container_name: windy-hub
     ports:
-      - "8109:8109"
+      - "127.0.0.1:8109:8109"
     volumes:
       - hub_data:/app/service/data
       # Read-only onboarding DB for windy_identity_id → MXID resolution
@@ -717,7 +720,7 @@ services:
         BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
     container_name: windy-media
     ports:
-      - "8107:8107"
+      - "127.0.0.1:8107:8107"
     volumes:
       - media_data:/app/service/data
     environment:
@@ -757,7 +760,7 @@ services:
         BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
     container_name: windy-call-history
     ports:
-      - "8108:8108"
+      - "127.0.0.1:8108:8108"
     volumes:
       - call_history_data:/app/service/data
     environment:
