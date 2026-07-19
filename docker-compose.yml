@@ -174,6 +174,8 @@ services:
     container_name: windy-onboarding
     ports:
       - "127.0.0.1:8101:8101"
+      # host.docker.internal path for cross-stack S2S (account-server et al)
+      - "172.17.0.1:8101:8101"
     volumes:
       - onboarding_data:/app/service/data
     environment:
@@ -227,6 +229,8 @@ services:
     container_name: windy-directory
     ports:
       - "127.0.0.1:8102:8102"
+      # host.docker.internal path for cross-stack S2S (account-server et al)
+      - "172.17.0.1:8102:8102"
     volumes:
       - directory_data:/app/service/data
     environment:
@@ -271,6 +275,8 @@ services:
     container_name: windy-push-gateway
     ports:
       - "127.0.0.1:8103:8103"
+      # host.docker.internal path for cross-stack S2S (account-server et al)
+      - "172.17.0.1:8103:8103"
     volumes:
       - push_gateway_data:/app/service/data
     environment:
@@ -332,6 +338,8 @@ services:
     container_name: windy-backup
     ports:
       - "127.0.0.1:8104:8104"
+      # host.docker.internal path for cross-stack S2S (account-server et al)
+      - "172.17.0.1:8104:8104"
     volumes:
       - backup_data:/app/service/data
     environment:
@@ -384,6 +392,8 @@ services:
     container_name: windy-social
     ports:
       - "127.0.0.1:8105:8105"
+      # host.docker.internal path for cross-stack S2S (account-server et al)
+      - "172.17.0.1:8105:8105"
     volumes:
       - social_data:/app/service/data
     environment:
@@ -427,6 +437,8 @@ services:
     container_name: windy-translation
     ports:
       - "127.0.0.1:8106:8106"
+      # host.docker.internal path for cross-stack S2S (account-server et al)
+      - "172.17.0.1:8106:8106"
     volumes:
       - translation_data:/app/service/data
     environment:
@@ -473,6 +485,8 @@ services:
     container_name: windy-agent-roster
     ports:
       - "127.0.0.1:8106:8106"
+      # host.docker.internal path for cross-stack S2S (account-server et al)
+      - "172.17.0.1:8106:8106"
     volumes:
       # Mount onboarding_data read-only so the roster can see
       # agent_credentials without risking schema writes from outside the
@@ -568,6 +582,8 @@ services:
     container_name: windy-hub
     ports:
       - "127.0.0.1:8109:8109"
+      # host.docker.internal path for cross-stack S2S (account-server et al)
+      - "172.17.0.1:8109:8109"
     volumes:
       - hub_data:/app/service/data
       # Read-only onboarding DB for windy_identity_id → MXID resolution
@@ -721,6 +737,8 @@ services:
     container_name: windy-media
     ports:
       - "127.0.0.1:8107:8107"
+      # host.docker.internal path for cross-stack S2S (account-server et al)
+      - "172.17.0.1:8107:8107"
     volumes:
       - media_data:/app/service/data
     environment:
@@ -761,6 +779,8 @@ services:
     container_name: windy-call-history
     ports:
       - "127.0.0.1:8108:8108"
+      # host.docker.internal path for cross-stack S2S (account-server et al)
+      - "172.17.0.1:8108:8108"
     volumes:
       - call_history_data:/app/service/data
     environment:
