@@ -93,7 +93,7 @@ services:
     image: matrixdotorg/synapse:latest
     container_name: windy-synapse
     ports:
-      - "8008:8008"
+      - "127.0.0.1:8008:8008"
     environment:
       - SYNAPSE_CONFIG_PATH=/data/homeserver.yaml
       - SYNAPSE_DB_PASSWORD=${SYNAPSE_DB_PASSWORD:-windy_dev_pg}
