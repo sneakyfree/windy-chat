@@ -34,7 +34,7 @@ const {
 
 const router = express.Router();
 
-const AGENT_ROSTER_URL = (process.env.AGENT_ROSTER_URL || 'http://agent-roster:8106').replace(/\/$/, '');
+const AGENT_ROSTER_URL = (process.env.AGENT_ROSTER_URL || 'http://agent-roster:8110').replace(/\/$/, '');
 
 const CAPABILITIES = ['sliders', 'personality.history', 'identity'];
 

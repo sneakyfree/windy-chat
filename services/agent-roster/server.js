@@ -25,7 +25,7 @@ const path = require('path');
 const { AgentRunner } = require('./lib/agent-runner');
 const { snapshot: quotaSnapshot } = require('./lib/quota');
 
-const PORT = parseInt(process.env.PORT || '8106', 10);
+const PORT = parseInt(process.env.PORT || '8110', 10);
 const ONBOARDING_DB_PATH = process.env.ONBOARDING_DB_PATH
   || '/onboarding-data/onboarding.db';
 const HOMESERVER = process.env.SYNAPSE_HOMESERVER || 'http://synapse:8008';
