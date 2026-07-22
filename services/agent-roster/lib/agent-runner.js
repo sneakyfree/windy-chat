@@ -39,6 +39,11 @@ const VERIFIED_QUOTA_MULTIPLIER = Math.max(
 
 const INITIAL_SYNC_AGE_SECS = 30;
 const SYNC_TIMEOUT_MS = 30000;
+// Client-side socket ceiling for quick Matrix calls (send/typing/history/join).
+// The /sync long-poll passes its own longer timeout (SYNC_TIMEOUT_MS + buffer).
+// Without this, a half-open socket hangs _request forever and the agent goes
+// silent to its owner until the process restarts.
+const REQUEST_TIMEOUT_MS = 15000;
 const BACKOFF_MAX_MS = 60000;
 // [I1 Phase 1b] How long a held "reply send to confirm" draft stays valid.
 const PENDING_SEND_TTL_MS = 15 * 60 * 1000;
@@ -262,13 +267,17 @@ class AgentRunner {
 
   async _request(path, options = {}) {
     const url = `${this.homeserver}${path}`;
+    const { timeoutMs = REQUEST_TIMEOUT_MS, signal, ...fetchOptions } = options;
     const res = await fetch(url, {
-      ...options,
+      ...fetchOptions,
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${this.accessToken}`,
-        ...(options.headers || {}),
+        ...(fetchOptions.headers || {}),
       },
+      // Bound every Matrix call so a half-open socket can't hang the runner.
+      // Callers may pass an explicit signal (honored) or timeoutMs override.
+      signal: signal ?? AbortSignal.timeout(timeoutMs),
     });
     return res;
   }
@@ -711,7 +720,13 @@ class AgentRunner {
     if (!this.since) {
       params.set('filter', JSON.stringify({ room: { timeline: { limit: 1 } } }));
     }
-    const res = await this._request(`/_matrix/client/v3/sync?${params.toString()}`, { method: 'GET' });
+    // /sync is a long-poll held server-side for SYNC_TIMEOUT_MS; give the
+    // socket a ceiling above that (+10s) so a genuinely dead connection still
+    // aborts and _loop retries with backoff, rather than hanging forever.
+    const res = await this._request(`/_matrix/client/v3/sync?${params.toString()}`, {
+      method: 'GET',
+      timeoutMs: SYNC_TIMEOUT_MS + 10000,
+    });
     if (!res.ok) {
       throw new Error(`sync ${res.status}`);
     }
