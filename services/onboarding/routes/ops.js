@@ -149,7 +149,7 @@ function resolveFleet() {
     backup: 'http://backup:8104',
     social: 'http://social:8105',
     translation: 'http://translation:8106',
-    'agent-roster': 'http://agent-roster:8106',
+    'agent-roster': 'http://agent-roster:8110',
     media: 'http://media:8107',
     'call-history': 'http://call-history:8108',
     hub: 'http://hub:8109',

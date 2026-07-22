@@ -5,8 +5,8 @@
  * connect/disconnect their Telegram/Slack/WhatsApp/Discord accounts, and
  * owns the connected_platforms store.
  *
- * Port: 8109 (8106 is double-booked by translation/agent-roster; 8107-8108
- * are media/call-history).
+ * Port: 8109 (8106 is translation; agent-roster moved to 8110 to resolve a
+ * former double-book; 8107-8108 are media/call-history).
  */
 
 const express = require('express');
