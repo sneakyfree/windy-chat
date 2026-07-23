@@ -1,3 +1,10 @@
+# Explicit project name per ADR-046 (compose project naming discipline).
+# Matches the base file's `name: windychat-dev` — this override is only
+# ever layered on the base (auto-merged by `docker compose up`), so the
+# merged project name is unchanged, including on the Kit 0 VPS which
+# runs base+override.
+name: windychat-dev
+
 services:
   synapse:
     environment:

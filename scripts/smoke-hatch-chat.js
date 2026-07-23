@@ -13,7 +13,7 @@
  *   QA_EMAIL=... QA_PASSWORD=... node scripts/smoke-hatch-chat.js
  *
  * Optional env:
- *   ACCOUNT_BASE  (default https://app.windyword.ai/api/v1)
+ *   ACCOUNT_BASE  (default https://account.windyword.ai/api/v1)
  *   CHAT_BASE     (default https://chat.windychat.ai)
  *   MIND_BASE     (default https://api.windymind.ai)
  *   QA_ROOM       fallback DM room if the hatch replay omits it
@@ -25,7 +25,7 @@
  */
 'use strict';
 
-const ACCOUNT_BASE = process.env.ACCOUNT_BASE || 'https://app.windyword.ai/api/v1';
+const ACCOUNT_BASE = process.env.ACCOUNT_BASE || 'https://account.windyword.ai/api/v1';
 const CHAT_BASE = process.env.CHAT_BASE || 'https://chat.windychat.ai';
 const MIND_BASE = process.env.MIND_BASE || 'https://api.windymind.ai';
 const REPLY_TIMEOUT_S = parseInt(process.env.REPLY_TIMEOUT_S || '90', 10);

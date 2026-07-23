@@ -171,13 +171,13 @@ export default function LoginPage({ onLogin, mode, onToggleMode, onBack, initial
                 <div className="mt-2" style={{ color: 'var(--text-secondary)' }}>
                   Check your inbox for the verification email. Need a new one?{' '}
                   <a
-                    href="https://app.windyword.ai"
+                    href="https://account.windyword.ai"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="underline"
                     style={{ color: 'var(--accent)' }}
                   >
-                    Verify at app.windyword.ai
+                    Verify at account.windyword.ai
                   </a>
                   {' '}— sign in there and it walks you through it.
                 </div>

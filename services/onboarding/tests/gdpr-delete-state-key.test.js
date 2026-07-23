@@ -50,7 +50,7 @@ describe('GDPR delete removes onboarding_state by the correct (localpart) key', 
       verified: 1,
       profile_setup: 1,
       matrix_provisioned: 1,
-      matrix_user_id: `@${localpart}:chat.windypro.com`,
+      matrix_user_id: `@${localpart}:chat.windychat.ai`,
       provisioned_at: now,
       passport_id: null,
     });
