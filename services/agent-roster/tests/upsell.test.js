@@ -65,7 +65,7 @@ test('unverified + upsell flag ON → offers BOTH compute-link and the $1 upgrad
   });
   assert.ok(msg.includes('link it to me'), 'compute-link option present');
   assert.ok(msg.includes('one dollar'), '$1 option present');
-  assert.ok(msg.includes('https://app.windyword.ai/upgrade?passport=ET26-TEST-0003'));
+  assert.ok(msg.includes('https://account.windyword.ai/upgrade?passport=ET26-TEST-0003'));
   assert.ok(!msg.toLowerCase().includes('trial'), 'ADR-052: never "trial"');
   assert.ok(!msg.toLowerCase().includes('limited'), 'ADR-052: never "limited"');
 });

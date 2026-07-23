@@ -358,18 +358,28 @@ describe('4. DM Room Creation', () => {
     assert.match(r.body.room_id, /^!.*:chat\.windychat\.ai$/);
   });
 
-  it('4.2 agent-room lookup returns the created room', async () => {
+  it('4.2 agent-room lookup is owner/service-gated ([C2]): random user 403, service 200', async () => {
     // agent_user_id in the agent_rooms table is the mail-aligned chat_user_id
     // (i.e. 'room.agent' for display_name 'Room Agent'), NOT a windy_-prefixed
     // form. owner_user_id is the JWT `sub` of the owner (room-owner). See
     // services/onboarding/routes/provision.js around line 920.
+    //
+    // [C2] hardening: the agent↔owner room mapping used to be readable by
+    // ANY authenticated user for any (agentId, ownerId); now only the owner
+    // (windy_identity_id === ownerId) or a trusted service may read it.
     const token = makeHS256Token({ sub: 'lookup-user' });
     const r = await request('GET', onboardingUrl,
       '/api/v1/onboarding/agent-room?agentId=room.agent&ownerId=room-owner',
       null, auth(token));
-    assert.equal(r.status, 200);
-    assert.ok(r.body.room_id);
-    assert.equal(r.body.agent_name, 'Room Agent');
+    assert.equal(r.status, 403);
+
+    // A trusted service (static CHAT_API_TOKEN → role: 'service') still gets the room.
+    const r2 = await request('GET', onboardingUrl,
+      '/api/v1/onboarding/agent-room?agentId=room.agent&ownerId=room-owner',
+      null, auth(API_TOKEN));
+    assert.equal(r2.status, 200);
+    assert.ok(r2.body.room_id);
+    assert.equal(r2.body.agent_name, 'Room Agent');
   });
 
   it('4.3 agent without owner claims gets room_id = null', async () => {

@@ -70,7 +70,7 @@ function exhaustionMessage({ passport, clearance, resetInHours }) {
     '• If you have your own AI account (OpenAI, Anthropic, Google…), you can link it to me in the Windy app — that stays free, always.',
   ];
   if (upsellEnabled() && clearance === 'registered' && passport) {
-    const upgradeUrl = process.env.UPGRADE_URL || 'https://app.windyword.ai/upgrade';
+    const upgradeUrl = process.env.UPGRADE_URL || 'https://account.windyword.ai/upgrade';
     lines.push(
       `• Or, for one dollar, one time, I get my verified Eternitas passport — full access to the whole Windy ecosystem and a bigger daily allowance: ${upgradeUrl}?passport=${encodeURIComponent(passport)}`,
     );

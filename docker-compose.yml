@@ -531,7 +531,7 @@ services:
       # integrity attribution).
       WINDY_SEARCH_BASE_URL: ${WINDY_SEARCH_BASE_URL:-https://api.windysearch.com}
       ETERNITAS_PLATFORM_API_KEY: ${ETERNITAS_PLATFORM_API_KEY:-}
-      UPGRADE_URL: ${UPGRADE_URL:-https://app.windyword.ai/upgrade}
+      UPGRADE_URL: ${UPGRADE_URL:-https://account.windyword.ai/upgrade}
       VERIFIED_HATCH_UPSELL: ${VERIFIED_HATCH_UPSELL:-}
       QUOTA_VERIFIED_MULTIPLIER: ${QUOTA_VERIFIED_MULTIPLIER:-2}
       # ADR-WA-001 — Windy Admin telemetry ledger (llm.call /

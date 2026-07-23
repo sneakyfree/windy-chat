@@ -52,7 +52,7 @@ concurrency:
 
 jobs:
   preflight:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # runner-lint-allow — CD/hosted-only; disabled, manual until CD mission
     outputs:
       configured: ${{ steps.check.outputs.configured }}
     steps:
@@ -72,7 +72,7 @@ jobs:
           fi
 
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # runner-lint-allow — CD/hosted-only; disabled, manual until CD mission
     needs: preflight
     if: needs.preflight.outputs.configured == 'true'
     steps:

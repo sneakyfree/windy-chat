@@ -16,13 +16,15 @@ env:
 jobs:
   test-unit:
     name: Unit Tests (${{ matrix.service }})
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     strategy:
       fail-fast: false
       matrix:
         service: [onboarding, directory, push-gateway, backup, social, media, call-history, translation]
     steps:
       - uses: actions/checkout@v4
+      - name: runner-lint (hosted runners are billing-locked)
+        run: bash "$GITHUB_WORKSPACE/.github/lint/lint-runner-labels.sh" "$GITHUB_WORKSPACE/.github/workflows"
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -35,7 +37,7 @@ jobs:
 
   test-unit-new:
     name: Unit Tests (${{ matrix.test }})
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     strategy:
       fail-fast: false
       matrix:
@@ -74,7 +76,7 @@ jobs:
 
   test-integration:
     name: Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -97,7 +99,7 @@ jobs:
 
   test-hardening:
     name: Hardening Tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -118,7 +120,7 @@ jobs:
 
   lint:
     name: Lint + Syntax Check
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -132,7 +134,7 @@ jobs:
 
   build-web:
     name: Build Web App
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -151,7 +153,7 @@ jobs:
 
   docker-build:
     name: Docker Build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     needs: [lint, build-web]
     steps:
       - uses: actions/checkout@v4
