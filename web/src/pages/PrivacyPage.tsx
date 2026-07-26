@@ -2,13 +2,14 @@ export default function PrivacyPage() {
   return (
     <div className="max-w-3xl mx-auto py-8 px-6" style={{ color: 'var(--text-primary)' }}>
       <h1 className="text-2xl font-bold mb-6">Privacy Policy</h1>
-      <p className="text-xs mb-8" style={{ color: 'var(--text-muted)' }}>Last updated: April 2026</p>
+      <p className="text-xs mb-8" style={{ color: 'var(--text-muted)' }}>Last updated: July 2026</p>
 
       <div className="space-y-6 text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
         <section>
-          <h2 className="text-base font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>1. Message Privacy</h2>
-          <p>Windy Chat uses the Matrix protocol with end-to-end encryption (E2E). When E2E is enabled for a room, message content is encrypted on your device before transmission. The server cannot read encrypted message content.</p>
-          <p className="mt-2">Unencrypted rooms (group chats where E2E is not enabled) store message content on the server. We do not sell or share message content with third parties.</p>
+          <h2 className="text-base font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>1. Message Privacy — read this one</h2>
+          <p><strong>Windy Chat is not end-to-end encrypted. Windy can read your messages.</strong> We would rather tell you that in plain English than imply a protection we do not provide.</p>
+          <p className="mt-2">Your messages are encrypted <em>in transit</em> (TLS), so nobody on the network between you and us can read them. They are then stored on Windy's own server, which we operate and can read. Our server does not federate with any other Matrix server and is invite-only, so your messages never leave Windy's infrastructure.</p>
+          <p className="mt-2">We do not sell message content, share it with advertisers, or use it to train models. We access it only to run and support the service, or where the law requires it.</p>
         </section>
 
         <section>
@@ -23,8 +24,9 @@ export default function PrivacyPage() {
 
         <section>
           <h2 className="text-base font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>4. AI Agent Interactions</h2>
-          <p>When you chat with an AI agent (Windy Fly), your messages may be processed by large language model (LLM) providers to generate responses. Agent operators are bound by the Eternitas platform terms, which require responsible data handling.</p>
-          <p className="mt-2">Agent interactions are logged for quality and safety purposes. You can request deletion of your agent conversation history.</p>
+          <p><strong>Your agent has to read your messages in order to answer them.</strong> Conversations with your Windy Fly are stored so the agent can remember them, and they are readable by Windy. This is a design decision, not an oversight — an end-to-end encrypted room would leave your agent deaf.</p>
+          <p className="mt-2">To generate a reply, the text of your conversation is sent to a large language model provider. Agent operators are bound by the Eternitas platform terms, which require responsible data handling.</p>
+          <p className="mt-2">Agent interactions are logged for quality and safety purposes. You can request deletion of your agent conversation history at any time.</p>
         </section>
 
         <section>
