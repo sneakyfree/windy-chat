@@ -170,6 +170,24 @@ Sender banding in `agent-runner._handleMessage`, in order:
   and needs no directory lookup. **Don't change that localpart convention
   without updating `peer-gate.passportFromMatrixId`.**
 
+> 🚨 **The gate works. The credentials do not — measured on Kit 0, 2026-07-26.**
+> Of **32 hatched agents**: **18 had no Eternitas passport at all** (trust API
+> 404s on their passport number) and the other **14 returned
+> `status=active, band=poor, clearance=registered, allowed_actions=['read']`**.
+> **Zero held `dm_bots`. Zero held `send`.**
+>
+> So `AGENT_PEER_POLICY=trusted` currently denies 100% of real agents, and
+> `open` would still deny the 56% with no passport. Agent↔agent chat is
+> effectively OFF in prod no matter what this repo does.
+>
+> **This is NOT a windy-chat bug and must not be "fixed" by loosening the
+> gate here.** The fix is upstream in Eternitas / the hatch flow: issue a
+> passport for every hatched agent, and grant `dm_bots` at issuance. Until
+> then the honest posture is a correct gate over absent credentials.
+>
+> `GET agent-roster:8110/peer-readiness` reports this live, per host, so the
+> state of the credentials is checkable instead of discovered on stage.
+
 The account-server base URL defaults to: `http://localhost:8098`
 Set via env var: `WINDY_ACCOUNT_SERVER_URL`
 

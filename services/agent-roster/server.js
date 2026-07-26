@@ -24,6 +24,8 @@ const fs = require('fs');
 const path = require('path');
 const { AgentRunner } = require('./lib/agent-runner');
 const { snapshot: quotaSnapshot } = require('./lib/quota');
+const peerGate = require('./lib/peer-gate');
+const { getTrustProfile } = require('../shared/trust-client');
 
 const PORT = parseInt(process.env.PORT || '8110', 10);
 const ONBOARDING_DB_PATH = process.env.ONBOARDING_DB_PATH
@@ -282,6 +284,46 @@ app.get('/status', (_req, res) => {
     homeserver: HOMESERVER,
     runners,
     quotas: quotaSnapshot(),
+  });
+});
+
+// [P1] Peer-readiness audit. The peer gate fails CLOSED, which means an
+// ecosystem where no agent holds `dm_bots` looks EXACTLY like an ecosystem
+// where the feature is switched off: total silence, no errors, nothing in
+// the logs. Verified against Kit 0 on 2026-07-26 — of 32 hatched agents,
+// 18 had no Eternitas passport at all and the other 14 carried
+// allowed_actions=['read']. Zero were eligible for peer chat.
+//
+// So the readiness of the CREDENTIALS is now a first-class, checkable fact
+// rather than something you discover on stage. Live call per request, no
+// cache beyond trust-client's own 5 min; it is an operator endpoint, not a
+// hot path.
+app.get('/peer-readiness', async (_req, res) => {
+  const policy = peerGate.defaultPolicy();
+  const agents = [...roster.values()];
+  const counts = { total: agents.length, no_passport: 0, unreachable: 0, inactive: 0, missing_dm_bots: 0, eligible: 0 };
+
+  await Promise.all(agents.map(async (r) => {
+    const profile = await getTrustProfile(r.matrixUserId
+      .slice(1).split(':')[0].replace(/^agent_/, '').toUpperCase());
+    if (!profile) { counts.unreachable += 1; return; }
+    if (profile.status === 'not_found') { counts.no_passport += 1; return; }
+    const verdict = peerGate.evaluateProfile(profile, policy);
+    if (verdict.ok) { counts.eligible += 1; return; }
+    if (verdict.reason === 'missing_allowed_action') counts.missing_dm_bots += 1;
+    else counts.inactive += 1;
+  }));
+
+  res.json({
+    policy,
+    counts,
+    ready: counts.eligible > 0,
+    // Say the actionable thing, not just the number. A 0 here is an
+    // ETERNITAS-side gap (passports aren't being issued, or aren't granting
+    // the action at issuance) — not a bug in this service.
+    note: counts.eligible === 0
+      ? 'No agent on this host can use agent-to-agent chat. The gate is working; the credentials are not there. Fix is upstream in Eternitas: issue a passport at hatch and grant `dm_bots` at issuance.'
+      : `${counts.eligible}/${counts.total} agents are credentialed for agent-to-agent chat.`,
   });
 });
 
