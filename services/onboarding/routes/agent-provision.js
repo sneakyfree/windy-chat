@@ -44,7 +44,21 @@ function serviceTokenAuth(req, res, next) {
     return res.status(401).json({ error: 'Missing Authorization header' });
   }
   const token = authHeader.replace(/^Bearer\s+/i, '');
-  if (!CHAT_SERVICE_TOKEN || token !== CHAT_SERVICE_TOKEN) {
+  if (!CHAT_SERVICE_TOKEN) {
+    return res.status(403).json({ error: 'Invalid service token' });
+  }
+  // Constant-time compare to avoid timing oracles on the shared secret.
+  // Same pattern as services/directory/routes/agents.js:258-270. Length is
+  // compared first because timingSafeEqual throws on unequal-length buffers
+  // (length is not the secret; the bytes are).
+  if (token.length !== CHAT_SERVICE_TOKEN.length) {
+    return res.status(403).json({ error: 'Invalid service token' });
+  }
+  try {
+    if (!crypto.timingSafeEqual(Buffer.from(token), Buffer.from(CHAT_SERVICE_TOKEN))) {
+      return res.status(403).json({ error: 'Invalid service token' });
+    }
+  } catch {
     return res.status(403).json({ error: 'Invalid service token' });
   }
   next();

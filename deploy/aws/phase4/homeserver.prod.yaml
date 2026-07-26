@@ -80,28 +80,6 @@ modules:
       windy_account_server: "https://account.windyword.ai"
       windy_jwks_url: "https://account.windyword.ai/.well-known/jwks.json"
       registration_shared_secret: "${SYNAPSE_REGISTRATION_SECRET}"
-  - module: windy_push_bus.WindyPushBusModule
-    config:
-      push_gateway_url: "http://push-gateway:8103"
-      push_bus_token: "${PUSH_BUS_TOKEN}"
-      include_event_types:
-        - m.room.message
-        - m.room.encrypted
-      # Hub Mode — keep bridge portal traffic off the cross-service bus
-      # (native Matrix push is unaffected). Prefixes match the puppet and
-      # bridge-bot namespaces each mautrix bridge registers.
-      ignore_sender_patterns:
-        - "^@telegram_"
-        - "^@telegrambot:"
-        - "^@slack_"
-        - "^@slackbot:"
-        - "^@whatsapp_"
-        - "^@whatsappbot:"
-        - "^@discord_"
-        - "^@discordbot:"
-      # A busy bridged group must not become N synchronous POSTs from
-      # inside Synapse per message.
-      max_fanout_recipients: 25
 
 # ── Application services (Hub Mode bridges) ──────────────────────
 # Registrations are rendered onto the host by scripts/enable-hub-bridge.sh

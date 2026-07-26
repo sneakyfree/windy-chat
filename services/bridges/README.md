@@ -43,9 +43,9 @@ install registrations → wire homeserver.yaml → start bridge → print the
 - **e2be ON** (`encryption.allow/default: true`): portal plaintext never
   rests in Synapse events.
 - **Permissions**: `<server_name>: user`, admin = `HUB_ADMIN_MXID` only.
-- **Puppet namespaces** feed two consumers: client provenance badges
-  (`@telegram_…`) and `windy_push_bus.py`'s `ignore_sender_patterns`
-  (keep both lists in sync when adding a network).
+- **Puppet namespaces** feed client provenance badges (`@telegram_…`).
+  (They also fed `windy_push_bus.py`'s `ignore_sender_patterns`; that module
+  was removed 2026-07-26.)
 - **provisioning shared_secret** goes in `.env.production` +
   lockbox `ACCESS_LOCKBOX.md` §HUB-MODE; it must never reach a client —
   only the hub service holds it.

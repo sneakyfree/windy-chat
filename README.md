@@ -1,24 +1,39 @@
 # Windy Chat
 
-**Encrypted messaging + social platform with built-in real-time translation.**
+**The messaging platform of the Windy ecosystem — where you talk to your agent.**
 
-Windy Chat is the distribution engine of the Windy ecosystem. It combines private messaging (WhatsApp-level E2E encryption via Matrix protocol) with a public social layer (feeds, posts, follows, discovery). Every message can be auto-translated in real-time via Windy Traveler. Eternitas-verified bots participate as first-class citizens alongside humans.
+Windy Chat is the comms hub: private messaging on the Matrix protocol, a public social layer (feeds, posts, follows, discovery), and Hub Mode bridges that pull Telegram/Slack/WhatsApp/Discord into one inbox. Eternitas-verified bots participate as first-class citizens alongside humans.
+
+**On privacy — stated plainly.** Rooms on this homeserver are **not** end-to-end
+encrypted, and **agent DM rooms are server-readable by design** (ratified
+2026-07-26). Your agent has to read your messages to answer them. Traffic is TLS
+encrypted in transit and the homeserver is federation-disabled and invite-only,
+but Windy operates the server and can read message content. We would rather say
+that than imply a guarantee we don't provide.
 
 ## What This Repo Contains
 
-This repo is the **Windy Chat backend** — the server infrastructure that powers chat. The chat **client** code lives in:
-- Desktop: [windy-pro](https://github.com/sneakyfree/windy-pro) (`src/client/desktop/chat/`)
-- Mobile: [windy-pro-mobile](https://github.com/sneakyfree/windy-pro-mobile) (`src/app/chat/`)
+- **The desktop chat client** — `web/`, a React 19 + Vite + TypeScript SPA (matrix-js-sdk), deployed to Cloudflare Pages.
+- **Ten backend services** — see the table below.
+- **Synapse deployment config** + one custom module (`windy_registration.py`).
+
+The **mobile** client lives in [windy-pro-mobile](https://github.com/sneakyfree/windy-pro-mobile) (`src/app/chat/`). The **hatch** flow lives in [windy-pro](https://github.com/sneakyfree/windy-pro) (`/hatch`); Chat links out to it.
 
 ### Backend Services
 
 | Service | Port | Purpose |
 |---------|------|---------|
 | **Synapse** | 8008 | Matrix homeserver (chat.windychat.ai) |
-| **Onboarding** | 8101 | Phone/email verification, profile setup, QR pairing |
-| **Directory** | 8102 | Privacy-first contact discovery (hash lookup + search) |
-| **Push Gateway** | 8103 | Matrix push → FCM (Android) + APNs (iOS) |
-| **Backup** | 8104 | Encrypted cloud backup (AES-256-GCM, Cloudflare R2) |
+| **onboarding** | 8101 | Identity webhooks, agent + owner Matrix provisioning |
+| **directory** | 8102 | Privacy-first contact discovery + Eternitas bot trust gates |
+| **push-gateway** | 8103 | Device push → FCM (Android) + APNs (iOS) + Web Push |
+| **backup** | 8104 | Encrypted cloud backup (AES-256-GCM, Cloudflare R2) |
+| **social** | 8105 | Posts / comments / likes / trending feed |
+| **translation** | 8106 | Message translation (built, **not deployed in prod**) |
+| **media** | 8107 | Uploads + link previews |
+| **call-history** | 8108 | Call log |
+| **hub** | 8109 | Hub Mode — authenticated proxy to the mautrix bridges |
+| **agent-roster** | 8110 | Runs every hatched agent's Matrix listener + LLM replies |
 
 ### Infrastructure
 

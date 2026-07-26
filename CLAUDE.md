@@ -5,7 +5,9 @@ It contains critical project knowledge that prevents regressions.
 
 ## ⚠️ ECOSYSTEM CONTEXT (READ FIRST)
 
-This repo (`windy-chat`) is the **comms hub** of the Windy ecosystem — Synapse (Matrix) homeserver + 4 Node.js microservices + push-gateway, deployed on EC2 instance `i-0f603361b88baa4c0` at chat.windychat.ai. Consumer brand is **Windy Chat** (1:1 with the dev-name). It is one of 13 canonical Windy platforms plus Eternitas + the Authenticator + various infrastructure pieces.
+This repo (`windy-chat`) is the **comms hub** of the Windy ecosystem — a Synapse (Matrix) homeserver + **10 Node.js microservices** + a **React/Vite chat SPA in `web/`**, deployed on the **Kit 0 Hostinger VPS (72.60.118.54)** at chat.windychat.ai. Consumer brand is **Windy Chat** (1:1 with the dev-name). It is one of 13 canonical Windy platforms plus Eternitas + the Authenticator + various infrastructure pieces.
+
+> **This file was materially wrong until 2026-07-26.** It claimed 4 services, an EC2 host retired in the July migration, and "backend-only, no client here." Agents auto-load this file, so every one of them inherited a false map of the repo — guiding principle #7 (context-refresh-proof) calls that self-inflicted context poisoning. **If you change the service list, the host, or where the client lives, update this block in the same commit.**
 
 **Before working on this repo, load the ecosystem context:**
 
@@ -14,7 +16,16 @@ This repo (`windy-chat`) is the **comms hub** of the Windy ecosystem — Synapse
 3. **`~/kit-army-config/docs/adr-012-windy-mobile-mvno-os-hardware.md`** — long-term Windy Mobile vision (deferred until ecosystem maturity).
 4. **`~/kit-army-config/docs/windy-search-bot-traffic-monetization.md`** — proto-Google-for-agents thesis (strategic context).
 5. **`~/kit-army-config/ACCESS_LOCKBOX.md`** — credentials lockbox (private repo). Source of truth for all secrets, AWS keys, API tokens, deploy commands.
-6. **`~/.claude/projects/-Users-thewindstorm/memory/MEMORY.md`** — auto-loaded persistent memory. Critical entries for this repo: `project_windy_chat_phase4_state` (EC2 i-0f603361b88baa4c0 NOT dormant; broken bits = custom modules + stale eternitas URL) + `feedback_windy_chat_compose_invocation` (compose needs both `-f docker-compose.yml -f docker-compose.prod.yml` and `--env-file .env.production`).
+6. **`~/.claude/projects/<your-home>/memory/MEMORY.md`** — auto-loaded persistent memory (the path is per-machine; on OC5 it is `-Users-thewindstorm`, on the Mac mini `-Users-grantwhitmer`).
+
+> ⚠️ **Deploy truth, read before touching compose.** Prod on Kit 0 runs
+> `docker-compose.yml` **+ `docker-compose.override.yml`** — NOT
+> `docker-compose.prod.yml`. Older notes saying "compose needs both
+> `-f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production`"
+> describe the **retired EC2**, not Kit 0. Everything `prod.yml` encodes
+> (loopback binds, RDS wiring, coturn TLS, `:?` env enforcement) is therefore
+> NOT applied on the live host. Reconciling this is open work — verify against
+> the box before trusting any compose file here.
 
 **Dev-name ↔ consumer-brand mapping (don't conflate):**
 - `sneakyfree/windy-chat` = "Windy Chat" (this product, 1:1)
@@ -36,17 +47,17 @@ When making cross-product engineering calls, default to **kit-army-config docs a
 
 ## What is this?
 
-Windy Chat backend — the server infrastructure for the Windy ecosystem's messaging + social platform. This repo contains:
-- 4 Node.js microservices (onboarding, directory, push-gateway, backup)
-- Synapse (Matrix) homeserver deployment config
+Windy Chat — the messaging platform for the Windy ecosystem. This repo contains:
+- **10 Node.js microservices** (see the port table below)
+- **A React 19 + Vite + TypeScript chat SPA in `web/`** (~7.4k LOC, deployed to Cloudflare Pages project `windychat-app`, uses matrix-js-sdk)
+- Synapse (Matrix) homeserver deployment config + one custom module (`windy_registration.py`)
 - Docker Compose for the full chat infrastructure stack
 
 ## What is NOT in this repo
 
-- **Chat client code** — lives in windy-pro (desktop) and windy-pro-mobile (mobile)
-- **Identity/auth** — managed by windy-pro's account-server
-- **Translation engine** — managed by windy-pro's translate-api service
-- **Matrix client SDK usage** — that's in the client repos (matrix-js-sdk)
+- **Identity/auth** — managed by windy-pro's account-server. This repo has NO user database.
+- **The hatch flow** — lives in windy-pro's web app (`/hatch`). Chat links out to it.
+- **Mobile chat client** — windy-pro-mobile. (The *desktop* client is here, in `web/`.)
 
 ## Architecture
 
@@ -90,13 +101,21 @@ when the caller has already delivered device push via another path
 (e.g. Synapse's native `/_matrix/push/v1/notify`) — the bus then only
 dispatches to cross-service subscribers.
 
-## Synapse Push-Bus Module (Wave 3)
+## Synapse Push-Bus Module — REMOVED 2026-07-26
 
-`deploy/synapse/windy_push_bus.py` hooks Synapse's `on_new_event` callback
-and republishes every `m.room.message` / `m.room.encrypted` event to the
-shared bus with `subscribers_only: true`. Additive — does NOT replace the
-native Matrix push gateway. Wired in `homeserver.yaml` alongside
-`windy_registration`.
+`deploy/synapse/windy_push_bus.py` is **gone**. It republished every room
+event to the shared bus with `subscribers_only: true` — a documented no-op
+(`push-gateway/routes/notify.js` returns `delivered: 0`; there is no
+subscribers table). It paid for that with a synchronous `urllib` POST per
+recipient **on Synapse's reactor thread**, up to 25 per message at a 3s
+timeout each, so a slow push-gateway could stall the homeserver.
+
+Device push is unaffected — it flows through the native Matrix gateway at
+`/_matrix/push/v1/notify`.
+
+**If you rebuild it:** land a real consumer first, then make the transport
+async (queue or appservice). Never block the reactor. Doctrine: principles
+1 (honey-badger stability), 3 (solve the minimum), 4 (no bloat).
 
 ## Trust Gates (Wave 3)
 
@@ -113,6 +132,16 @@ against their Eternitas trust profile via `services/shared/trust-client.js`
 (5-min Redis cache, in-memory fallback). Full rules in
 `services/directory/docs/trust-gates.md`.
 
+> ⚠️ **These gates currently have ZERO callers.** Nothing in this repo (or any
+> sibling repo) invokes `/gate/dm`, `/gate/broadcast`, or `/gate/mention`; they
+> have only ever been exercised by hand with curl. Meanwhile `agent-roster`
+> enforces its own hardcoded **owner-only** rule
+> (`lib/agent-runner.js` `_handleMessage`), so agents cannot talk to other
+> agents at all. Guiding principle #6 makes agent↔agent a **first-class
+> feature**, so the fix is to have the roster call these gates — owner always,
+> plus any agent clearing the owner's integrity cutoff — not to delete them.
+> Tracked as Tier 1.
+
 The account-server base URL defaults to: `http://localhost:8098`
 Set via env var: `WINDY_ACCOUNT_SERVER_URL`
 
@@ -122,7 +151,9 @@ Set via env var: `WINDY_ACCOUNT_SERVER_URL`
 # 1. Start Synapse infrastructure
 cd deploy/synapse && docker-compose up -d
 
-# 2. Start services (each in its own terminal)
+# 2. Start services (each in its own terminal). Ten exist — these four are
+#    the usual minimum; add agent-roster (8110) to work on agent replies,
+#    and see the port table above for the rest.
 cd services/onboarding && npm install && npm run dev   # Port 8101
 cd services/directory && npm install && npm run dev     # Port 8102
 cd services/push-gateway && npm install && npm run dev  # Port 8103
@@ -134,10 +165,19 @@ cd services/backup && npm install && npm run dev        # Port 8104
 | Service | Port | Description |
 |---------|------|-------------|
 | Synapse | 8008 | Matrix homeserver |
-| Onboarding | 8101 | Phone/email verification, QR pairing |
-| Directory | 8102 | Contact discovery |
-| Push Gateway | 8103 | FCM/APNs push notifications |
-| Backup | 8104 | Encrypted cloud backup |
+| onboarding | 8101 | Identity webhooks, agent + owner Matrix provisioning |
+| directory | 8102 | Contact discovery + Eternitas bot trust gates |
+| push-gateway | 8103 | FCM/APNs/Web Push device push |
+| backup | 8104 | Encrypted cloud backup (client-derived keys) |
+| social | 8105 | Posts / comments / likes / trending feed |
+| translation | 8106 | Message translation (**built, NOT deployed in prod**) |
+| media | 8107 | Uploads + link previews |
+| call-history | 8108 | Call log |
+| hub | 8109 | Hub Mode — authenticated proxy to the mautrix bridges |
+| agent-roster | 8110 | **Runs every hatched agent's Matrix listener + LLM replies** |
+| web | 3000 (dev) | The chat SPA (prod: Cloudflare Pages) |
+
+`agent-roster` moved 8106 → 8110 in `5fba19b` to clear a collision with translation.
 
 ## Terminology
 
@@ -152,7 +192,13 @@ cd services/backup && npm install && npm run dev        # Port 8104
 2. Federation is DISABLED — this is a Windy-users-only network (chat.windychat.ai)
 3. Push notification bodies NEVER contain message text (privacy)
 4. Backup encryption keys are client-derived (PBKDF2) — server is zero-knowledge
-5. Chat client code stays in windy-pro/windy-pro-mobile — this repo is backend only
+5. **The desktop chat client lives HERE, in `web/`.** (This invariant used to say the
+   opposite. The SPA won; the doctrine text was stale.) Mobile stays in windy-pro-mobile.
+6. **Agent DM rooms are NOT end-to-end encrypted, by design — Windy can read them.**
+   Ratified by Grant 2026-07-26. The agent-roster reads `m.room.message` over `/sync`
+   as the agent's Matrix user; an E2EE room would make the agent deaf. Do not add
+   `m.room.encryption` to agent rooms, and do not ship UI implying E2E on them.
+   Say it plainly to users rather than implying privacy the product doesn't provide.
 
 ## Branching Policy Exception — wave-7-batch-only (2026-04-17)
 

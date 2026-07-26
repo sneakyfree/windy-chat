@@ -53,10 +53,10 @@ services:
       # in homeserver.yaml (mounted from /opt/windy-chat-data/synapse);
       # this env var is informational only.
       SYNAPSE_DATABASE_URL: ${SYNAPSE_DATABASE_URL:?SYNAPSE_DATABASE_URL is required}
-      # windy_registration + windy_push_bus are bind-mounted at
-      # /data/modules/ from the repo — PYTHONPATH makes them importable
-      # by Synapse's module loader (`module: windy_registration.WindyRegistrationModule`
-      # in homeserver.yaml).
+      # windy_registration is bind-mounted at /data/modules/ from the repo —
+      # PYTHONPATH makes it importable by Synapse's module loader
+      # (`module: windy_registration.WindyRegistrationModule` in
+      # homeserver.yaml). windy_push_bus was removed 2026-07-26.
       PYTHONPATH: /data/modules
     # Full-replace the base compose's volumes list — the base bind-mounts
     # the DEV homeserver.yaml (server_name=chat.windychat.ai) on top of
@@ -66,7 +66,6 @@ services:
     volumes: !override
       - /opt/windy-chat-data/synapse:/data
       - ./deploy/synapse/windy_registration.py:/data/modules/windy_registration.py:ro
-      - ./deploy/synapse/windy_push_bus.py:/data/modules/windy_push_bus.py:ro
     restart: unless-stopped
 
   # ── nginx: disabled in prod overlay; host nginx handles TLS ────
