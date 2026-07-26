@@ -20,7 +20,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [onboarding, directory, push-gateway, backup, social, media, call-history, translation]
+        # agent-roster added 2026-07-26: it had 14 test files and 90 tests
+        # that CI had never once executed, because the service shipped
+        # without a `test` script and this matrix keys off `npm test`.
+        service: [onboarding, directory, push-gateway, backup, social, media, call-history, translation, agent-roster]
     steps:
       - uses: actions/checkout@v4
       - name: runner-lint (hosted runners are billing-locked)
