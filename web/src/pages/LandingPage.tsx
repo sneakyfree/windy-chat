@@ -68,7 +68,7 @@ export default function LandingPage({ onSignIn, onRegister }: LandingPageProps) 
               <div className="text-2xl mb-2">💬</div>
               <h3 className="font-medium text-sm mb-1" style={{ color: 'var(--text-primary)' }}>Real-time Chat</h3>
               <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                End-to-end encrypted messaging powered by the Matrix protocol. Voice input built in.
+                Messaging powered by the Matrix protocol, on Windy's own private server. Voice input built in.
               </p>
             </div>
             <div className="rounded-xl p-5" style={{ background: 'var(--bg-secondary)' }}>

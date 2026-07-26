@@ -1,4 +1,19 @@
-/** Matrix client wrapper using matrix-js-sdk with E2E encryption support */
+/**
+ * Matrix client wrapper.
+ *
+ * NO END-TO-END ENCRYPTION — deliberately. Ratified 2026-07-26 (see
+ * CLAUDE.md critical invariant #6). The agent-roster reads `m.room.message`
+ * over /sync as the agent's Matrix user, so an E2EE room would make every
+ * user's agent deaf. Rooms here are server-readable by design and the
+ * privacy policy says so in plain English.
+ *
+ * This file used to call `initRustCrypto()`, which pulled ~5.6 MB of
+ * Vodozemac WASM (~1.9 MB gzipped) into first load to encrypt exactly zero
+ * rooms: nothing in this app ever set `m.room.encryption`. Removed — that
+ * payload is the difference between "loading" and "broken" on bad wifi.
+ *
+ * If E2EE is ever revisited, the agent story has to be solved FIRST.
+ */
 import * as sdk from 'matrix-js-sdk';
 import { env } from '../env';
 
@@ -14,8 +29,6 @@ export function initClient(accessToken: string, userId: string): sdk.MatrixClien
     accessToken,
     userId,
     timelineSupport: true,
-    // E2E encryption: matrix-js-sdk uses Rust crypto (Vodozemac) by default in v41+
-    // Keys are stored in IndexedDB automatically
   });
   return client;
 }
@@ -53,15 +66,6 @@ function autoAcceptInvites(c: sdk.MatrixClient) {
 
 export async function startSync() {
   if (!client) throw new Error('Matrix client not initialized');
-
-  // Initialize crypto (E2E encryption) if available
-  try {
-    await client.initRustCrypto();
-    console.log('[matrix] E2E encryption initialized (Rust crypto)');
-  } catch (err) {
-    console.warn('[matrix] E2E crypto init failed (non-fatal):', err);
-    // Crypto init can fail in some browsers — continue without E2E
-  }
 
   autoAcceptInvites(client);
   await client.startClient({ initialSyncLimit: 20 });
@@ -107,10 +111,13 @@ export async function revokeMatrixSession(): Promise<void> {
 }
 
 /**
- * Delete the rust-crypto IndexedDB stores so the previous user's E2E keys
- * don't survive logout. The DB names are matrix-js-sdk's RUST_SDK_STORE_PREFIX
- * ("matrix-js-sdk") + the rust-crypto suffixes — the exact pair
- * MatrixClient.clearStores() deletes. Fire-and-forget.
+ * Delete the rust-crypto IndexedDB stores on logout.
+ *
+ * We no longer initialise crypto at all, so nothing writes these anymore —
+ * but anyone who used a build before 2026-07-26 still has key material
+ * sitting in their browser. Kept as cleanup so a shared or family computer
+ * doesn't carry the previous user's keys around forever. Safe to delete
+ * outright once the old builds have aged out. Fire-and-forget.
  */
 export function deleteCryptoStores(): void {
   try {
@@ -169,7 +176,7 @@ export function getUnreadCount(room: sdk.Room): number {
   return counts || 0;
 }
 
-/** Send a text message (auto-encrypts in E2E rooms) */
+/** Send a text message. Rooms are not encrypted — see the file header. */
 export async function sendMessage(roomId: string, body: string) {
   if (!client) throw new Error('Not connected');
   return client.sendTextMessage(roomId, body);
@@ -185,12 +192,6 @@ export function setTyping(roomId: string, typing: boolean) {
 export function setPresence(presence: 'online' | 'unavailable' | 'offline') {
   if (!client) return;
   client.setPresence({ presence });
-}
-
-/** Check if a room is E2E encrypted */
-export function isRoomEncrypted(roomId: string): boolean {
-  if (!client) return false;
-  return client.isRoomEncrypted(roomId);
 }
 
 /** Create a new DM room (or reuse an existing one with the same single invitee). */
