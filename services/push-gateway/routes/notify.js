@@ -35,9 +35,9 @@ const adminTelemetry = require('../../shared/admin-telemetry');
 const router = express.Router();
 const pushDb = require('../lib/db');
 
-// Fleet-activity beat (ADR-WA-001): every Matrix message that traverses the
-// push bus (native sends fan out here via Synapse's windy_push_bus module;
-// direct device pushes come through the same endpoint) emits one content-free
+// Fleet-activity beat (ADR-WA-001): every message that traverses the push bus
+// (device pushes and cross-service publishers such as onboarding's
+// agent.hatched) emits one content-free
 // throughput event so the messaging core is visible on the super-admin
 // dashboard. Counts only — never title/body/deep_link. Fire-and-forget.
 // Build the fanout envelope. Split out so tests can assert the ingest

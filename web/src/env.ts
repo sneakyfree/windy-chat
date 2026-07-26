@@ -7,6 +7,11 @@ export const env = {
   translateUrl: import.meta.env.VITE_TRANSLATE_URL || '/api/v1/translate',
   directoryUrl: import.meta.env.VITE_DIRECTORY_URL || '/api/v1/chat/directory',
   accountServerUrl: import.meta.env.VITE_ACCOUNT_SERVER_URL || 'https://account.windyword.ai',
+  // Where "Hatch a Windy Fly agent" sends a user who doesn't have one yet.
+  // The hatch flow lives in windy-pro's web app (Route path="/hatch") on the
+  // canonical Word host. Env-overridable so a path change is a config edit,
+  // not a code change.
+  hatchUrl: import.meta.env.VITE_HATCH_URL || 'https://account.windyword.ai/hatch',
   eternitasUrl: import.meta.env.VITE_ETERNITAS_URL || 'https://api.eternitas.ai',
   windyWordWs: import.meta.env.VITE_WINDY_WORD_WS || 'wss://windyword.ai',
   windyMailUrl: import.meta.env.VITE_WINDY_MAIL_URL || 'https://windymail.ai',

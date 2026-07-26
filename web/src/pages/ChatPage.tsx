@@ -9,6 +9,7 @@ import RoomHeader from '../components/RoomHeader';
 import PlatformBadge from '../components/PlatformBadge';
 import { classifyRoom, presentPlatforms, PLATFORM_META } from '../lib/provenance';
 import { getDefaultFilter, setDefaultFilter, type HubFilter } from '../lib/hub';
+import { env } from '../env';
 import type { Room, MatrixEvent } from 'matrix-js-sdk';
 
 interface ChatPageProps {
@@ -340,6 +341,11 @@ export default function ChatPage({ userId, onEmailMessage, onNavigate, selectedR
   const sortedRooms = [...agentRooms, ...humanRooms];
   const hasAgentRooms = agentRooms.length > 0;
 
+  // Hatching lives in windy-pro's web app, not here — send the user there.
+  // Previously the "Hatch" CTA rendered a button with NO handler at all, so
+  // the single most important action for a brand-new user was a dead click.
+  const goHatch = () => { window.location.href = env.hatchUrl; };
+
   const selectedRoom = selectedRoomId ? rooms.find(r => r.roomId === selectedRoomId) : null;
 
   return (
@@ -422,14 +428,29 @@ export default function ChatPage({ userId, onEmailMessage, onNavigate, selectedR
             <div className="text-center py-8 px-4">
               <div className="text-4xl mb-3">🌪️</div>
               <h3 className="text-base font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Welcome to Windy Chat!</h3>
-              <p className="text-xs mb-6" style={{ color: 'var(--text-muted)' }}>Find friends or discover AI agents to get started</p>
+              <p className="text-xs mb-6" style={{ color: 'var(--text-muted)' }}>Start with your own agent — then add friends</p>
               <div className="space-y-2">
+                {/* Someone with ZERO conversations is the person who most
+                    needs their own agent — they have no friends here yet and
+                    no agent to talk to. This CTA used to be hidden from
+                    exactly this user (it required sortedRooms.length > 0),
+                    so the fresh-off-the-hatch case saw everything EXCEPT the
+                    one action that matters. Hatch leads. */}
+                {!hasAgentRooms && (
+                  <button
+                    onClick={goHatch}
+                    className="w-full py-2.5 rounded-xl text-sm font-medium"
+                    style={{ background: 'var(--accent)', color: 'white' }}
+                  >
+                    🪰 Hatch your Windy Fly agent
+                  </button>
+                )}
                 <button
                   onClick={() => onNavigate?.('discover')}
                   className="w-full py-2.5 rounded-xl text-sm font-medium"
-                  style={{ background: 'var(--accent)', color: 'white' }}
+                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                 >
-                  🪰 Discover Agents
+                  🔎 Discover Agents
                 </button>
                 <button
                   // For now, route to Contacts (where the user can
@@ -445,8 +466,10 @@ export default function ChatPage({ userId, onEmailMessage, onNavigate, selectedR
             </div>
           ) : (
             <>
-              {/* Hatch a Windy Fly CTA — shown when user has no agent rooms */}
-              {!hasAgentRooms && sortedRooms.length > 0 && (
+              {/* Hatch a Windy Fly CTA — shown when user has no agent rooms.
+                  (This branch already implies sortedRooms.length > 0; the
+                  zero-room case is handled above with its own hatch-first CTA.) */}
+              {!hasAgentRooms && (
                 <div className="mx-3 mb-3 p-3 rounded-xl"
                      style={{ background: 'var(--agent-bg)', border: '1px solid var(--agent-border)' }}>
                   <div className="flex items-center gap-3">
@@ -455,7 +478,8 @@ export default function ChatPage({ userId, onEmailMessage, onNavigate, selectedR
                       <p className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>Hatch a Windy Fly agent</p>
                       <p className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>Your personal AI assistant with an Eternitas passport</p>
                     </div>
-                    <button className="px-3 py-1.5 rounded-lg text-[10px] font-medium shrink-0"
+                    <button onClick={goHatch}
+                            className="px-3 py-1.5 rounded-lg text-[10px] font-medium shrink-0"
                             style={{ background: 'var(--accent)', color: 'white' }}>
                       Hatch
                     </button>
