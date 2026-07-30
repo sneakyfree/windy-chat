@@ -74,7 +74,7 @@ before(() => new Promise((resolve) => {
 }));
 
 after(() => new Promise((resolve) => {
-  server.close(() => { setTimeout(() => process.exit(0), 100); resolve(); });
+  server.close(() => { resolve(); });
 }));
 
 // ── Health ──

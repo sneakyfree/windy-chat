@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test ../../tests/unit/test-media.js"
+    "test": "node --test --test-force-exit ../../tests/unit/test-media.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0",
