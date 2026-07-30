@@ -103,6 +103,40 @@ jobs:
       - name: Run unified login integration test
         run: node --test --experimental-test-isolation=none --test-force-exit tests/integration/test_unified_login.js
 
+  test-suites:
+    name: Service + Contract Suites
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install all deps
+        run: |
+          cd services/shared && npm ci && cd ..
+          for svc in onboarding directory push-gateway backup social translation media call-history; do
+            cd $svc && npm ci && cd ..
+          done
+      # GLOBS, not a file list. 13 suites (~215 tests) sat at the repo root
+      # and under tests/integration/ that CI had NEVER run — each service's
+      # Jest is rooted inside services/<name>/ so it cannot see them, and
+      # nothing else referenced them. They rotted: three asserted contracts
+      # that had since been deliberately tightened, and one was hiding a real
+      # retention bug. Globbing means a new file here is covered the day it
+      # lands instead of going quietly unrun.
+      - name: Root service suites
+        run: |
+          for f in tests/*.test.js; do
+            echo "Running $f..."
+            node --test --experimental-test-isolation=none --test-force-exit "$f"
+          done
+      - name: Integration + contract suites
+        run: |
+          for f in tests/integration/*.js; do
+            echo "Running $f..."
+            node --test --experimental-test-isolation=none --test-force-exit "$f"
+          done
+
   test-hardening:
     name: Hardening Tests
     runs-on: [self-hosted, linux, x64]

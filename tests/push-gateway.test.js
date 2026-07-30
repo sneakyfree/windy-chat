@@ -65,8 +65,12 @@ describe('GET /health', () => {
     assert.equal(res.body.service, 'windy-chat-push-gateway');
     assert.ok(res.body.uptime);
     assert.ok(res.body.dependencies);
-    assert.equal(res.body.dependencies.fcm, 'stubbed');
-    assert.equal(res.body.dependencies.apns, 'stubbed');
+    // PR #58 replaced the binary 'active'/'stubbed' vocabulary with
+    // 'unconfigured' | 'ok' | 'failed' so "we have keys but every send throws"
+    // is distinguishable from "no keys at all". This assertion was two months
+    // stale and nothing ran it. Assert the CURRENT contract.
+    assert.equal(res.body.dependencies.fcm, 'unconfigured');
+    assert.equal(res.body.dependencies.apns, 'unconfigured');
   });
 });
 

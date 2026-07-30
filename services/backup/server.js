@@ -51,7 +51,13 @@ const authMiddleware = createAuthMiddleware();
 // ── Global rate limiter ──
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 60,
+  // 60/min in production. The test suite makes well over 60 requests inside
+  // one window, so the retention test was being starved of the 8 creates it
+  // needs and asserting 7-kept against 5-created — flaky in BOTH child and
+  // isolation=none modes (3 of 4 runs each), and invisible because this file
+  // was never wired into CI. The limiter stays live in tests, just above
+  // incidental volume; nothing asserts 429 anywhere in tests/.
+  max: process.env.NODE_ENV === 'test' ? 10000 : 60,
   message: { error: 'Too many requests, slow down' },
   standardHeaders: true,
   legacyHeaders: false,
