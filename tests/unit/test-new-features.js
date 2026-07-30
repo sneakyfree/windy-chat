@@ -73,7 +73,7 @@ before(async () => {
 
 after(() => new Promise((resolve) => {
   let closed = 0;
-  const done = () => { closed++; if (closed >= 2) { setTimeout(() => process.exit(0), 100); resolve(); } };
+  const done = () => { closed++; if (closed >= 2) { resolve(); } };
   socialServer.close(done);
   directoryServer.close(done);
 }));

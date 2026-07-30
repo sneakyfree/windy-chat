@@ -30,7 +30,7 @@ let server, baseUrl;
 before(async () => {
   await new Promise(r => { server = app.listen(0, () => { baseUrl = `http://localhost:${server.address().port}`; r(); }); });
 });
-after(() => new Promise(r => { server.close(() => { setTimeout(() => process.exit(0), 100); r(); }); }));
+after(() => new Promise(r => { server.close(() => { r(); }); }));
 
 function req(method, urlPath, body, headers = {}) {
   return new Promise((resolve, reject) => {

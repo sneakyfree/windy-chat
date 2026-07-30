@@ -247,6 +247,35 @@ page they feed. If they don't, fix the emitter (or the aggregation query).
 **Full brief + per-platform table + how-to-instrument:**
 `~/kit-army-config/docs/windy-admin-telemetry-campaign-2026-07-07.md`.
 
+## ⚠️ NEVER call process.exit() in a test
+
+`node --test` runs each file in a **child process** and ships results to the
+parent over an IPC channel using V8 serialization. `process.exit()` kills the
+process mid-write, so the parent gets a truncated message and reports:
+
+```
+# pass 42
+# fail 0            ← every assertion passed
+not ok 1 - tests/<file>.js
+  error: 'Unable to deserialize cloned data due to invalid or unsupported version.'
+```
+
+**This is not a flake.** It is a race between the exit and the flush. 26 test
+files carried `setTimeout(() => process.exit(0), 100)` in their `after()`
+hook. On a fast idle laptop the flush wins; on the Kit 0 runner — also hosting
+Synapse, Postgres, Eternitas and eight other stacks — the exit wins. `main` was
+red for four days, on a **different file each run**, and two PRs were nearly
+merged on the belief that "CI is just flaky."
+
+- Use the runner flag **`--test-force-exit`** (already applied in `ci.yml` and
+  in every service's `npm test`). It force-exits *after* results are reported.
+- If a test leaves a handle open, close the handle — don't exit from inside it.
+- `.github/lint/lint-no-test-process-exit.sh` fails CI if this comes back.
+
+**Debugging rule of thumb:** any CI failure where the assertion counts are
+green but the file-level line is `not ok` is a runner/teardown problem, not a
+test failure. Read the counts before you read the red X.
+
 ## CI: self-hosted runner (since 2026-07)
 GitHub Actions runs on OUR runner (kit0-windy-chat on the Kit 0 VPS), not GitHub's cloud.
 Always `runs-on: [self-hosted, linux, x64]` — NEVER `ubuntu-latest` (billing-locked; runner-lint enforces).

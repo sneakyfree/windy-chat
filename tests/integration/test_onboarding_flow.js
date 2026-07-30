@@ -179,7 +179,7 @@ after(() => new Promise((resolve) => {
   let closed = 0;
   const total = servers.length;
   if (total === 0) { resolve(); return; }
-  const onClose = () => { closed++; if (closed >= total) { setTimeout(() => process.exit(0), 100); resolve(); } };
+  const onClose = () => { closed++; if (closed >= total) { resolve(); } };
   for (const srv of servers) {
     srv.close(onClose);
   }

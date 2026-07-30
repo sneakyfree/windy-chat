@@ -98,7 +98,7 @@ let translationUrl;
 
 after(() => new Promise((resolve) => {
   let closed = 0;
-  const onClose = () => { closed++; if (closed >= 2) { setTimeout(() => process.exit(0), 100); resolve(); } };
+  const onClose = () => { closed++; if (closed >= 2) { resolve(); } };
   translationServer.close(onClose);
   mockTranslateServer.close(onClose);
 }));
