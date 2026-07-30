@@ -306,17 +306,38 @@ not ok 1 - tests/<file>.js
   error: 'Unable to deserialize cloned data due to invalid or unsupported version.'
 ```
 
-**This is not a flake.** It is a race between the exit and the flush. 26 test
-files carried `setTimeout(() => process.exit(0), 100)` in their `after()`
-hook. On a fast idle laptop the flush wins; on the Kit 0 runner — also hosting
-Synapse, Postgres, Eternitas and eight other stacks — the exit wins. `main` was
-red for four days, on a **different file each run**, and two PRs were nearly
-merged on the belief that "CI is just flaky."
+**This is not a flake**, and it has TWO causes. Both are fixed; understand both
+before touching the test setup.
 
-- Use the runner flag **`--test-force-exit`** (already applied in `ci.yml` and
-  in every service's `npm test`). It force-exits *after* results are reported.
-- If a test leaves a handle open, close the handle — don't exit from inside it.
-- `.github/lint/lint-no-test-process-exit.sh` fails CI if this comes back.
+**Cause 1 — `process.exit()` truncates the frame (fixed in #163).** 26 test
+files carried `setTimeout(() => process.exit(0), 100)` in their `after()` hook,
+killing the process mid-write. Removing it turned `main` from four-days-red to
+green. Use the runner flag **`--test-force-exit`** instead — it force-exits
+*after* results are reported. `.github/lint/lint-no-test-process-exit.sh` fails
+CI if `process.exit` comes back.
+
+**Cause 2 — app stdout interleaves with the frame (fixed in #164).** The child
+sends results as packed binary **over stdout**, which the services also write
+to. Some of those writes are *asynchronous* and land mid-frame:
+
+```
+16:48:06.76  [media] sharp loaded — thumbnail generation enabled
+16:48:07.22  [media] ffmpeg detected …          ← async probe, fires mid-run
+16:48:07.30  not ok 1 - Unable to deserialize cloned data
+```
+
+Removing `process.exit` alone was NOT enough — PR #162 tripped this three runs
+in a row on a branch that had the #163 fix, purely by shifting startup timing.
+The fix is **`--experimental-test-isolation=none`**, which runs the tests in the
+parent process so there is no child, no IPC framing, and no frame to corrupt.
+
+- Flag spelling matters: Node 22 (CI) accepts **only** `--experimental-test-isolation`;
+  `--test-isolation` is a bad option there. Node 24 (local dev) accepts both.
+  Verified on Kit 0 before shipping.
+- **Only for SINGLE-file invocations.** With isolation off, every file in one
+  invocation shares a process, so their module-scope `process.env` writes would
+  collide. Multi-file `npm test` scripts (e.g. directory's two node:test files)
+  are deliberately left alone.
 
 **Debugging rule of thumb:** any CI failure where the assertion counts are
 green but the file-level line is `not ok` is a runner/teardown problem, not a
