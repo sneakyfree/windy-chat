@@ -536,6 +536,13 @@ services:
       # VERIFIED_HATCH_UPSELL=1 flips at go-live together with
       # VERIFIED_HATCH_ENABLED on Eternitas.
       ETERNITAS_URL: ${ETERNITAS_URL:-https://api.eternitas.ai}
+      # [P1] Agent↔agent chat (lib/peer-gate.js). ETERNITAS_URL above is what
+      # makes this work at all — the gate fails CLOSED, so an unreachable
+      # trust API means no peer ever gets through (safe, but silently inert:
+      # check the roster logs for `trust_api_unreachable` before assuming the
+      # policy is wrong). off | trusted | open; owner can override in chat.
+      AGENT_PEER_POLICY: ${AGENT_PEER_POLICY:-trusted}
+      AGENT_PEER_MSGS_PER_HOUR: ${AGENT_PEER_MSGS_PER_HOUR:-30}
       # 2026-07-06 — roster web_search through windy-search. Both must be
       # set (plus ETERNITAS_URL above) or the tool simply isn't offered:
       # the roster fetches each agent's EPT from eternitas (platform key)

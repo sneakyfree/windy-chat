@@ -172,15 +172,61 @@ against their Eternitas trust profile via `services/shared/trust-client.js`
 (5-min Redis cache, in-memory fallback). Full rules in
 `services/directory/docs/trust-gates.md`.
 
-> ⚠️ **These gates currently have ZERO callers.** Nothing in this repo (or any
-> sibling repo) invokes `/gate/dm`, `/gate/broadcast`, or `/gate/mention`; they
-> have only ever been exercised by hand with curl. Meanwhile `agent-roster`
-> enforces its own hardcoded **owner-only** rule
-> (`lib/agent-runner.js` `_handleMessage`), so agents cannot talk to other
-> agents at all. Guiding principle #6 makes agent↔agent a **first-class
-> feature**, so the fix is to have the roster call these gates — owner always,
-> plus any agent clearing the owner's integrity cutoff — not to delete them.
-> Tracked as Tier 1.
+> ⚠️ **Status 2026-07-26: `/gate/broadcast` and `/gate/mention` still have ZERO
+> callers.** Nothing in this repo or any sibling repo invokes them; they have
+> only ever been exercised by hand with curl. Don't delete them — principle #6
+> makes agent↔agent first-class, so the fix is to land the callers.
+>
+> **`/gate/dm`'s rule now HAS an enforcer:** `agent-roster/lib/peer-gate.js`
+> applies the same both-sides-need-`dm_bots` check in-process, using the same
+> `services/shared/trust-client.js`, with no extra network hop on the message
+> path. If you change the DM rule, change it in **both** places or delete one.
+
+## Agent↔agent chat (`agent-roster/lib/peer-gate.js`)
+
+Sender banding in `agent-runner._handleMessage`, in order:
+
+| Band | Who | Gets |
+|---|---|---|
+| `owner` | the agent's own human | everything — tools, held sends, policy commands |
+| `peer` | another `@agent_*` whose Eternitas passport clears the policy | conversation only, **no tools** |
+| — | anyone else (incl. non-owner humans) | silently dropped, as before |
+
+- **Peers never get tool authority.** `send_email` spends the owner's verified
+  From: address, `web_search` their metered allowance. Withheld in code
+  (`canMail`/`canSearch` forced false), never merely in the prompt.
+- **This gate fails CLOSED** — unreachable Eternitas denies. That is the
+  opposite of the rest of the runner (which fails toward answering) and it is
+  deliberate: this is authorization, not availability.
+- **Chimpanzee override.** `AGENT_PEER_POLICY` = `off` | `trusted` (default) |
+  `open` sets the fleet default; the owner moves their own agent by saying
+  **"agents off"** / **"agents on"** / **"agent status"** in chat. The runtime
+  override is in-memory — a restart falls back to the configured default, which
+  is the safe direction. Persisting it belongs with the control panel.
+- `AGENT_PEER_MSGS_PER_HOUR` (default 30) caps each peer, because a peer
+  exchange spends the **owner's** daily allowance.
+- Peer identity comes from the Matrix id alone — onboarding mints every agent as
+  `@agent_<passport>:chat.windychat.ai`, so the mapping is exactly reversible
+  and needs no directory lookup. **Don't change that localpart convention
+  without updating `peer-gate.passportFromMatrixId`.**
+
+> 🚨 **The gate works. The credentials do not — measured on Kit 0, 2026-07-26.**
+> Of **32 hatched agents**: **18 had no Eternitas passport at all** (trust API
+> 404s on their passport number) and the other **14 returned
+> `status=active, band=poor, clearance=registered, allowed_actions=['read']`**.
+> **Zero held `dm_bots`. Zero held `send`.**
+>
+> So `AGENT_PEER_POLICY=trusted` currently denies 100% of real agents, and
+> `open` would still deny the 56% with no passport. Agent↔agent chat is
+> effectively OFF in prod no matter what this repo does.
+>
+> **This is NOT a windy-chat bug and must not be "fixed" by loosening the
+> gate here.** The fix is upstream in Eternitas / the hatch flow: issue a
+> passport for every hatched agent, and grant `dm_bots` at issuance. Until
+> then the honest posture is a correct gate over absent credentials.
+>
+> `GET agent-roster:8110/peer-readiness` reports this live, per host, so the
+> state of the credentials is checkable instead of discovered on stage.
 
 The account-server base URL defaults to: `http://localhost:8098`
 Set via env var: `WINDY_ACCOUNT_SERVER_URL`
@@ -300,17 +346,38 @@ not ok 1 - tests/<file>.js
   error: 'Unable to deserialize cloned data due to invalid or unsupported version.'
 ```
 
-**This is not a flake.** It is a race between the exit and the flush. 26 test
-files carried `setTimeout(() => process.exit(0), 100)` in their `after()`
-hook. On a fast idle laptop the flush wins; on the Kit 0 runner — also hosting
-Synapse, Postgres, Eternitas and eight other stacks — the exit wins. `main` was
-red for four days, on a **different file each run**, and two PRs were nearly
-merged on the belief that "CI is just flaky."
+**This is not a flake**, and it has TWO causes. Both are fixed; understand both
+before touching the test setup.
 
-- Use the runner flag **`--test-force-exit`** (already applied in `ci.yml` and
-  in every service's `npm test`). It force-exits *after* results are reported.
-- If a test leaves a handle open, close the handle — don't exit from inside it.
-- `.github/lint/lint-no-test-process-exit.sh` fails CI if this comes back.
+**Cause 1 — `process.exit()` truncates the frame (fixed in #163).** 26 test
+files carried `setTimeout(() => process.exit(0), 100)` in their `after()` hook,
+killing the process mid-write. Removing it turned `main` from four-days-red to
+green. Use the runner flag **`--test-force-exit`** instead — it force-exits
+*after* results are reported. `.github/lint/lint-no-test-process-exit.sh` fails
+CI if `process.exit` comes back.
+
+**Cause 2 — app stdout interleaves with the frame (fixed in #164).** The child
+sends results as packed binary **over stdout**, which the services also write
+to. Some of those writes are *asynchronous* and land mid-frame:
+
+```
+16:48:06.76  [media] sharp loaded — thumbnail generation enabled
+16:48:07.22  [media] ffmpeg detected …          ← async probe, fires mid-run
+16:48:07.30  not ok 1 - Unable to deserialize cloned data
+```
+
+Removing `process.exit` alone was NOT enough — PR #162 tripped this three runs
+in a row on a branch that had the #163 fix, purely by shifting startup timing.
+The fix is **`--experimental-test-isolation=none`**, which runs the tests in the
+parent process so there is no child, no IPC framing, and no frame to corrupt.
+
+- Flag spelling matters: Node 22 (CI) accepts **only** `--experimental-test-isolation`;
+  `--test-isolation` is a bad option there. Node 24 (local dev) accepts both.
+  Verified on Kit 0 before shipping.
+- **Only for SINGLE-file invocations.** With isolation off, every file in one
+  invocation shares a process, so their module-scope `process.env` writes would
+  collide. Multi-file `npm test` scripts (e.g. directory's two node:test files)
+  are deliberately left alone.
 
 **Debugging rule of thumb:** any CI failure where the assertion counts are
 green but the file-level line is `not ok` is a runner/teardown problem, not a
