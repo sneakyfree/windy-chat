@@ -103,6 +103,55 @@ jobs:
       - name: Run unified login integration test
         run: node --test --experimental-test-isolation=none --test-force-exit tests/integration/test_unified_login.js
 
+  test-suites:
+    name: Service + Contract Suites
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install all deps
+        run: |
+          cd services/shared && npm ci && cd ..
+          for svc in onboarding directory push-gateway backup social translation media call-history; do
+            cd $svc && npm ci && cd ..
+          done
+      # GLOBS, not a file list. 13 suites (~215 tests) sat at the repo root
+      # and under tests/integration/ that CI had NEVER run — each service's
+      # Jest is rooted inside services/<name>/ so it cannot see them, and
+      # nothing else referenced them. They rotted: three asserted contracts
+      # that had since been deliberately tightened, and one was hiding a real
+      # retention bug. Globbing means a new file here is covered the day it
+      # lands instead of going quietly unrun.
+      - name: Root service suites
+        run: |
+          for f in tests/*.test.js; do
+            echo "Running $f..."
+            node --test --experimental-test-isolation=none --test-force-exit "$f"
+          done
+      # Point the LIVE probes at a dead port so they take their own designed
+      # skip path. Both suites contain a hermetic stand-in-server round-trip
+      # (the valuable part, which still runs) PLUS an optional probe against a
+      # real Eternitas. On the Kit 0 runner localhost:8500 IS reachable — it's
+      # the eternitas-dev container — so without this the probe runs and gates
+      # OUR merges on a NEIGHBOURING service's dev deployment.
+      #
+      # That is not hypothetical: on 2026-07-30 eternitas-dev returned 404 for
+      # a bad-prefix passport where production api.eternitas.ai correctly
+      # returns 400, so this job went red for a contract drift that belongs to
+      # Eternitas and cannot be fixed here. Live-service probes are monitoring,
+      # not a merge gate (principle #8 — the signal has to mean this repo).
+      - name: Integration + contract suites
+        env:
+          LIVE_ETERNITAS_URL: http://127.0.0.1:1
+          ETERNITAS_URL: http://127.0.0.1:1
+        run: |
+          for f in tests/integration/*.js; do
+            echo "Running $f..."
+            node --test --experimental-test-isolation=none --test-force-exit "$f"
+          done
+
   test-hardening:
     name: Hardening Tests
     runs-on: [self-hosted, linux, x64]

@@ -29,7 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_backup_registry_user_timestamp ON backup_registry
 `);
 
 // Prepared statements
-const getUserBackups = db.prepare('SELECT * FROM backup_registry WHERE user_id = ? ORDER BY timestamp DESC');
+const getUserBackups = db.prepare('SELECT * FROM backup_registry WHERE user_id = ? ORDER BY timestamp DESC, rowid DESC');
 const getBackup = db.prepare('SELECT * FROM backup_registry WHERE user_id = ? AND id = ?');
 const insertBackup = db.prepare(`
   INSERT INTO backup_registry (id, user_id, windy_identity_id, timestamp, size, path, metadata)
@@ -37,8 +37,8 @@ const insertBackup = db.prepare(`
 `);
 const deleteBackup = db.prepare('DELETE FROM backup_registry WHERE user_id = ? AND id = ?');
 const countUserBackups = db.prepare('SELECT COUNT(*) as cnt FROM backup_registry WHERE user_id = ?');
-const getOldestBackups = db.prepare('SELECT * FROM backup_registry WHERE user_id = ? ORDER BY timestamp DESC LIMIT -1 OFFSET ?');
-const deleteOldBackups = db.prepare('DELETE FROM backup_registry WHERE user_id = ? AND id IN (SELECT id FROM backup_registry WHERE user_id = ? ORDER BY timestamp DESC LIMIT -1 OFFSET ?)');
+const getOldestBackups = db.prepare('SELECT * FROM backup_registry WHERE user_id = ? ORDER BY timestamp DESC, rowid DESC LIMIT -1 OFFSET ?');
+const deleteOldBackups = db.prepare('DELETE FROM backup_registry WHERE user_id = ? AND id IN (SELECT id FROM backup_registry WHERE user_id = ? ORDER BY timestamp DESC, rowid DESC LIMIT -1 OFFSET ?)');
 const countDistinctUsers = db.prepare('SELECT COUNT(DISTINCT user_id) as cnt FROM backup_registry');
 
 // JSON migration

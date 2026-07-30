@@ -333,9 +333,13 @@ describe('Step 4: K10 Social — Posts & Follows', () => {
 
 describe('Step 5: K6 Push — Token Registration', () => {
   it('registers a push token', async () => {
+    // PR #28 bound the body's userId to the caller's JWT, preferring the
+    // windy_identity_id claim over sub (callerOwnsUserId, push-gateway
+    // server.js). This test still sent USER_SUB and so 403'd — it was
+    // asserting the pre-hardening contract, unnoticed because nothing ran it.
     const res = await request('POST', pushUrl, '/api/v1/chat/push/register', {
       pushkey: 'integration-test-fcm-token',
-      userId: USER_SUB,
+      userId: WINDY_IDENTITY_ID,
       platform: 'android',
       appId: 'com.windypro.chat.android',
       deviceName: 'Integration Test Device',
