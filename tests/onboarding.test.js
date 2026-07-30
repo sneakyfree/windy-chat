@@ -66,7 +66,6 @@ after(() => {
   return new Promise((resolve) => {
     server.close(() => {
       // Force exit to clean up timers (pair.js session cleanup interval)
-      setTimeout(() => process.exit(0), 100);
       resolve();
     });
   });

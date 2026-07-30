@@ -75,7 +75,7 @@ before(async () => {
   await loadAutoListen('../../services/onboarding/server', 'onboarding');
   await startManual('../../services/social/server', 'social');
 });
-after(() => new Promise(r => { let c = 0; const t = servers.length; if (!t) r(); const f = () => { c++; if (c >= t) { setTimeout(() => process.exit(0), 100); r(); } }; for (const s of servers) s.close(f); }));
+after(() => new Promise(r => { let c = 0; const t = servers.length; if (!t) r(); const f = () => { c++; if (c >= t) { r(); } }; for (const s of servers) s.close(f); }));
 
 function req(method, svc, urlPath, body, headers = {}) {
   return new Promise((resolve, reject) => {

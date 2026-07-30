@@ -218,7 +218,6 @@ describe('Onboarding — Avatar Upload', () => {
 describe('Onboarding — Account Deletion', () => {
   after(() => {
     server.close();
-    setTimeout(() => process.exit(0), 100);
   });
 
   it('returns 401 without a valid token', async () => {

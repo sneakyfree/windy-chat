@@ -58,7 +58,7 @@ before(async () => {
   await startManual('../../services/media/server', 'media');
   await startManual('../../services/call-history/server', 'call-history');
 });
-after(() => new Promise(r => { let c = 0; const t = servers.length; if (!t) r(); const f = () => { c++; if (c >= t) { setTimeout(() => process.exit(0), 100); r(); } }; for (const s of servers) s.close(f); }));
+after(() => new Promise(r => { let c = 0; const t = servers.length; if (!t) r(); const f = () => { c++; if (c >= t) { r(); } }; for (const s of servers) s.close(f); }));
 
 function getHealth(name) {
   return new Promise((resolve, reject) => {
