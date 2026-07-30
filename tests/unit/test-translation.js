@@ -102,7 +102,7 @@ before(async () => {
 
 after(() => new Promise((resolve) => {
   mockTranslateServer.close(() => {
-    server.close(() => { setTimeout(() => process.exit(0), 100); resolve(); });
+    server.close(() => { resolve(); });
   });
 }));
 

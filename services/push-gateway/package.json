@@ -6,9 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "jest --forceExit --detectOpenHandles && node --test tests/fcm-channels.test.js",
+    "test": "jest --forceExit --detectOpenHandles && node --test --test-force-exit tests/fcm-channels.test.js",
     "test:jest": "jest --forceExit --detectOpenHandles",
-    "test:integration": "node --test tests/fcm-channels.test.js"
+    "test:integration": "node --test --test-force-exit tests/fcm-channels.test.js"
   },
   "dependencies": {
     "apn": "^2.2.0",

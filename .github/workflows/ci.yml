@@ -75,7 +75,7 @@ jobs:
           cd services/${{ matrix.deps }} && npm ci
           cd ../directory && npm ci 2>/dev/null || true
       - name: Test ${{ matrix.test }}
-        run: node --test ${{ matrix.file }}
+        run: node --test --test-force-exit ${{ matrix.file }}
 
   test-integration:
     name: Integration Tests
@@ -92,13 +92,13 @@ jobs:
             cd $svc && npm ci && cd ..
           done
       - name: Run stress test (all 8 services)
-        run: node --test tests/stress/test_full_mesh.js
+        run: node --test --test-force-exit tests/stress/test_full_mesh.js
       - name: Run full stack integration test
-        run: node --test tests/integration/test_full_stack.js
+        run: node --test --test-force-exit tests/integration/test_full_stack.js
       - name: Run agent onboarding integration test
-        run: node --test tests/integration/test_agent_onboarding.js
+        run: node --test --test-force-exit tests/integration/test_agent_onboarding.js
       - name: Run unified login integration test
-        run: node --test tests/integration/test_unified_login.js
+        run: node --test --test-force-exit tests/integration/test_unified_login.js
 
   test-hardening:
     name: Hardening Tests
@@ -118,7 +118,7 @@ jobs:
         run: |
           for f in tests/hardening/*.js; do
             echo "Running $f..."
-            node --test "$f"
+            node --test --test-force-exit "$f"
           done
 
   lint:
@@ -129,6 +129,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: no process.exit() in tests (corrupts the node:test IPC channel)
+        run: bash "$GITHUB_WORKSPACE/.github/lint/lint-no-test-process-exit.sh" "$GITHUB_WORKSPACE/tests"
       - name: Check for syntax errors (all .js files)
         run: |
           for f in $(find services -name '*.js' -not -path '*/node_modules/*'); do
