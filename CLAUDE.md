@@ -132,15 +132,61 @@ against their Eternitas trust profile via `services/shared/trust-client.js`
 (5-min Redis cache, in-memory fallback). Full rules in
 `services/directory/docs/trust-gates.md`.
 
-> ⚠️ **These gates currently have ZERO callers.** Nothing in this repo (or any
-> sibling repo) invokes `/gate/dm`, `/gate/broadcast`, or `/gate/mention`; they
-> have only ever been exercised by hand with curl. Meanwhile `agent-roster`
-> enforces its own hardcoded **owner-only** rule
-> (`lib/agent-runner.js` `_handleMessage`), so agents cannot talk to other
-> agents at all. Guiding principle #6 makes agent↔agent a **first-class
-> feature**, so the fix is to have the roster call these gates — owner always,
-> plus any agent clearing the owner's integrity cutoff — not to delete them.
-> Tracked as Tier 1.
+> ⚠️ **Status 2026-07-26: `/gate/broadcast` and `/gate/mention` still have ZERO
+> callers.** Nothing in this repo or any sibling repo invokes them; they have
+> only ever been exercised by hand with curl. Don't delete them — principle #6
+> makes agent↔agent first-class, so the fix is to land the callers.
+>
+> **`/gate/dm`'s rule now HAS an enforcer:** `agent-roster/lib/peer-gate.js`
+> applies the same both-sides-need-`dm_bots` check in-process, using the same
+> `services/shared/trust-client.js`, with no extra network hop on the message
+> path. If you change the DM rule, change it in **both** places or delete one.
+
+## Agent↔agent chat (`agent-roster/lib/peer-gate.js`)
+
+Sender banding in `agent-runner._handleMessage`, in order:
+
+| Band | Who | Gets |
+|---|---|---|
+| `owner` | the agent's own human | everything — tools, held sends, policy commands |
+| `peer` | another `@agent_*` whose Eternitas passport clears the policy | conversation only, **no tools** |
+| — | anyone else (incl. non-owner humans) | silently dropped, as before |
+
+- **Peers never get tool authority.** `send_email` spends the owner's verified
+  From: address, `web_search` their metered allowance. Withheld in code
+  (`canMail`/`canSearch` forced false), never merely in the prompt.
+- **This gate fails CLOSED** — unreachable Eternitas denies. That is the
+  opposite of the rest of the runner (which fails toward answering) and it is
+  deliberate: this is authorization, not availability.
+- **Chimpanzee override.** `AGENT_PEER_POLICY` = `off` | `trusted` (default) |
+  `open` sets the fleet default; the owner moves their own agent by saying
+  **"agents off"** / **"agents on"** / **"agent status"** in chat. The runtime
+  override is in-memory — a restart falls back to the configured default, which
+  is the safe direction. Persisting it belongs with the control panel.
+- `AGENT_PEER_MSGS_PER_HOUR` (default 30) caps each peer, because a peer
+  exchange spends the **owner's** daily allowance.
+- Peer identity comes from the Matrix id alone — onboarding mints every agent as
+  `@agent_<passport>:chat.windychat.ai`, so the mapping is exactly reversible
+  and needs no directory lookup. **Don't change that localpart convention
+  without updating `peer-gate.passportFromMatrixId`.**
+
+> 🚨 **The gate works. The credentials do not — measured on Kit 0, 2026-07-26.**
+> Of **32 hatched agents**: **18 had no Eternitas passport at all** (trust API
+> 404s on their passport number) and the other **14 returned
+> `status=active, band=poor, clearance=registered, allowed_actions=['read']`**.
+> **Zero held `dm_bots`. Zero held `send`.**
+>
+> So `AGENT_PEER_POLICY=trusted` currently denies 100% of real agents, and
+> `open` would still deny the 56% with no passport. Agent↔agent chat is
+> effectively OFF in prod no matter what this repo does.
+>
+> **This is NOT a windy-chat bug and must not be "fixed" by loosening the
+> gate here.** The fix is upstream in Eternitas / the hatch flow: issue a
+> passport for every hatched agent, and grant `dm_bots` at issuance. Until
+> then the honest posture is a correct gate over absent credentials.
+>
+> `GET agent-roster:8110/peer-readiness` reports this live, per host, so the
+> state of the credentials is checkable instead of discovered on stage.
 
 The account-server base URL defaults to: `http://localhost:8098`
 Set via env var: `WINDY_ACCOUNT_SERVER_URL`

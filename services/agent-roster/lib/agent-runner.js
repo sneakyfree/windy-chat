@@ -28,6 +28,7 @@ const { availableTools, executeTool } = require('./tools');
 const windySearch = require('./windy-search');
 const { consumeMessage, consumeMail, quotaMessage } = require('./quota');
 const { getClearance, exhaustionMessage } = require('./upsell');
+const peerGate = require('./peer-gate');
 const adminTelemetry = require('../../shared/admin-telemetry');
 
 // ADR-056: verified owners earn a larger daily message allowance — the
@@ -96,6 +97,11 @@ class AgentRunner {
     // address once. `pendingSend` holds at most one draft at a time.
     this.knownRecipients = new Set();
     this.pendingSend = null;  // { to, subject, body, roomId, ts }
+    // Agent↔agent policy override set by the owner in chat ("agents off").
+    // null = follow the fleet default in AGENT_PEER_POLICY. In-memory by
+    // design: a restart falls back to the configured default, which is the
+    // safe direction. See lib/peer-gate.js.
+    this.peerPolicy = null;
   }
 
   /** Update owner context (mailAddress + displayName) — called by the
@@ -426,20 +432,73 @@ class AgentRunner {
     return active;
   }
 
+  /**
+   * [I1/P1] Sender banding. Returns:
+   *   'owner'        — act with full authority (tools on)
+   *   peer verdict   — a credentialed agent; converse, no tools
+   *   null           — drop this event
+   *
+   * [I1] The owner test came first and stays first. Before it, the runner
+   * replied — with send_email + web_search authority — to ANY non-self
+   * sender, so a stranger who got the agent into a room could drive it.
+   * Fail SAFE: an unresolved owner id (rare pre-provision state) keeps the
+   * pre-#137 behaviour rather than going silent — never lock the owner out.
+   *
+   * [P1] Everything that is NOT the owner now goes to peer-gate instead of
+   * straight to the floor. A non-owner human is still dropped silently; an
+   * agent carrying an Eternitas passport that clears the policy is banded
+   * 'peer' and gets a conversation. Principle #6: credentials are supposed
+   * to buy something, and until now, on this surface, they bought nothing.
+   */
+  async _bandSender(roomId, sender) {
+    if (!this.ownerMatrixId || sender === this.ownerMatrixId) return 'owner';
+
+    const selfPassport = this._passport();
+    const verdict = await peerGate.classifyPeer({
+      senderMatrixId: sender,
+      selfPassport,
+      policy: this.peerPolicy || undefined,
+    });
+
+    if (!verdict.allow) {
+      console.log(`[runner ${this.matrixUserId}] peer denied ${sender} (${verdict.reason})`);
+      // Humans who aren't the owner get the old silent drop — this change
+      // does not widen the human surface, and an uninvited person should
+      // not learn anything from the agent's silence.
+      if (verdict.reason !== 'not_an_agent'
+        && peerGate.shouldSendDenialNotice(selfPassport, verdict.peerPassport, roomId)) {
+        try {
+          await this._sendMessage(roomId, peerGate.denialNotice(verdict.reason, verdict.side));
+        } catch (_e) { /* the denial is the point; delivering it is best-effort */ }
+      }
+      return null;
+    }
+
+    const rate = peerGate.consumePeerMessage(selfPassport, verdict.peerPassport);
+    if (!rate.allowed) {
+      console.log(`[runner ${this.matrixUserId}] peer rate-limited ${verdict.peerPassport}`);
+      if (peerGate.shouldSendDenialNotice(selfPassport, verdict.peerPassport, roomId)) {
+        try {
+          await this._sendMessage(roomId, peerGate.denialNotice('rate_limited'));
+        } catch (_e) { /* best-effort */ }
+      }
+      return null;
+    }
+
+    console.log(`[runner ${this.matrixUserId}] peer allowed ${verdict.peerPassport} `
+      + `(clearance=${verdict.clearance || '?'} band=${verdict.trustBand || '?'})`);
+    return verdict;
+  }
+
   async _handleMessage(roomId, event) {
     if (event.sender === this.matrixUserId) return;
-    // [I1] Owner-only gate. Previously the runner replied — with send_email +
-    // web_search tool authority — to ANY non-self sender, so a stranger who
-    // got the agent into a room could drive it: send mail FROM the owner's
-    // verified windymail.ai address to an attacker-chosen recipient
-    // (spoofing/phishing) and burn the owner's quota. A personal agent takes
-    // instructions from its person, full stop. Fail SAFE: if the owner's
-    // Matrix id couldn't be resolved (rare pre-provision state) we fall back
-    // to the prior behaviour rather than going silent — never lock the owner out.
-    if (this.ownerMatrixId && event.sender !== this.ownerMatrixId) {
-      console.log(`[runner ${this.matrixUserId}] ignoring non-owner sender ${event.sender} in ${roomId}`);
-      return;
-    }
+    const band = await this._bandSender(roomId, event.sender);
+    if (!band) return;
+    // Non-null when this turn is an agent↔agent exchange. Threaded through
+    // the rest of the method to withhold tool authority and to tell the
+    // model who it is actually talking to.
+    const peer = band === 'owner' ? null : band;
+
     const body = event.content?.body;
     if (!body || typeof body !== 'string') return;
     // Ignore old events on first cold start so we don't reply to a week
@@ -452,12 +511,29 @@ class AgentRunner {
     console.log(`[runner ${this.matrixUserId}] msg from ${event.sender} in ${roomId} (${body.length} chars)`);
     this.lastEventAt = new Date().toISOString();
 
+    // [P1] The chimpanzee override. Doctrine: the human overrides Eternitas,
+    // never the reverse — so the owner can open or close agent↔agent chat by
+    // saying so, in the chat they are already in, with no dashboard to find.
+    // Handled BEFORE the one-soul yield: this is the midwife's own policy, so
+    // it must still take effect while the real Fly is holding the claim.
+    if (!peer) {
+      const cmd = peerGate.parseOwnerPolicyCommand(body);
+      if (cmd) {
+        if (cmd.action === 'set') this.peerPolicy = cmd.policy;
+        const now = this.peerPolicy || peerGate.defaultPolicy();
+        await this._sendMessage(roomId, peerGate.policyDescription(now));
+        return;
+      }
+    }
+
     // [I1 Phase 1b] Held-send confirmation. If we're holding a draft to a NEW
     // recipient and the owner replies "send", dispatch it now — the confirm is
-    // its own turn and only the owner (gate above) can reach here, so an
-    // injected instruction that queued the draft can't complete the send. Any
-    // other message supersedes the pending draft.
-    if (this.pendingSend && this.pendingSend.roomId === roomId) {
+    // its own turn and only the OWNER can reach it (peers are excluded here and
+    // never get the send tool at all), so an injected instruction that queued
+    // the draft can't complete the send. Any other owner message supersedes the
+    // pending draft; a peer's message leaves it untouched, so a peer can neither
+    // confirm nor cancel what the owner is holding.
+    if (!peer && this.pendingSend && this.pendingSend.roomId === roomId) {
       if (Date.now() - this.pendingSend.ts > PENDING_SEND_TTL_MS) {
         this.pendingSend = null;
       } else if (this._isConfirmWord(body)) {
@@ -539,8 +615,14 @@ class AgentRunner {
       // address; web search needs the windy-search + eternitas platform
       // env. Search is deliberately NOT gated on mail — an agent without
       // a mailbox can still look things up for its owner.
-      const canMail = !!sendFromAddress;
-      const canSearch = windySearch.isConfigured();
+      //
+      // [P1] A peer is trusted to TALK, not to ACT. send_email spends the
+      // owner's verified From: address and web_search spends the owner's
+      // metered allowance — neither belongs to the peer. Withheld here in
+      // code, not in the prompt, so no amount of persuasion in the peer's
+      // message can reach a tool: the model is never offered one.
+      const canMail = !peer && !!sendFromAddress;
+      const canSearch = !peer && windySearch.isConfigured();
       const tools = availableTools({ canMail, canSearch });
 
       // Per-agent EPT for the Mind route (Phase 1.5) — same credential
@@ -569,6 +651,11 @@ class AgentRunner {
         canSearch,
         ept: agentEpt,
         sliders,
+        peer: peer && {
+          passport: peer.peerPassport,
+          clearance: peer.clearance,
+          trustBand: peer.trustBand,
+        },
       });
       adminTelemetry.emit({
         service: 'agent-roster',
@@ -581,7 +668,13 @@ class AgentRunner {
         tokens_out: result.usage?.tokens_out ?? null,
         duration_ms: Date.now() - llmStartedAt,
         session_id: roomId,
-        metadata: { tool_calls: (result.tool_calls || []).length },
+        metadata: {
+          tool_calls: (result.tool_calls || []).length,
+          // Counts only — proves agent↔agent traffic is real on the admin
+          // dashboard without carrying a byte of what was said.
+          peer_exchange: !!peer,
+          peer_clearance: peer ? (peer.clearance || 'unknown') : null,
+        },
       });
 
       // If the LLM emitted tool_calls, execute them in order and

@@ -4,7 +4,9 @@
   "description": "Multi-tenant Matrix listener for every hatched Windy Fly agent. Logs in as each agent stored in agent_credentials and responds in their DM rooms.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "// test": "Explicit glob, NOT `node --test tests/` — directory mode descends into node_modules and dies before running anything. Every other service uses `npm test`, and this one had no test script at all, which is why CI silently covered zero of these 90 tests.",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.5.0",
