@@ -117,6 +117,46 @@ Device push is unaffected — it flows through the native Matrix gateway at
 async (queue or appservice). Never block the reactor. Doctrine: principles
 1 (honey-badger stability), 3 (solve the minimum), 4 (no bloat).
 
+## Hatching an agent — there is ONE pipeline
+
+**Canonical: `POST /api/v1/agent/hatch` on windy-pro's account-server.** SSE
+ceremony, Eternitas-first, fail-closed — no passport, no hatch. The web app,
+mobile, and the Windy Code extension are all clients of it. It calls THIS
+repo's `POST /api/v1/onboarding/agent` as its chat step.
+
+**This repo's endpoint is a step in that pipeline, not an entrance to it.**
+Until 2026-07-26 it took `passport_number` as an arbitrary string and never
+asked Eternitas — so it *was* a second, unguarded way to hatch. Measured on
+Kit 0: on 2026-07-14 Windy Chat created **17 agents**; Eternitas registered
+**0 bots** that day. All 17 still 404. `lib/passport-check.js` closed it.
+
+| Eternitas says | Result |
+|---|---|
+| no such passport | **403 refuse** |
+| revoked | **403 refuse** |
+| suspended | allow (standing ≠ forgery; owner needs a handle to recover into) |
+| *no answer at all* | allow, `console.warn` + `hatch.passport_unverified` telemetry |
+
+The soft path is deliberate and is the **opposite** of `agent-roster`'s peer
+gate. There, being unsure costs a delayed conversation. Here, the caller has
+already cleared the canonical hatch, so an unreachable Eternitas means a blip
+between two of our own services mid-ceremony — refusing would strand a real
+person watching a progress bar. `HATCH_PASSPORT_STRICT=true` refuses instead.
+It is not a bypass: whoever holds `CHAT_SERVICE_TOKEN` cannot make Eternitas
+unreachable from inside the cluster.
+
+> ⚠️ **`ETERNITAS_URL` is load-bearing for the onboarding service.** It was
+> absent from onboarding's compose env entirely until 2026-07-26; without it
+> the trust client falls back to `localhost:8500` and every check silently
+> takes the soft path. If you see `hatch.passport_unverified` on every hatch,
+> check this before anything else.
+
+**Known remaining doors (NOT in this repo — do not "fix" them here):**
+`POST /api/v1/identity/agent/provision` is a duplicate pipeline in
+account-server (fail-closed, but redundant); windy-agent's
+`orchestrate_hatch()` is fail-open by design ("the hatch always completes");
+windy-connect's sandbox mode fabricates `ET26-SBOX-*` passports.
+
 ## Trust Gates (Wave 3)
 
 Directory service enforces three gates on bot actions:

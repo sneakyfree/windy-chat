@@ -39,6 +39,9 @@ process.env.WINDY_IDENTITY_WEBHOOK_SECRET = 'test-identity-webhook-secret';
 process.env.PUSH_BUS_URL = ''; // disable outbound push from Wave 8 hook
 process.env.SYNAPSE_URL = 'http://127.0.0.1:1'; // unreachable → stub DM
 process.env.NODE_ENV = 'test';
+// Hatch-time passport verification calls Eternitas before provisioning.
+// Mock mode keeps this suite hermetic and instant.
+process.env.ETERNITAS_USE_MOCK = 'true';
 
 const { app } = require('../../services/onboarding/server');
 const crypto = require('node:crypto');

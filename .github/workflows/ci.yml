@@ -63,6 +63,9 @@ jobs:
           - test: agent-provision
             file: tests/unit/test-agent-provision.js
             deps: onboarding
+          - test: hatch-passport-check
+            file: tests/unit/test-hatch-passport-check.js
+            deps: onboarding
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

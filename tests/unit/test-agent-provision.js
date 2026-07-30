@@ -12,6 +12,10 @@ process.env.CHAT_API_TOKEN = 'test-agent-token';
 process.env.CHAT_SERVICE_TOKEN = 'test-service-token';
 process.env.WINDY_JWT_SECRET = 'test-jwt-secret';
 process.env.NODE_ENV = 'test';
+// Hatch-time passport verification (2026-07-26) now calls Eternitas before
+// provisioning. Mock mode answers deterministically and instantly; without
+// it every case here would spend a 5s timeout on the soft path.
+process.env.ETERNITAS_USE_MOCK = 'true';
 
 const { app } = require('../../services/onboarding/server');
 const onboardingDb = require('../../services/onboarding/lib/db');

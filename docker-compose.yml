@@ -196,6 +196,18 @@ services:
       # windy.panel.v1: /summary asks agent-roster for runner liveness (S2S,
       # same compose network, 800ms budget — failure just reads "unknown").
       AGENT_ROSTER_URL: http://agent-roster:8110
+      # Hatch-time passport verification (lib/passport-check.js). THIS URL IS
+      # LOAD-BEARING: without it the trust client falls back to
+      # localhost:8500, which is nothing inside this container, so every
+      # check takes the soft path and the verification is inert. The service
+      # had no ETERNITAS_URL at all until 2026-07-26.
+      ETERNITAS_URL: ${ETERNITAS_URL:-https://api.eternitas.ai}
+      HATCH_REQUIRE_PASSPORT: ${HATCH_REQUIRE_PASSPORT:-true}
+      # true = refuse the hatch when Eternitas is unreachable. Default false
+      # (soft): the caller has already cleared the canonical hatch, so a blip
+      # here would strand a real person mid-ceremony. Every soft pass is
+      # logged + emitted as hatch.passport_unverified.
+      HATCH_PASSPORT_STRICT: ${HATCH_PASSPORT_STRICT:-false}
     depends_on:
       synapse:
         condition: service_healthy

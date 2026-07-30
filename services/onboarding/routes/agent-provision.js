@@ -15,6 +15,7 @@ const rateLimit = require('express-rate-limit');
 const { asyncHandler } = require('../../shared/async-handler');
 const adminTelemetry = require('../../shared/admin-telemetry');
 const onboardingDb = require('../lib/db');
+const { verifyPassportIssued } = require('../lib/passport-check');
 
 const router = express.Router();
 
@@ -260,6 +261,48 @@ router.post('/', agentLimiter, serviceTokenAuth, asyncHandler(async (req, res) =
 
   if (!owner_windy_identity_id || typeof owner_windy_identity_id !== 'string') {
     return res.status(400).json({ error: 'owner_windy_identity_id is required' });
+  }
+
+  // Is this passport real? Until 2026-07-26 nothing asked, and this
+  // endpoint would build a complete working agent — Matrix account, access
+  // token, DM room, live roster listener — around any string a caller sent.
+  // See lib/passport-check.js for the rule and why "Eternitas didn't
+  // answer" is treated differently from "Eternitas said no".
+  const check = await verifyPassportIssued(passport_number);
+  if (!check.ok) {
+    console.warn(`[agent-provision] REFUSED ${passport_number}: ${check.reason}`);
+    adminTelemetry.emit({
+      service: 'chat-onboarding',
+      event_type: 'hatch.passport_refused',
+      actor_type: 'agent',
+      actor_id: passport_number,
+      metadata: { reason: check.reason },
+    });
+    return res.status(check.status).json({
+      error: 'passport_not_verified',
+      reason: check.reason,
+      detail: check.reason === 'passport_not_issued'
+        ? 'Eternitas has no record of this passport. Hatch through the account-server ceremony (POST /api/v1/agent/hatch), which issues the passport before calling here.'
+        : 'This passport cannot be used to provision a chat agent right now.',
+    });
+  }
+  if (!check.verified) {
+    // The soft path. NEVER let this be silent — an operator must be able
+    // to find every agent that was provisioned without a positive answer
+    // from Eternitas, because that is exactly the population that turns
+    // into orphans if the blip was actually a misconfiguration.
+    console.warn(
+      `[agent-provision] UNVERIFIED ${passport_number} (${check.reason}) — `
+      + 'provisioning anyway so a live hatch is not stranded mid-ceremony. '
+      + 'Set HATCH_PASSPORT_STRICT=true to refuse instead.',
+    );
+    adminTelemetry.emit({
+      service: 'chat-onboarding',
+      event_type: 'hatch.passport_unverified',
+      actor_type: 'agent',
+      actor_id: passport_number,
+      metadata: { reason: check.reason },
+    });
   }
 
   // Sanitize agent name
